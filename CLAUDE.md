@@ -1,6 +1,19 @@
-# Project Instructions for AI Agents
+# SafeScript
 
-This file provides instructions and context for AI coding agents working on this project.
+## Architecture Overview
+
+SafeScript is an embeddable restricted TypeScript compiler and runtime for platforms that let users or agents add application logic. The host defines the available types, functions, capabilities, authorisation, and resource limits; extensions receive no ambient file, network, process, package, environment, or credential access.
+
+Source is parsed and checked, lowered to typed SafeScript IR, and run by a bounded interpreter. Host effects cross a typed action-request boundary where the host reauthorises each operation. TypeScript source is canonical; IR, semantic graphs, visual projections, and a later Wasm backend are derived and optional.
+
+Read the [full project design](docs/SafeScript.md) only when a task needs deeper language, runtime, integration, roadmap, or security context.
+
+## Conventions & Patterns
+
+- v1 is the TypeScript host SDK, transport-neutral runtime bridge, compiler, bounded IR interpreter, deterministic test API, and conformance suite.
+- Keep contracts, diagnostics, IDs, limits, action requests, and outcomes stable, versioned, and serialisable for later process-based SDKs.
+- Compile-time effect and capability summaries never replace current runtime authorisation.
+- SafeScript is not a workflow engine, no-code platform, approval system, durable runtime, or retry coordinator.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:7510c1e2 -->
 ## Beads Issue Tracker
@@ -60,19 +73,6 @@ _Add your build and test commands here_
 # npm install
 # npm test
 ```
-
-## Architecture Overview
-
-SafeScript is an embeddable restricted TypeScript compiler and runtime for platforms that let users or agents add application logic. The host defines the available types, functions, capabilities, authorisation, and resource limits; extensions receive no ambient file, network, process, package, environment, or credential access.
-
-Source is parsed and checked, lowered to typed SafeScript IR, and run by a bounded interpreter. Host effects cross a typed action-request boundary where the host reauthorises each operation. TypeScript source is canonical; IR, semantic graphs, visual projections, and a later Wasm backend are derived and optional.
-
-## Conventions & Patterns
-
-- v1 is the TypeScript host SDK, transport-neutral runtime bridge, compiler, bounded IR interpreter, deterministic test API, and conformance suite.
-- Keep contracts, diagnostics, IDs, limits, action requests, and outcomes stable, versioned, and serialisable for later process-based SDKs.
-- Compile-time effect and capability summaries never replace current runtime authorisation.
-- SafeScript is not a workflow engine, no-code platform, approval system, durable runtime, or retry coordinator.
 
 ## Agent skills
 
