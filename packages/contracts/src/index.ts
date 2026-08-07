@@ -575,9 +575,9 @@ export interface ExecutionLimits extends ValueLimits {
 
 /** Conservative default value ceilings; hosts and slots may only lower them. */
 export const STANDARD_VALUE_LIMITS: ValueLimits = Object.freeze({
-  maxDepth: 128,
-  maxNodes: 250_000,
-  maxBytes: 4 * 1024 * 1024,
+  maxDepth: 64,
+  maxNodes: 32_768,
+  maxBytes: 1024 * 1024,
 });
 /** Conservative default compiler ceilings; hosts and requests may only lower them. */
 export const STANDARD_COMPILE_LIMITS: CompileLimits = Object.freeze({
@@ -596,16 +596,16 @@ export const STANDARD_COMPILE_LIMITS: CompileLimits = Object.freeze({
 /** Conservative default execution ceilings; hosts and requests may only lower them. */
 export const STANDARD_EXECUTION_LIMITS: ExecutionLimits = Object.freeze({
   ...STANDARD_VALUE_LIMITS,
-  fuel: 5_000_000,
-  allocations: 100_000,
-  allocatedBytes: 32 * 1024 * 1024,
-  retainedBytes: 16 * 1024 * 1024,
-  collectionItems: 100_000,
-  callDepth: 128,
-  hostCalls: 64,
+  fuel: 100_000,
+  allocations: 10_000,
+  allocatedBytes: 4 * 1024 * 1024,
+  retainedBytes: 4 * 1024 * 1024,
+  collectionItems: 10_000,
+  callDepth: 64,
+  hostCalls: 32,
   concurrentActions: 8,
-  traceBytes: 256 * 1024,
-  outputBytes: 4 * 1024 * 1024,
+  traceBytes: 128 * 1024,
+  outputBytes: 1024 * 1024,
 });
 
 /** Stable field/index path locating a canonical-value validation failure. */

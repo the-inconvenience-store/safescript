@@ -991,7 +991,7 @@ export class DirectRuntimeBridge implements RuntimeBridge {
       });
       const output = encodeCanonical(schemaRef(slot.output), value, {
         registry: request.registry.schemas,
-        limits: valueLimits(request.limits, Math.min(request.limits.maxBytes, request.limits.outputBytes)),
+        limits: valueLimits(request.limits),
       });
       if (!output.ok) throw new ExecutionFault('invalid_output', output.failure.code);
       if (usageValue.outputBytes + output.value.length > request.limits.outputBytes)

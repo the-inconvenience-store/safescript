@@ -15,6 +15,11 @@ import { createDirectRuntimeBridge } from '@safescript/engine';
 
 import { withRuntimeBridge } from './index.js';
 import {
+  measureV1ReferenceResourceLedgers,
+  V1_REFERENCE_RESOURCE_LEDGERS,
+  V1_STANDARD_EXECUTION_LIMITS,
+} from './resources.js';
+import {
   applicationExtensionReference,
   codeModeReference,
   deviceRuleReference,
@@ -34,6 +39,22 @@ const references: ReferenceIntegration[] = [
   deviceRuleReference,
 ];
 const ref = (type: typeof referenceTypes.event): Schema => ({ kind: 'ref', type });
+
+function hostileReference(body: string, helpers = ''): ReferenceIntegration {
+  const moduleId = ids.module(`module:references/hostile-${Math.abs(body.length + helpers.length)}`);
+  return {
+    name: 'walking-skeleton',
+    moduleId,
+    expectedOperations: [],
+    source: `import { Ok, type Result } from "safescript:prelude"
+import { type Context, type ReferenceActionError, type ReferenceEvent } from "host:api"
+
+${helpers}
+export async function hostile(event: ReferenceEvent, ctx: Context): Promise<Result<void, ReferenceActionError>> {
+  ${body}
+}`,
+  };
+}
 
 function encode(schema: Schema, value: unknown): readonly number[] {
   const encoded = encodeCanonical(schema, value, { registry: referenceRegistry.schemas });
@@ -167,6 +188,34 @@ describe('runtime bridge conformance corpus', () => {
     await bridge.close();
   });
 
+  it.each(references)('matches the locked $name semantic resource ledger', async (reference) => {
+    const expected = V1_REFERENCE_RESOURCE_LEDGERS.find(({ name }) => name === reference.name);
+    if (!expected) throw new Error(`missing locked ledger for ${reference.name}`);
+    const host = { handleAction: async (action: Parameters<typeof completedAction>[0]) => completedAction(action) };
+    const first = await factory().execute(
+      executionRequest(reference, { kind: 'source', source: referenceCheckRequest(reference) }, 'b'),
+      host,
+    );
+    const second = await factory().execute(
+      executionRequest(reference, { kind: 'source', source: referenceCheckRequest(reference) }, 'c'),
+      host,
+    );
+    expect(first.status).toBe('completed');
+    expect(second.status).toBe('completed');
+    if (first.status === 'completed' && second.status === 'completed') {
+      expect(first.facts.usage).toEqual(expected.usage);
+      expect(second.facts.usage).toEqual(expected.usage);
+    }
+  });
+
+  it('locks the conformance profile to the public standard limits', () => {
+    expect(V1_STANDARD_EXECUTION_LIMITS).toEqual(STANDARD_EXECUTION_LIMITS);
+  });
+
+  it('exposes the locked measurement gate through the adapter factory seam', async () => {
+    expect(await measureV1ReferenceResourceLedgers(factory)).toEqual(V1_REFERENCE_RESOURCE_LEDGERS);
+  });
+
   it('regenerates disposable artefacts and semantic graphs from host-owned source', async () => {
     const request = referenceCheckRequest(walkingSkeletonReference);
     const firstBridge = factory();
@@ -261,6 +310,96 @@ describe('runtime bridge conformance corpus', () => {
     if (result.status === 'failed') {
       expect(result.error.code).toBe('resource_exhausted');
       expect(result.facts.actions.filter(({ phase }) => phase === 'requested')).toHaveLength(1);
+    }
+  });
+
+  it('reserves host-call fuel and capacity before exposing a request', async () => {
+    let calls = 0;
+    const reference = walkingSkeletonReference;
+    const request = executionRequest(reference, { kind: 'source', source: referenceCheckRequest(reference) }, 'f');
+    const result = await factory().execute(
+      { ...request, limits: { ...STANDARD_EXECUTION_LIMITS, hostCalls: 0 } },
+      {
+        handleAction: async (action) => {
+          calls++;
+          return completedAction(action);
+        },
+      },
+    );
+    expect(result.status).toBe('failed');
+    expect(calls).toBe(0);
+    if (result.status === 'failed') {
+      expect(result.error).toEqual({ code: 'resource_exhausted', detail: 'hostCalls' });
+      expect(result.facts.usage.hostCalls).toBe(0);
+      expect(result.facts.actions).toEqual([]);
+    }
+  });
+
+  it.each([
+    [
+      'loop fuel',
+      hostileReference('let count = 0n\n  while (true) count += 1n\n  return Ok()'),
+      { fuel: 40 },
+      'resource_exhausted',
+      'fuel',
+    ],
+    [
+      'recursion fuel',
+      hostileReference('recurse()\n  return Ok()', 'function recurse(): void { recurse() }'),
+      { fuel: 40, callDepth: 64 },
+      'resource_exhausted',
+      'fuel',
+    ],
+    [
+      'allocation count',
+      hostileReference('const a = `${event.after.name}`\n  const b = `${a}`\n  const c = `${b}`\n  return Ok()'),
+      { allocations: 2 },
+      'resource_exhausted',
+      'allocations',
+    ],
+    [
+      'value nodes',
+      hostileReference('const values = [event, event]\n  return Ok()'),
+      { maxNodes: 20 },
+      'value_limit',
+      'maxNodes',
+    ],
+    [
+      'collection width',
+      hostileReference('const values = [1n, 2n, 3n]\n  return Ok()'),
+      { collectionItems: 2 },
+      'resource_exhausted',
+      'collectionItems',
+    ],
+    [
+      'stack depth',
+      hostileReference('recurse()\n  return Ok()', 'function recurse(): void { recurse() }'),
+      { callDepth: 4 },
+      'resource_exhausted',
+      'callDepth',
+    ],
+    ['output bytes', hostileReference('return Ok()'), { outputBytes: 4 }, 'resource_exhausted', 'outputBytes'],
+  ] as const)('stops hostile %s at its atomic boundary', async (_name, reference, limits, code, detail) => {
+    const request = executionRequest(reference, { kind: 'source', source: referenceCheckRequest(reference) }, 'd');
+    const result = await factory().execute(
+      { ...request, limits: { ...STANDARD_EXECUTION_LIMITS, ...limits } },
+      { handleAction: async () => Promise.reject(new Error('unexpected host action')) },
+    );
+    expect(result.status).toBe('failed');
+    if (result.status === 'failed') expect(result.error).toEqual({ code, detail });
+  });
+
+  it('truncates semantic trace atomically without changing program semantics', async () => {
+    const reference = hostileReference('return Ok()');
+    const request = executionRequest(reference, { kind: 'source', source: referenceCheckRequest(reference) }, 'e');
+    const result = await factory().execute(
+      { ...request, limits: { ...STANDARD_EXECUTION_LIMITS, traceBytes: 1 } },
+      { handleAction: async () => Promise.reject(new Error('unexpected host action')) },
+    );
+    expect(result.status).toBe('completed');
+    if (result.status === 'completed') {
+      expect(result.facts.trace).toEqual({ records: [], truncated: true });
+      expect(result.facts.usage.traceBytes).toBe(0);
     }
   });
 
