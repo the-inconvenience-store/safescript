@@ -1,0 +1,6 @@
+.beads/
+.dolt/
+.nx/
+dist/
+node_modules/
+bun.lock

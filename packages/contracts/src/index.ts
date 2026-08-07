@@ -77,21 +77,10 @@ export const ids = Object.freeze({
 });
 
 export type HashDomain =
-  | 'action-site'
-  | 'artifact'
-  | 'contract'
-  | 'idempotency'
-  | 'ir'
-  | 'program'
-  | 'source'
-  | 'symbol'
-  | 'type';
+  'action-site' | 'artifact' | 'contract' | 'idempotency' | 'ir' | 'program' | 'source' | 'symbol' | 'type';
 
 export function hash(domain: HashDomain, bytes: Uint8Array): Sha256Digest {
-  return createHash('sha256')
-    .update(`safescript:${domain}:v1\0`, 'utf8')
-    .update(bytes)
-    .digest('hex') as Sha256Digest;
+  return createHash('sha256').update(`safescript:${domain}:v1\0`, 'utf8').update(bytes).digest('hex') as Sha256Digest;
 }
 
 export function derivedSymbolId(bytes: Uint8Array): SymbolId {
@@ -152,16 +141,33 @@ export interface CompatibilityFailure {
 }
 
 function validVersion(version: Version): boolean {
-  return Number.isSafeInteger(version.major) && version.major >= 0 && Number.isSafeInteger(version.minor) && version.minor >= 0;
+  return (
+    Number.isSafeInteger(version.major) &&
+    version.major >= 0 &&
+    Number.isSafeInteger(version.minor) &&
+    version.minor >= 0
+  );
 }
 
 function validSemVer(version: SemVer): boolean {
-  return validVersion(version) && Number.isSafeInteger(version.patch) && version.patch >= 0 &&
-    (version.prerelease === undefined || /^(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*$/.test(version.prerelease));
+  return (
+    validVersion(version) &&
+    Number.isSafeInteger(version.patch) &&
+    version.patch >= 0 &&
+    (version.prerelease === undefined ||
+      /^(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*$/.test(
+        version.prerelease,
+      ))
+  );
 }
 
 function acceptsMinor(supported: Version, required: Version): boolean {
-  return validVersion(supported) && validVersion(required) && supported.major === required.major && supported.minor >= required.minor;
+  return (
+    validVersion(supported) &&
+    validVersion(required) &&
+    supported.major === required.major &&
+    supported.minor >= required.minor
+  );
 }
 
 function compareSemVer(left: SemVer, right: SemVer): number {
@@ -190,13 +196,21 @@ function compareSemVer(left: SemVer, right: SemVer): number {
 }
 
 function sameCompiler(left: CompilerVersion, right: CompilerVersion): boolean {
-  return compareSemVer(left.version, right.version) === 0 && left.version.prerelease === right.version.prerelease && left.build === right.build;
+  return (
+    compareSemVer(left.version, right.version) === 0 &&
+    left.version.prerelease === right.version.prerelease &&
+    left.build === right.build
+  );
 }
 
-export function checkCompatibility(supported: SupportedVersions, required: VersionRequirements): readonly CompatibilityFailure[] {
+export function checkCompatibility(
+  supported: SupportedVersions,
+  required: VersionRequirements,
+): readonly CompatibilityFailure[] {
   const failures: CompatibilityFailure[] = [];
   for (const dimension of ['language', 'ir', 'abi'] as const) {
-    if (!acceptsMinor(supported[dimension], required[dimension])) failures.push({ code: 'incompatible_version', dimension });
+    if (!acceptsMinor(supported[dimension], required[dimension]))
+      failures.push({ code: 'incompatible_version', dimension });
   }
   if (
     supported.contractId !== required.contractId ||
@@ -227,9 +241,24 @@ export interface InstantValue {
 export type UnitValue = null;
 export type Option<T> = Readonly<{ tag: 'none'; value: UnitValue }> | Readonly<{ tag: 'some'; value: T }>;
 export type Result<T, E> = Readonly<{ tag: 'ok'; value: T }> | Readonly<{ tag: 'error'; value: E }>;
-export interface VariantValue { readonly tag: string; readonly value: CanonicalValue }
-export interface RecordValue { readonly [key: string]: CanonicalValue }
-export type CanonicalValue = UnitValue | boolean | bigint | number | string | CanonicalBytes | InstantValue | readonly CanonicalValue[] | RecordValue | VariantValue;
+export interface VariantValue {
+  readonly tag: string;
+  readonly value: CanonicalValue;
+}
+export interface RecordValue {
+  readonly [key: string]: CanonicalValue;
+}
+export type CanonicalValue =
+  | UnitValue
+  | boolean
+  | bigint
+  | number
+  | string
+  | CanonicalBytes
+  | InstantValue
+  | readonly CanonicalValue[]
+  | RecordValue
+  | VariantValue;
 
 export type JsonValue =
   | Readonly<{ tag: 'null'; value: UnitValue }>
@@ -239,37 +268,93 @@ export type JsonValue =
   | Readonly<{ tag: 'array'; value: readonly JsonValue[] }>
   | Readonly<{ tag: 'object'; value: readonly (readonly [string, JsonValue])[] }>;
 
-export interface UnitSchema { readonly kind: 'unit' }
-export interface BooleanSchema { readonly kind: 'boolean' }
-export interface Int64Schema { readonly kind: 'int64'; readonly minimum?: bigint; readonly maximum?: bigint }
-export interface Float64Schema { readonly kind: 'float64'; readonly minimum?: number; readonly maximum?: number }
-export interface StringSchema { readonly kind: 'string'; readonly maxBytes?: number }
-export interface BytesSchema { readonly kind: 'bytes'; readonly maxBytes?: number }
-export interface InstantSchema { readonly kind: 'instant'; readonly minimum?: InstantValue; readonly maximum?: InstantValue }
-export interface ListSchema { readonly kind: 'list'; readonly item: Schema; readonly maxItems?: number }
-export interface TupleSchema { readonly kind: 'tuple'; readonly items: readonly Schema[] }
-export interface RecordField { readonly name: string; readonly schema: Schema }
-export interface RecordSchema { readonly kind: 'record'; readonly fields: readonly RecordField[] }
-export interface VariantCase { readonly tag: string; readonly schema: Schema }
-export interface VariantSchema { readonly kind: 'variant'; readonly variants: readonly VariantCase[] }
-export interface BrandSchema { readonly kind: 'brand'; readonly type: TypeId; readonly base: PrimitiveSchema }
-export interface RefSchema { readonly kind: 'ref'; readonly type: TypeId }
+export interface UnitSchema {
+  readonly kind: 'unit';
+}
+export interface BooleanSchema {
+  readonly kind: 'boolean';
+}
+export interface Int64Schema {
+  readonly kind: 'int64';
+  readonly minimum?: bigint;
+  readonly maximum?: bigint;
+}
+export interface Float64Schema {
+  readonly kind: 'float64';
+  readonly minimum?: number;
+  readonly maximum?: number;
+}
+export interface StringSchema {
+  readonly kind: 'string';
+  readonly maxBytes?: number;
+}
+export interface BytesSchema {
+  readonly kind: 'bytes';
+  readonly maxBytes?: number;
+}
+export interface InstantSchema {
+  readonly kind: 'instant';
+  readonly minimum?: InstantValue;
+  readonly maximum?: InstantValue;
+}
+export interface ListSchema {
+  readonly kind: 'list';
+  readonly item: Schema;
+  readonly maxItems?: number;
+}
+export interface TupleSchema {
+  readonly kind: 'tuple';
+  readonly items: readonly Schema[];
+}
+export interface RecordField {
+  readonly name: string;
+  readonly schema: Schema;
+}
+export interface RecordSchema {
+  readonly kind: 'record';
+  readonly fields: readonly RecordField[];
+}
+export interface VariantCase {
+  readonly tag: string;
+  readonly schema: Schema;
+}
+export interface VariantSchema {
+  readonly kind: 'variant';
+  readonly variants: readonly VariantCase[];
+}
+export interface BrandSchema {
+  readonly kind: 'brand';
+  readonly type: TypeId;
+  readonly base: PrimitiveSchema;
+}
+export interface RefSchema {
+  readonly kind: 'ref';
+  readonly type: TypeId;
+}
 
-export type PrimitiveSchema = UnitSchema | BooleanSchema | Int64Schema | Float64Schema | StringSchema | BytesSchema | InstantSchema;
-export type Schema = PrimitiveSchema | ListSchema | TupleSchema | RecordSchema | VariantSchema | BrandSchema | RefSchema;
+export type PrimitiveSchema =
+  UnitSchema | BooleanSchema | Int64Schema | Float64Schema | StringSchema | BytesSchema | InstantSchema;
+export type Schema =
+  PrimitiveSchema | ListSchema | TupleSchema | RecordSchema | VariantSchema | BrandSchema | RefSchema;
 
 export function optionSchema(value: Schema): VariantSchema {
-  return Object.freeze({ kind: 'variant', variants: Object.freeze([
-    Object.freeze({ tag: 'none', schema: Object.freeze({ kind: 'unit' as const }) }),
-    Object.freeze({ tag: 'some', schema: value }),
-  ]) });
+  return Object.freeze({
+    kind: 'variant',
+    variants: Object.freeze([
+      Object.freeze({ tag: 'none', schema: Object.freeze({ kind: 'unit' as const }) }),
+      Object.freeze({ tag: 'some', schema: value }),
+    ]),
+  });
 }
 
 export function resultSchema(value: Schema, error: Schema): VariantSchema {
-  return Object.freeze({ kind: 'variant', variants: Object.freeze([
-    Object.freeze({ tag: 'ok', schema: value }),
-    Object.freeze({ tag: 'error', schema: error }),
-  ]) });
+  return Object.freeze({
+    kind: 'variant',
+    variants: Object.freeze([
+      Object.freeze({ tag: 'ok', schema: value }),
+      Object.freeze({ tag: 'error', schema: error }),
+    ]),
+  });
 }
 
 export interface TypeDefinition {
@@ -315,7 +400,11 @@ export interface ExecutionLimits extends ValueLimits {
   readonly outputBytes: number;
 }
 
-export const STANDARD_VALUE_LIMITS: ValueLimits = Object.freeze({ maxDepth: 128, maxNodes: 250_000, maxBytes: 4 * 1024 * 1024 });
+export const STANDARD_VALUE_LIMITS: ValueLimits = Object.freeze({
+  maxDepth: 128,
+  maxNodes: 250_000,
+  maxBytes: 4 * 1024 * 1024,
+});
 export const STANDARD_COMPILE_LIMITS: CompileLimits = Object.freeze({
   sourceBytes: 1024 * 1024,
   moduleBytes: 256 * 1024,
@@ -404,7 +493,8 @@ function assertLimit(value: number, name: string): void {
 }
 
 function validateValueLimits(limits: ValueLimits): void {
-  for (const [name, value] of Object.entries(limits)) if (!Number.isSafeInteger(value) || value < 0) fail('invalid_value', [], `invalid ${name}`);
+  for (const [name, value] of Object.entries(limits))
+    if (!Number.isSafeInteger(value) || value < 0) fail('invalid_value', [], `invalid ${name}`);
 }
 
 export function defineSchemaRegistry(definitions: readonly TypeDefinition[]): SchemaRegistry {
@@ -425,16 +515,22 @@ export function defineSchemaRegistry(definitions: readonly TypeDefinition[]): Sc
     if (schema.kind === 'int64') {
       const minimum = schema.minimum ?? -(1n << 63n);
       const maximum = schema.maximum ?? (1n << 63n) - 1n;
-      if (minimum < -(1n << 63n) || maximum > (1n << 63n) - 1n || minimum > maximum) throw new TypeError('invalid int64 range');
+      if (minimum < -(1n << 63n) || maximum > (1n << 63n) - 1n || minimum > maximum)
+        throw new TypeError('invalid int64 range');
     } else if (schema.kind === 'float64') {
       const bounds = [schema.minimum, schema.maximum].filter((bound) => bound !== undefined);
-      if (bounds.some((bound) => !Number.isFinite(bound) || Object.is(bound, -0)) || (schema.minimum !== undefined && schema.maximum !== undefined && schema.minimum > schema.maximum)) throw new TypeError('invalid float64 range');
+      if (
+        bounds.some((bound) => !Number.isFinite(bound) || Object.is(bound, -0)) ||
+        (schema.minimum !== undefined && schema.maximum !== undefined && schema.minimum > schema.maximum)
+      )
+        throw new TypeError('invalid float64 range');
     } else if (schema.kind === 'string' || schema.kind === 'bytes') {
       if (schema.maxBytes !== undefined) assertLimit(schema.maxBytes, 'maxBytes');
     } else if (schema.kind === 'instant') {
       if (schema.minimum) validateInstant(schema.minimum, { kind: 'instant' }, []);
       if (schema.maximum) validateInstant(schema.maximum, { kind: 'instant' }, []);
-      if (schema.minimum && schema.maximum && compareInstant(schema.minimum, schema.maximum) > 0) throw new TypeError('invalid instant range');
+      if (schema.minimum && schema.maximum && compareInstant(schema.minimum, schema.maximum) > 0)
+        throw new TypeError('invalid instant range');
     }
     if (schema.kind === 'list') {
       if (schema.maxItems !== undefined) assertLimit(schema.maxItems, 'maxItems');
@@ -444,14 +540,16 @@ export function defineSchemaRegistry(definitions: readonly TypeDefinition[]): Sc
     } else if (schema.kind === 'record') {
       const names = new Set<string>();
       for (const field of schema.fields) {
-        if (!FIELD_NAME.test(field.name) || names.has(field.name)) throw new TypeError('invalid or duplicate record field');
+        if (!FIELD_NAME.test(field.name) || names.has(field.name))
+          throw new TypeError('invalid or duplicate record field');
         names.add(field.name);
         visit(field.schema);
       }
     } else if (schema.kind === 'variant') {
       const tags = new Set<string>();
       for (const variant of schema.variants) {
-        if (!VARIANT_TAG.test(variant.tag) || tags.has(variant.tag)) throw new TypeError('invalid or duplicate variant tag');
+        if (!VARIANT_TAG.test(variant.tag) || tags.has(variant.tag))
+          throw new TypeError('invalid or duplicate variant tag');
         tags.add(variant.tag);
         visit(variant.schema);
       }
@@ -475,7 +573,8 @@ export function defineSchemaRegistry(definitions: readonly TypeDefinition[]): Sc
     }
     if (schema.kind === 'record') return schema.fields.every((field) => canInhabit(field.schema, new Set(checking)));
     if (schema.kind === 'tuple') return schema.items.every((item) => canInhabit(item, new Set(checking)));
-    if (schema.kind === 'variant') return schema.variants.some((variant) => canInhabit(variant.schema, new Set(checking)));
+    if (schema.kind === 'variant')
+      return schema.variants.some((variant) => canInhabit(variant.schema, new Set(checking)));
     if (schema.kind === 'brand') return canInhabit(schema.base, checking);
     return true;
   };
@@ -517,19 +616,26 @@ function validPlainRecord(value: unknown): value is Record<string, unknown> {
 
 function dataProperty(value: Record<string, unknown>, name: string, path: ValuePath): unknown {
   const descriptor = Object.getOwnPropertyDescriptor(value, name);
-  if (!descriptor || !('value' in descriptor) || !descriptor.enumerable) fail('schema_mismatch', path, 'expected enumerable data property');
+  if (!descriptor || !('value' in descriptor) || !descriptor.enumerable)
+    fail('schema_mismatch', path, 'expected enumerable data property');
   return descriptor.value;
 }
 
 function validateDataArray(value: unknown[], path: ValuePath, ceiling: number): void {
   if (value.length > ceiling) fail('limit_exceeded', path, 'array length exceeds limit');
   const keys = Object.keys(value);
-  if (keys.length !== value.length || keys.some((key, index) => key !== String(index))) fail('schema_mismatch', path, 'expected dense array data');
-  for (let index = 0; index < value.length; index++) dataProperty(value as unknown as Record<string, unknown>, String(index), [...path, index]);
+  if (keys.length !== value.length || keys.some((key, index) => key !== String(index)))
+    fail('schema_mismatch', path, 'expected dense array data');
+  for (let index = 0; index < value.length; index++)
+    dataProperty(value as unknown as Record<string, unknown>, String(index), [...path, index]);
 }
 
 function compareInstant(left: InstantValue, right: InstantValue): number {
-  return left.epochSeconds === right.epochSeconds ? left.nanoseconds - right.nanoseconds : left.epochSeconds < right.epochSeconds ? -1 : 1;
+  return left.epochSeconds === right.epochSeconds
+    ? left.nanoseconds - right.nanoseconds
+    : left.epochSeconds < right.epochSeconds
+      ? -1
+      : 1;
 }
 
 const TEMPORAL_MIN: InstantValue = { epochSeconds: -8_640_000_000_000n, nanoseconds: 0 };
@@ -546,14 +652,16 @@ function validateInstant(value: unknown, schema: InstantSchema, path: ValuePath)
     !Number.isInteger(nanoseconds) ||
     nanoseconds < 0 ||
     nanoseconds > 999_999_999
-  ) fail('schema_mismatch', path, 'expected instant');
+  )
+    fail('schema_mismatch', path, 'expected instant');
   const instant: InstantValue = { epochSeconds, nanoseconds };
   if (
     compareInstant(instant, TEMPORAL_MIN) < 0 ||
     compareInstant(instant, TEMPORAL_MAX) > 0 ||
     (schema.minimum && compareInstant(instant, schema.minimum) < 0) ||
     (schema.maximum && compareInstant(instant, schema.maximum) > 0)
-  ) fail('invalid_value', path, 'instant out of range');
+  )
+    fail('invalid_value', path, 'instant out of range');
 }
 
 function header(major: number, argument: bigint): number[] {
@@ -566,7 +674,12 @@ function header(major: number, argument: bigint): number[] {
   return bytes;
 }
 
-interface EncodeTask { readonly schema: Schema; readonly value: unknown; readonly path: ValuePath; readonly depth: number }
+interface EncodeTask {
+  readonly schema: Schema;
+  readonly value: unknown;
+  readonly path: ValuePath;
+  readonly depth: number;
+}
 
 export function encodeCanonical(
   schema: Schema,
@@ -601,15 +714,25 @@ export function encodeCanonical(
           break;
         case 'int64': {
           const integer = task.value;
-          if (typeof integer !== 'bigint' || integer < -(1n << 63n) || integer > (1n << 63n) - 1n) fail('schema_mismatch', task.path, 'expected int64');
-          if ((current.minimum !== undefined && integer < current.minimum) || (current.maximum !== undefined && integer > current.maximum)) fail('invalid_value', task.path, 'int64 out of range');
+          if (typeof integer !== 'bigint' || integer < -(1n << 63n) || integer > (1n << 63n) - 1n)
+            fail('schema_mismatch', task.path, 'expected int64');
+          if (
+            (current.minimum !== undefined && integer < current.minimum) ||
+            (current.maximum !== undefined && integer > current.maximum)
+          )
+            fail('invalid_value', task.path, 'int64 out of range');
           append(header(integer >= 0n ? 0 : 1, integer >= 0n ? integer : -1n - integer), task.path);
           break;
         }
         case 'float64': {
           const float = task.value;
-          if (typeof float !== 'number' || !Number.isFinite(float)) fail('schema_mismatch', task.path, 'expected finite float64');
-          if ((current.minimum !== undefined && float < current.minimum) || (current.maximum !== undefined && float > current.maximum)) fail('invalid_value', task.path, 'float64 out of range');
+          if (typeof float !== 'number' || !Number.isFinite(float))
+            fail('schema_mismatch', task.path, 'expected finite float64');
+          if (
+            (current.minimum !== undefined && float < current.minimum) ||
+            (current.maximum !== undefined && float > current.maximum)
+          )
+            fail('invalid_value', task.path, 'float64 out of range');
           const bytes = new Uint8Array(9);
           bytes[0] = 0xfb;
           new DataView(bytes.buffer).setFloat64(1, Object.is(float, -0) ? 0 : float);
@@ -620,7 +743,8 @@ export function encodeCanonical(
           if (typeof task.value !== 'string') fail('schema_mismatch', task.path, 'expected string');
           validUnicode(task.value, task.path);
           const length = utf8Length(task.value);
-          if (current.maxBytes !== undefined && length > current.maxBytes) fail('limit_exceeded', task.path, 'string.maxBytes');
+          if (current.maxBytes !== undefined && length > current.maxBytes)
+            fail('limit_exceeded', task.path, 'string.maxBytes');
           const prefix = header(3, BigInt(length));
           if (output.length + prefix.length + length > limits.maxBytes) fail('limit_exceeded', task.path, 'maxBytes');
           const bytes = new TextEncoder().encode(task.value);
@@ -630,11 +754,16 @@ export function encodeCanonical(
         }
         case 'bytes': {
           if (!Array.isArray(task.value)) fail('schema_mismatch', task.path, 'expected bytes');
-          if (current.maxBytes !== undefined && task.value.length > current.maxBytes) fail('limit_exceeded', task.path, 'bytes.maxBytes');
+          if (current.maxBytes !== undefined && task.value.length > current.maxBytes)
+            fail('limit_exceeded', task.path, 'bytes.maxBytes');
           validateDataArray(task.value, task.path, limits.maxBytes - output.length);
           const byteValues: unknown[] = [];
-          for (let index = 0; index < task.value.length; index++) byteValues.push(dataProperty(task.value as unknown as Record<string, unknown>, String(index), [...task.path, index]));
-          if (!byteValues.every((byte) => Number.isInteger(byte) && (byte as number) >= 0 && (byte as number) <= 255)) fail('schema_mismatch', task.path, 'expected bytes');
+          for (let index = 0; index < task.value.length; index++)
+            byteValues.push(
+              dataProperty(task.value as unknown as Record<string, unknown>, String(index), [...task.path, index]),
+            );
+          if (!byteValues.every((byte) => Number.isInteger(byte) && (byte as number) >= 0 && (byte as number) <= 255))
+            fail('schema_mismatch', task.path, 'expected bytes');
           append(header(2, BigInt(task.value.length)), task.path);
           append(byteValues as number[], task.path);
           break;
@@ -642,37 +771,87 @@ export function encodeCanonical(
         case 'instant':
           validateInstant(task.value, current, task.path);
           append(header(4, 2n), task.path);
-          tasks.push({ schema: { kind: 'int64', minimum: 0n, maximum: 999_999_999n }, value: BigInt(dataProperty(task.value as unknown as Record<string, unknown>, 'nanoseconds', [...task.path, 'nanoseconds']) as number), path: [...task.path, 'nanoseconds'], depth: task.depth + 1 });
-          tasks.push({ schema: { kind: 'int64' }, value: dataProperty(task.value as unknown as Record<string, unknown>, 'epochSeconds', [...task.path, 'epochSeconds']), path: [...task.path, 'epochSeconds'], depth: task.depth + 1 });
+          tasks.push({
+            schema: { kind: 'int64', minimum: 0n, maximum: 999_999_999n },
+            value: BigInt(
+              dataProperty(task.value as unknown as Record<string, unknown>, 'nanoseconds', [
+                ...task.path,
+                'nanoseconds',
+              ]) as number,
+            ),
+            path: [...task.path, 'nanoseconds'],
+            depth: task.depth + 1,
+          });
+          tasks.push({
+            schema: { kind: 'int64' },
+            value: dataProperty(task.value as unknown as Record<string, unknown>, 'epochSeconds', [
+              ...task.path,
+              'epochSeconds',
+            ]),
+            path: [...task.path, 'epochSeconds'],
+            depth: task.depth + 1,
+          });
           break;
         case 'list': {
           if (!Array.isArray(task.value)) fail('schema_mismatch', task.path, 'expected list');
-          if (current.maxItems !== undefined && task.value.length > current.maxItems) fail('limit_exceeded', task.path, 'list.maxItems');
+          if (current.maxItems !== undefined && task.value.length > current.maxItems)
+            fail('limit_exceeded', task.path, 'list.maxItems');
           validateDataArray(task.value, task.path, limits.maxNodes - nodes);
           append(header(4, BigInt(task.value.length)), task.path);
-          for (let index = task.value.length - 1; index >= 0; index--) tasks.push({ schema: current.item, value: dataProperty(task.value as unknown as Record<string, unknown>, String(index), [...task.path, index]), path: [...task.path, index], depth: task.depth + 1 });
+          for (let index = task.value.length - 1; index >= 0; index--)
+            tasks.push({
+              schema: current.item,
+              value: dataProperty(task.value as unknown as Record<string, unknown>, String(index), [
+                ...task.path,
+                index,
+              ]),
+              path: [...task.path, index],
+              depth: task.depth + 1,
+            });
           break;
         }
         case 'tuple':
-          if (!Array.isArray(task.value) || task.value.length !== current.items.length) fail('schema_mismatch', task.path, 'wrong tuple length');
+          if (!Array.isArray(task.value) || task.value.length !== current.items.length)
+            fail('schema_mismatch', task.path, 'wrong tuple length');
           validateDataArray(task.value, task.path, limits.maxNodes - nodes);
           append(header(4, BigInt(current.items.length)), task.path);
-          for (let index = current.items.length - 1; index >= 0; index--) tasks.push({ schema: current.items[index] as Schema, value: dataProperty(task.value as unknown as Record<string, unknown>, String(index), [...task.path, index]), path: [...task.path, index], depth: task.depth + 1 });
+          for (let index = current.items.length - 1; index >= 0; index--)
+            tasks.push({
+              schema: current.items[index] as Schema,
+              value: dataProperty(task.value as unknown as Record<string, unknown>, String(index), [
+                ...task.path,
+                index,
+              ]),
+              path: [...task.path, index],
+              depth: task.depth + 1,
+            });
           break;
         case 'record': {
           if (!validPlainRecord(task.value)) fail('schema_mismatch', task.path, 'expected record');
           const record = task.value;
           const names = current.fields.map((field) => field.name);
-          if (Object.keys(record).length !== names.length || names.some((name) => !Object.hasOwn(record, name))) fail('schema_mismatch', task.path, 'record fields do not match schema');
+          if (Object.keys(record).length !== names.length || names.some((name) => !Object.hasOwn(record, name)))
+            fail('schema_mismatch', task.path, 'record fields do not match schema');
           append(header(4, BigInt(names.length)), task.path);
           for (let index = current.fields.length - 1; index >= 0; index--) {
             const field = current.fields[index] as RecordField;
-            tasks.push({ schema: field.schema, value: dataProperty(record, field.name, [...task.path, field.name]), path: [...task.path, field.name], depth: task.depth + 1 });
+            tasks.push({
+              schema: field.schema,
+              value: dataProperty(record, field.name, [...task.path, field.name]),
+              path: [...task.path, field.name],
+              depth: task.depth + 1,
+            });
           }
           break;
         }
         case 'variant': {
-          if (!validPlainRecord(task.value) || Object.keys(task.value).length !== 2 || !Object.hasOwn(task.value, 'tag') || !Object.hasOwn(task.value, 'value')) fail('schema_mismatch', task.path, 'expected variant');
+          if (
+            !validPlainRecord(task.value) ||
+            Object.keys(task.value).length !== 2 ||
+            !Object.hasOwn(task.value, 'tag') ||
+            !Object.hasOwn(task.value, 'value')
+          )
+            fail('schema_mismatch', task.path, 'expected variant');
           const value = task.value;
           const tag = dataProperty(value, 'tag', [...task.path, 'tag']);
           const payload = dataProperty(value, 'value', [...task.path, 'value']);
@@ -681,7 +860,12 @@ export function encodeCanonical(
           if (!variant) fail('schema_mismatch', [...task.path, 'tag'], 'unknown variant');
           append(header(4, 2n), task.path);
           tasks.push({ schema: variant.schema, value: payload, path: [...task.path, 'value'], depth: task.depth + 1 });
-          tasks.push({ schema: { kind: 'string' }, value: variant.tag, path: [...task.path, 'tag'], depth: task.depth + 1 });
+          tasks.push({
+            schema: { kind: 'string' },
+            value: variant.tag,
+            path: [...task.path, 'tag'],
+            depth: task.depth + 1,
+          });
           break;
         }
         case 'brand':
@@ -697,8 +881,20 @@ export function encodeCanonical(
 }
 
 type Assign = (value: CanonicalValue) => void;
-interface DecodeTask { readonly kind: 'value'; readonly schema: Schema; readonly path: ValuePath; readonly depth: number; readonly assign: Assign }
-interface VariantTask { readonly kind: 'variant'; readonly schema: VariantSchema; readonly path: ValuePath; readonly depth: number; readonly target: Record<string, CanonicalValue> }
+interface DecodeTask {
+  readonly kind: 'value';
+  readonly schema: Schema;
+  readonly path: ValuePath;
+  readonly depth: number;
+  readonly assign: Assign;
+}
+interface VariantTask {
+  readonly kind: 'variant';
+  readonly schema: VariantSchema;
+  readonly path: ValuePath;
+  readonly depth: number;
+  readonly target: Record<string, CanonicalValue>;
+}
 type ParseTask = DecodeTask | VariantTask;
 
 class Decoder {
@@ -706,7 +902,10 @@ class Decoder {
   nodes = 0;
   readonly text = new TextDecoder('utf-8', { fatal: true });
 
-  constructor(readonly bytes: Uint8Array, readonly limits: ValueLimits) {
+  constructor(
+    readonly bytes: Uint8Array,
+    readonly limits: ValueLimits,
+  ) {
     if (bytes.length > limits.maxBytes) fail('limit_exceeded', [], 'maxBytes', 0);
   }
 
@@ -735,7 +934,8 @@ class Decoder {
 
   length(major: number, path: ValuePath, ceiling: number): number {
     const length = this.head(major, path);
-    if (length > BigInt(Number.MAX_SAFE_INTEGER) || length > BigInt(ceiling)) fail('limit_exceeded', path, 'declared length exceeds limit', this.offset);
+    if (length > BigInt(Number.MAX_SAFE_INTEGER) || length > BigInt(ceiling))
+      fail('limit_exceeded', path, 'declared length exceeds limit', this.offset);
     return Number(length);
   }
 
@@ -767,17 +967,36 @@ export function decodeCanonical(
     const types = registryMap(options.registry);
     const decoder = new Decoder(bytes, limits);
     let root: CanonicalValue = null;
-    const tasks: ParseTask[] = [{ kind: 'value', schema, path: [], depth: 0, assign: (value) => { root = value; } }];
+    const tasks: ParseTask[] = [
+      {
+        kind: 'value',
+        schema,
+        path: [],
+        depth: 0,
+        assign: (value) => {
+          root = value;
+        },
+      },
+    ];
     while (tasks.length > 0) {
       const task = tasks.pop() as ParseTask;
       if (task.kind === 'variant') {
         if (task.depth + 1 > limits.maxDepth) fail('limit_exceeded', [...task.path, 'tag'], 'maxDepth', decoder.offset);
-        if (++decoder.nodes > limits.maxNodes) fail('limit_exceeded', [...task.path, 'tag'], 'maxNodes', decoder.offset);
+        if (++decoder.nodes > limits.maxNodes)
+          fail('limit_exceeded', [...task.path, 'tag'], 'maxNodes', decoder.offset);
         const tag = decoder.string([...task.path, 'tag']);
         const variant = task.schema.variants.find((candidate) => candidate.tag === tag);
         if (!variant) fail('schema_mismatch', [...task.path, 'tag'], 'unknown variant', decoder.offset);
         task.target.tag = tag;
-        tasks.push({ kind: 'value', schema: variant.schema, path: [...task.path, 'value'], depth: task.depth + 1, assign: (value) => { task.target.value = value; } });
+        tasks.push({
+          kind: 'value',
+          schema: variant.schema,
+          path: [...task.path, 'value'],
+          depth: task.depth + 1,
+          assign: (value) => {
+            task.target.value = value;
+          },
+        });
         continue;
       }
       const current = resolved(task.schema, types, task.path);
@@ -790,7 +1009,8 @@ export function decodeCanonical(
           break;
         case 'boolean': {
           const byte = decoder.byte(task.path);
-          if (byte !== 0xf4 && byte !== 0xf5) fail('schema_mismatch', task.path, 'expected boolean', decoder.offset - 1);
+          if (byte !== 0xf4 && byte !== 0xf5)
+            fail('schema_mismatch', task.path, 'expected boolean', decoder.offset - 1);
           task.assign(byte === 0xf5);
           break;
         }
@@ -801,19 +1021,30 @@ export function decodeCanonical(
           if (major !== 0 && major !== 1) fail('schema_mismatch', task.path, 'expected int64', start);
           const unsigned = decoder.argument(initial & 31, task.path);
           const integer = major === 0 ? unsigned : -1n - unsigned;
-          if (integer < -(1n << 63n) || integer > (1n << 63n) - 1n) fail('invalid_value', task.path, 'int64 out of range', start);
-          if ((current.minimum !== undefined && integer < current.minimum) || (current.maximum !== undefined && integer > current.maximum)) fail('invalid_value', task.path, 'int64 out of range', start);
+          if (integer < -(1n << 63n) || integer > (1n << 63n) - 1n)
+            fail('invalid_value', task.path, 'int64 out of range', start);
+          if (
+            (current.minimum !== undefined && integer < current.minimum) ||
+            (current.maximum !== undefined && integer > current.maximum)
+          )
+            fail('invalid_value', task.path, 'int64 out of range', start);
           task.assign(integer);
           break;
         }
         case 'float64': {
           const start = decoder.offset;
-          if (decoder.byte(task.path) !== 0xfb) fail('noncanonical_cbor', task.path, 'float64 must use binary64', start);
+          if (decoder.byte(task.path) !== 0xfb)
+            fail('noncanonical_cbor', task.path, 'float64 must use binary64', start);
           if (decoder.offset + 8 > bytes.length) fail('malformed_cbor', task.path, 'truncated float64', decoder.offset);
           const float = new DataView(bytes.buffer, bytes.byteOffset + decoder.offset, 8).getFloat64(0);
           decoder.offset += 8;
-          if (!Number.isFinite(float) || Object.is(float, -0)) fail('noncanonical_cbor', task.path, 'invalid canonical float64', start);
-          if ((current.minimum !== undefined && float < current.minimum) || (current.maximum !== undefined && float > current.maximum)) fail('invalid_value', task.path, 'float64 out of range', start);
+          if (!Number.isFinite(float) || Object.is(float, -0))
+            fail('noncanonical_cbor', task.path, 'invalid canonical float64', start);
+          if (
+            (current.minimum !== undefined && float < current.minimum) ||
+            (current.maximum !== undefined && float > current.maximum)
+          )
+            fail('invalid_value', task.path, 'float64 out of range', start);
           task.assign(float);
           break;
         }
@@ -821,7 +1052,11 @@ export function decodeCanonical(
           task.assign(decoder.string(task.path, current.maxBytes));
           break;
         case 'bytes': {
-          const length = decoder.length(2, task.path, Math.min(current.maxBytes ?? limits.maxBytes, bytes.length - decoder.offset));
+          const length = decoder.length(
+            2,
+            task.path,
+            Math.min(current.maxBytes ?? limits.maxBytes, bytes.length - decoder.offset),
+          );
           const end = decoder.offset + length;
           const value = Object.freeze(Array.from(bytes.subarray(decoder.offset, end)));
           decoder.offset = end;
@@ -829,14 +1064,29 @@ export function decodeCanonical(
           break;
         }
         case 'instant': {
-          if (decoder.head(4, task.path) !== 2n) fail('schema_mismatch', task.path, 'instant must have two fields', decoder.offset);
+          if (decoder.head(4, task.path) !== 2n)
+            fail('schema_mismatch', task.path, 'instant must have two fields', decoder.offset);
           const value: Record<string, CanonicalValue> = {};
-          tasks.push({ kind: 'value', schema: { kind: 'int64', minimum: 0n, maximum: 999_999_999n }, path: [...task.path, 'nanoseconds'], depth: task.depth + 1, assign: (nanoseconds) => {
-            value.nanoseconds = Number(nanoseconds);
-            validateInstant(value, current, task.path);
-            task.assign(Object.freeze(value) as unknown as InstantValue);
-          } });
-          tasks.push({ kind: 'value', schema: { kind: 'int64' }, path: [...task.path, 'epochSeconds'], depth: task.depth + 1, assign: (seconds) => { value.epochSeconds = seconds; } });
+          tasks.push({
+            kind: 'value',
+            schema: { kind: 'int64', minimum: 0n, maximum: 999_999_999n },
+            path: [...task.path, 'nanoseconds'],
+            depth: task.depth + 1,
+            assign: (nanoseconds) => {
+              value.nanoseconds = Number(nanoseconds);
+              validateInstant(value, current, task.path);
+              task.assign(Object.freeze(value) as unknown as InstantValue);
+            },
+          });
+          tasks.push({
+            kind: 'value',
+            schema: { kind: 'int64' },
+            path: [...task.path, 'epochSeconds'],
+            depth: task.depth + 1,
+            assign: (seconds) => {
+              value.epochSeconds = seconds;
+            },
+          });
           break;
         }
         case 'list': {
@@ -844,28 +1094,57 @@ export function decodeCanonical(
           const length = decoder.length(4, task.path, ceiling);
           const value: CanonicalValue[] = new Array(length);
           task.assign(value);
-          for (let index = length - 1; index >= 0; index--) tasks.push({ kind: 'value', schema: current.item, path: [...task.path, index], depth: task.depth + 1, assign: (item) => { value[index] = item; } });
+          for (let index = length - 1; index >= 0; index--)
+            tasks.push({
+              kind: 'value',
+              schema: current.item,
+              path: [...task.path, index],
+              depth: task.depth + 1,
+              assign: (item) => {
+                value[index] = item;
+              },
+            });
           break;
         }
         case 'tuple': {
-          if (decoder.head(4, task.path) !== BigInt(current.items.length)) fail('schema_mismatch', task.path, 'wrong tuple length', decoder.offset);
+          if (decoder.head(4, task.path) !== BigInt(current.items.length))
+            fail('schema_mismatch', task.path, 'wrong tuple length', decoder.offset);
           const value: CanonicalValue[] = new Array(current.items.length);
           task.assign(value);
-          for (let index = current.items.length - 1; index >= 0; index--) tasks.push({ kind: 'value', schema: current.items[index] as Schema, path: [...task.path, index], depth: task.depth + 1, assign: (item) => { value[index] = item; } });
+          for (let index = current.items.length - 1; index >= 0; index--)
+            tasks.push({
+              kind: 'value',
+              schema: current.items[index] as Schema,
+              path: [...task.path, index],
+              depth: task.depth + 1,
+              assign: (item) => {
+                value[index] = item;
+              },
+            });
           break;
         }
         case 'record': {
-          if (decoder.head(4, task.path) !== BigInt(current.fields.length)) fail('schema_mismatch', task.path, 'wrong record field count', decoder.offset);
+          if (decoder.head(4, task.path) !== BigInt(current.fields.length))
+            fail('schema_mismatch', task.path, 'wrong record field count', decoder.offset);
           const value: Record<string, CanonicalValue> = Object.create(null) as Record<string, CanonicalValue>;
           task.assign(value);
           for (let index = current.fields.length - 1; index >= 0; index--) {
             const field = current.fields[index] as RecordField;
-            tasks.push({ kind: 'value', schema: field.schema, path: [...task.path, field.name], depth: task.depth + 1, assign: (item) => { value[field.name] = item; } });
+            tasks.push({
+              kind: 'value',
+              schema: field.schema,
+              path: [...task.path, field.name],
+              depth: task.depth + 1,
+              assign: (item) => {
+                value[field.name] = item;
+              },
+            });
           }
           break;
         }
         case 'variant': {
-          if (decoder.head(4, task.path) !== 2n) fail('schema_mismatch', task.path, 'variant must have two fields', decoder.offset);
+          if (decoder.head(4, task.path) !== 2n)
+            fail('schema_mismatch', task.path, 'variant must have two fields', decoder.offset);
           const value: Record<string, CanonicalValue> = {};
           task.assign(value);
           tasks.push({ kind: 'variant', schema: current, path: task.path, depth: task.depth, target: value });
@@ -904,7 +1183,12 @@ export function canonicalEqual(
   if (!leftBytes.ok) return leftBytes;
   const rightBytes = encodeCanonical(schema, right, options);
   if (!rightBytes.ok) return rightBytes;
-  return Object.freeze({ ok: true, value: leftBytes.value.length === rightBytes.value.length && leftBytes.value.every((byte, index) => byte === rightBytes.value[index]) });
+  return Object.freeze({
+    ok: true,
+    value:
+      leftBytes.value.length === rightBytes.value.length &&
+      leftBytes.value.every((byte, index) => byte === rightBytes.value[index]),
+  });
 }
 
 export function digestCanonical(
@@ -917,22 +1201,42 @@ export function digestCanonical(
   return encoded.ok ? Object.freeze({ ok: true, value: hash(domain, encoded.value) }) : encoded;
 }
 
-export function deriveIdempotencyKey(input: Readonly<{
-  seed: CanonicalBytes;
-  contractId: ContractId;
-  operationId: OperationId;
-  actionSiteId: ActionSiteId;
-  sequence: number;
-  actionInput: CanonicalBytes;
-}>): ContractResult<Sha256Digest> {
+export function deriveIdempotencyKey(
+  input: Readonly<{
+    seed: CanonicalBytes;
+    contractId: ContractId;
+    operationId: OperationId;
+    actionSiteId: ActionSiteId;
+    sequence: number;
+    actionInput: CanonicalBytes;
+  }>,
+): ContractResult<Sha256Digest> {
   if (!Number.isSafeInteger(input.sequence) || input.sequence < 0) {
-    return Object.freeze({ ok: false, failure: Object.freeze({ code: 'invalid_value', path: Object.freeze(['sequence']), detail: 'invalid action sequence' }) });
+    return Object.freeze({
+      ok: false,
+      failure: Object.freeze({
+        code: 'invalid_value',
+        path: Object.freeze(['sequence']),
+        detail: 'invalid action sequence',
+      }),
+    });
   }
   const actionDigest = createHash('sha256').update(Uint8Array.from(input.actionInput)).digest('hex');
-  return digestCanonical('idempotency', {
-    kind: 'tuple',
-    items: [{ kind: 'bytes' }, { kind: 'string' }, { kind: 'string' }, { kind: 'string' }, { kind: 'int64' }, { kind: 'string' }],
-  }, [input.seed, input.contractId, input.operationId, input.actionSiteId, BigInt(input.sequence), actionDigest]);
+  return digestCanonical(
+    'idempotency',
+    {
+      kind: 'tuple',
+      items: [
+        { kind: 'bytes' },
+        { kind: 'string' },
+        { kind: 'string' },
+        { kind: 'string' },
+        { kind: 'int64' },
+        { kind: 'string' },
+      ],
+    },
+    [input.seed, input.contractId, input.operationId, input.actionSiteId, BigInt(input.sequence), actionDigest],
+  );
 }
 
 interface JsonTask {
@@ -943,14 +1247,27 @@ interface JsonTask {
   readonly assign: (value: JsonValue) => void;
 }
 
-interface JsonExitTask { readonly kind: 'exit'; readonly input: object }
+interface JsonExitTask {
+  readonly kind: 'exit';
+  readonly input: object;
+}
 
 export function canonicalJson(input: unknown, limits: ValueLimits = STANDARD_VALUE_LIMITS): ContractResult<JsonValue> {
   try {
     let root: JsonValue = { tag: 'null', value: null };
     let nodes = 0;
     const active = new Set<object>();
-    const tasks: (JsonTask | JsonExitTask)[] = [{ kind: 'value', input, path: [], depth: 0, assign: (value) => { root = value; } }];
+    const tasks: (JsonTask | JsonExitTask)[] = [
+      {
+        kind: 'value',
+        input,
+        path: [],
+        depth: 0,
+        assign: (value) => {
+          root = value;
+        },
+      },
+    ];
     while (tasks.length > 0) {
       const task = tasks.pop() as JsonTask | JsonExitTask;
       if (task.kind === 'exit') {
@@ -975,7 +1292,16 @@ export function canonicalJson(input: unknown, limits: ValueLimits = STANDARD_VAL
         const values: JsonValue[] = new Array(task.input.length);
         task.assign({ tag: 'array', value: values });
         tasks.push({ kind: 'exit', input: task.input });
-        for (let index = task.input.length - 1; index >= 0; index--) tasks.push({ kind: 'value', input: dataProperty(task.input as unknown as Record<string, unknown>, String(index), [...task.path, index]), path: [...task.path, index], depth: task.depth + 1, assign: (value) => { values[index] = value; } });
+        for (let index = task.input.length - 1; index >= 0; index--)
+          tasks.push({
+            kind: 'value',
+            input: dataProperty(task.input as unknown as Record<string, unknown>, String(index), [...task.path, index]),
+            path: [...task.path, index],
+            depth: task.depth + 1,
+            assign: (value) => {
+              values[index] = value;
+            },
+          });
       } else if (validPlainRecord(task.input)) {
         if (active.has(task.input)) fail('invalid_value', task.path, 'cyclic JSON value');
         const keys = Object.keys(task.input).sort(compareUtf8);
@@ -987,7 +1313,15 @@ export function canonicalJson(input: unknown, limits: ValueLimits = STANDARD_VAL
         for (let index = keys.length - 1; index >= 0; index--) {
           const key = keys[index] as string;
           validUnicode(key, [...task.path, key]);
-          tasks.push({ kind: 'value', input: dataProperty(task.input, key, [...task.path, key]), path: [...task.path, key], depth: task.depth + 1, assign: (value) => { entries[index] = [key, value]; } });
+          tasks.push({
+            kind: 'value',
+            input: dataProperty(task.input, key, [...task.path, key]),
+            path: [...task.path, key],
+            depth: task.depth + 1,
+            assign: (value) => {
+              entries[index] = [key, value];
+            },
+          });
         }
       } else fail('schema_mismatch', task.path, 'value is not JSON');
     }
@@ -1018,7 +1352,8 @@ function validateJsonObjectOrder(root: unknown, limits: ValueLimits): void {
     const value = dataProperty(item, 'value', []);
     if (tag === 'array' && Array.isArray(value)) {
       validateDataArray(value, [], limits.maxNodes - nodes);
-      for (let index = 0; index < value.length; index++) pending.push(dataProperty(value as unknown as Record<string, unknown>, String(index), [index]));
+      for (let index = 0; index < value.length; index++)
+        pending.push(dataProperty(value as unknown as Record<string, unknown>, String(index), [index]));
     }
     if (tag !== 'object' || !Array.isArray(value)) continue;
     validateDataArray(value, [], limits.maxNodes - nodes);
@@ -1029,7 +1364,8 @@ function validateJsonObjectOrder(root: unknown, limits: ValueLimits): void {
       validateDataArray(entry, [index], 2);
       const key = dataProperty(entry as unknown as Record<string, unknown>, '0', [index, 0]);
       if (typeof key !== 'string') continue;
-      if (previous !== undefined && compareUtf8(previous, key) >= 0) fail('invalid_value', [], 'JSON object keys are not strictly sorted');
+      if (previous !== undefined && compareUtf8(previous, key) >= 0)
+        fail('invalid_value', [], 'JSON object keys are not strictly sorted');
       previous = key;
       pending.push(dataProperty(entry as unknown as Record<string, unknown>, '1', [index, 1]));
     }
@@ -1049,11 +1385,13 @@ const JSON_VALUE_SCHEMA: VariantSchema = {
     { tag: 'object', schema: { kind: 'list', item: { kind: 'tuple', items: [{ kind: 'string' }, JSON_VALUE_REF] } } },
   ],
 };
-export const JSON_VALUE_REGISTRY = defineSchemaRegistry([{
-  id: JSON_VALUE_TYPE,
-  schema: JSON_VALUE_SCHEMA,
-  fingerprint: hash('type', new TextEncoder().encode('safescript.json-value.v1')),
-}]);
+export const JSON_VALUE_REGISTRY = defineSchemaRegistry([
+  {
+    id: JSON_VALUE_TYPE,
+    schema: JSON_VALUE_SCHEMA,
+    fingerprint: hash('type', new TextEncoder().encode('safescript.json-value.v1')),
+  },
+]);
 
 function deepFreeze<T>(root: T): T {
   if (root === null || typeof root !== 'object') return root;
@@ -1089,12 +1427,23 @@ export interface BridgeError {
   readonly detail?: string;
 }
 
-export interface PolicyError { readonly code: string; readonly detail?: string }
-export type HostFailureCode = 'cancelled' | 'timeout' | 'unavailable' | 'handler_fault' | 'invalid_result' | 'transport_lost' | 'gateway_fault';
-export interface HostFailure { readonly code: HostFailureCode; readonly detail?: string }
+export interface PolicyError {
+  readonly code: string;
+  readonly detail?: string;
+}
+export type HostFailureCode =
+  'cancelled' | 'timeout' | 'unavailable' | 'handler_fault' | 'invalid_result' | 'transport_lost' | 'gateway_fault';
+export interface HostFailure {
+  readonly code: HostFailureCode;
+  readonly detail?: string;
+}
 export type EffectState = 'not_performed' | 'unknown';
 
-export interface SourceProvenance { readonly module: ModuleId; readonly start: number; readonly end: number }
+export interface SourceProvenance {
+  readonly module: ModuleId;
+  readonly start: number;
+  readonly end: number;
+}
 
 export interface ActionRequest {
   readonly abiVersion: Version;
@@ -1122,11 +1471,22 @@ export type ActionOutcome = Readonly<{
     | Readonly<{ tag: 'failed'; value: Readonly<{ effectState: EffectState; failure: HostFailure }> }>;
 }>;
 
-export type ActionRecord = Readonly<{ phase: 'requested'; request: ActionRequest }> | Readonly<{ phase: 'resolved'; requestId: RequestId; outcome: ActionOutcome }>;
+export type ActionRecord =
+  | Readonly<{ phase: 'requested'; request: ActionRequest }>
+  | Readonly<{ phase: 'resolved'; requestId: RequestId; outcome: ActionOutcome }>;
 
-export interface DefinitionFingerprint { readonly id: ContractOwnedId; readonly fingerprint: Sha256Digest }
-export interface EffectDefinition { readonly id: EffectId; readonly fingerprint: Sha256Digest }
-export interface CapabilityDefinition { readonly id: CapabilityId; readonly fingerprint: Sha256Digest }
+export interface DefinitionFingerprint {
+  readonly id: ContractOwnedId;
+  readonly fingerprint: Sha256Digest;
+}
+export interface EffectDefinition {
+  readonly id: EffectId;
+  readonly fingerprint: Sha256Digest;
+}
+export interface CapabilityDefinition {
+  readonly id: CapabilityId;
+  readonly fingerprint: Sha256Digest;
+}
 export interface OperationDefinition {
   readonly id: OperationId;
   readonly input: TypeId;
@@ -1186,13 +1546,27 @@ export function checkDefinitionCompatibility(
   return Object.freeze(failures.map((failure) => Object.freeze(failure)));
 }
 
-export interface SourceModule { readonly id: ModuleId; readonly source: CanonicalBytes }
-export interface SourceProgram { readonly entry: ModuleId; readonly modules: readonly SourceModule[] }
+export interface SourceModule {
+  readonly id: ModuleId;
+  readonly source: CanonicalBytes;
+}
+export interface SourceProgram {
+  readonly entry: ModuleId;
+  readonly modules: readonly SourceModule[];
+}
 
 export function programHash(program: SourceProgram): ContractResult<ProgramHash> {
-  const modules = [...program.modules].sort((left, right) => String(left.id) < String(right.id) ? -1 : String(left.id) > String(right.id) ? 1 : 0);
-  if (!modules.some((module) => module.id === program.entry) || modules.some((module, index) => index > 0 && module.id === modules[index - 1]?.id)) {
-    return Object.freeze({ ok: false, failure: Object.freeze({ code: 'invalid_value', path: Object.freeze([]), detail: 'invalid program module set' }) });
+  const modules = [...program.modules].sort((left, right) =>
+    String(left.id) < String(right.id) ? -1 : String(left.id) > String(right.id) ? 1 : 0,
+  );
+  if (
+    !modules.some((module) => module.id === program.entry) ||
+    modules.some((module, index) => index > 0 && module.id === modules[index - 1]?.id)
+  ) {
+    return Object.freeze({
+      ok: false,
+      failure: Object.freeze({ code: 'invalid_value', path: Object.freeze([]), detail: 'invalid program module set' }),
+    });
   }
   const schema: Schema = {
     kind: 'tuple',
@@ -1201,7 +1575,10 @@ export function programHash(program: SourceProgram): ContractResult<ProgramHash>
       { kind: 'list', item: { kind: 'tuple', items: [{ kind: 'string' }, { kind: 'string' }] } },
     ],
   };
-  const digest = digestCanonical('program', schema, [program.entry, modules.map((module) => [module.id, sourceHash(Uint8Array.from(module.source))])]);
+  const digest = digestCanonical('program', schema, [
+    program.entry,
+    modules.map((module) => [module.id, sourceHash(Uint8Array.from(module.source))]),
+  ]);
   return digest.ok ? Object.freeze({ ok: true, value: digest.value as unknown as ProgramHash }) : digest;
 }
 export interface CheckedArtifactHeader {
@@ -1218,10 +1595,30 @@ export interface CheckedArtifactHeader {
   readonly irDigest: IrDigest;
 }
 
-export interface CompileUsage { readonly sourceBytes: number; readonly syntaxNodes: number; readonly typeWork: number }
-export interface ExecutionUsage { readonly fuel: number; readonly allocations: number; readonly allocatedBytes: number; readonly peakRetainedBytes: number; readonly hostCalls: number; readonly traceBytes: number; readonly outputBytes: number }
-export interface ProgramSummary { readonly effects: readonly EffectId[]; readonly capabilities: readonly CapabilityId[] }
-export interface CompilerProvenance { readonly compiler: CompilerVersion; readonly language: Version; readonly ir: Version; readonly abi: Version }
+export interface CompileUsage {
+  readonly sourceBytes: number;
+  readonly syntaxNodes: number;
+  readonly typeWork: number;
+}
+export interface ExecutionUsage {
+  readonly fuel: number;
+  readonly allocations: number;
+  readonly allocatedBytes: number;
+  readonly peakRetainedBytes: number;
+  readonly hostCalls: number;
+  readonly traceBytes: number;
+  readonly outputBytes: number;
+}
+export interface ProgramSummary {
+  readonly effects: readonly EffectId[];
+  readonly capabilities: readonly CapabilityId[];
+}
+export interface CompilerProvenance {
+  readonly compiler: CompilerVersion;
+  readonly language: Version;
+  readonly ir: Version;
+  readonly abi: Version;
+}
 
 export interface CheckRequest {
   readonly abiVersion: Version;
@@ -1233,18 +1630,32 @@ export interface CheckRequest {
 }
 
 export type CheckResult =
-  | Readonly<{ status: 'accepted'; artifact: CanonicalBytes; summary: ProgramSummary; provenance: CompilerProvenance; usage: CompileUsage; diagnostics: readonly Diagnostic[] }>
+  | Readonly<{
+      status: 'accepted';
+      artifact: CanonicalBytes;
+      summary: ProgramSummary;
+      provenance: CompilerProvenance;
+      usage: CompileUsage;
+      diagnostics: readonly Diagnostic[];
+    }>
   | Readonly<{ status: 'rejected'; diagnostics: readonly Diagnostic[]; usage: CompileUsage }>
   | Readonly<{ status: 'bridge_error'; error: BridgeError }>;
 
 export type InspectView = 'semantic_graph';
-export interface InspectRequest extends CheckRequest { readonly views: readonly InspectView[] }
+export interface InspectRequest extends CheckRequest {
+  readonly views: readonly InspectView[];
+}
 export type InspectResult =
-  | Readonly<{ status: 'accepted'; check: Extract<CheckResult, { status: 'accepted' }>; views: Readonly<Partial<Record<InspectView, CanonicalBytes>>> }>
+  | Readonly<{
+      status: 'accepted';
+      check: Extract<CheckResult, { status: 'accepted' }>;
+      views: Readonly<Partial<Record<InspectView, CanonicalBytes>>>;
+    }>
   | Extract<CheckResult, { status: 'rejected' | 'bridge_error' }>;
 
 export type TraceMode = 'none' | 'summary' | 'semantic';
-export type ExecutableProgram = Readonly<{ kind: 'source'; source: CheckRequest }> | Readonly<{ kind: 'artifact'; bytes: CanonicalBytes }>;
+export type ExecutableProgram =
+  Readonly<{ kind: 'source'; source: CheckRequest }> | Readonly<{ kind: 'artifact'; bytes: CanonicalBytes }>;
 export interface ExecuteRequest {
   readonly abiVersion: Version;
   readonly registry: ContractRegistry;
@@ -1259,9 +1670,19 @@ export interface ExecuteRequest {
   readonly trace: TraceMode;
 }
 
-export interface TraceResult { readonly records: readonly CanonicalBytes[]; readonly truncated: boolean }
-export interface ExecutionFacts { readonly actions: readonly ActionRecord[]; readonly trace: TraceResult; readonly usage: ExecutionUsage }
-export interface ExecutionError { readonly code: string; readonly detail?: string }
+export interface TraceResult {
+  readonly records: readonly CanonicalBytes[];
+  readonly truncated: boolean;
+}
+export interface ExecutionFacts {
+  readonly actions: readonly ActionRecord[];
+  readonly trace: TraceResult;
+  readonly usage: ExecutionUsage;
+}
+export interface ExecutionError {
+  readonly code: string;
+  readonly detail?: string;
+}
 export type ExecutionResult =
   | Readonly<{ status: 'not_started'; diagnostics?: readonly Diagnostic[]; error?: BridgeError; usage?: CompileUsage }>
   | Readonly<{ status: 'completed'; output: CanonicalBytes; facts: ExecutionFacts }>
@@ -1269,9 +1690,18 @@ export type ExecutionResult =
   | Readonly<{ status: 'cancelled'; error: ExecutionError; facts: ExecutionFacts }>
   | Readonly<{ status: 'bridge_error'; error: BridgeError }>;
 
-export interface CancelRequest { readonly abiVersion: Version; readonly invocationId: InvocationId }
-export interface CancelResult { readonly status: 'accepted' | 'not_active' | 'bridge_error'; readonly error?: BridgeError }
-export interface CloseResult { readonly status: 'closed' | 'bridge_error'; readonly error?: BridgeError }
+export interface CancelRequest {
+  readonly abiVersion: Version;
+  readonly invocationId: InvocationId;
+}
+export interface CancelResult {
+  readonly status: 'accepted' | 'not_active' | 'bridge_error';
+  readonly error?: BridgeError;
+}
+export interface CloseResult {
+  readonly status: 'closed' | 'bridge_error';
+  readonly error?: BridgeError;
+}
 
 export interface RuntimeBridgeHost {
   handleAction(request: ActionRequest): Promise<ActionOutcome>;

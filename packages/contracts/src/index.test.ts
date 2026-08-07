@@ -34,12 +34,22 @@ describe('deterministic CBOR profile', () => {
     expect(encodedHex({ kind: 'string' }, '😀')).toBe('64f09f9880');
     expect(encodedHex({ kind: 'bytes' }, [0, 255])).toBe('4200ff');
     expect(encodedHex({ kind: 'instant' }, { epochSeconds: 0n, nanoseconds: 1 })).toBe('820001');
-    expect(encodedHex({
-      kind: 'record',
-      fields: [{ name: 'name', schema: { kind: 'string' } }, { name: 'count', schema: { kind: 'int64' } }],
-    }, { count: 1n, name: 'x' })).toBe('82617801');
+    expect(
+      encodedHex(
+        {
+          kind: 'record',
+          fields: [
+            { name: 'name', schema: { kind: 'string' } },
+            { name: 'count', schema: { kind: 'int64' } },
+          ],
+        },
+        { count: 1n, name: 'x' },
+      ),
+    ).toBe('82617801');
     expect(encodedHex(optionSchema({ kind: 'int64' }), { tag: 'some', value: 1n })).toBe('8264736f6d6501');
-    expect(encodedHex({ kind: 'tuple', items: [{ kind: 'boolean' }, { kind: 'string' }] }, [false, 'x'])).toBe('82f46178');
+    expect(encodedHex({ kind: 'tuple', items: [{ kind: 'boolean' }, { kind: 'string' }] }, [false, 'x'])).toBe(
+      '82f46178',
+    );
   });
 
   it('round-trips immutable schema-directed values', () => {
@@ -78,8 +88,16 @@ describe('deterministic CBOR profile', () => {
     expect(encodeCanonical({ kind: 'string' }, '\ud800').ok).toBe(false);
     expect(encodeCanonical({ kind: 'record', fields: [] }, { surprise: true }).ok).toBe(false);
     let getterRan = false;
-    const accessor = Object.defineProperty({}, 'value', { enumerable: true, get: () => { getterRan = true; return 1n; } });
-    expect(encodeCanonical({ kind: 'record', fields: [{ name: 'value', schema: { kind: 'int64' } }] }, accessor).ok).toBe(false);
+    const accessor = Object.defineProperty({}, 'value', {
+      enumerable: true,
+      get: () => {
+        getterRan = true;
+        return 1n;
+      },
+    });
+    expect(
+      encodeCanonical({ kind: 'record', fields: [{ name: 'value', schema: { kind: 'int64' } }] }, accessor).ok,
+    ).toBe(false);
     expect(getterRan).toBe(false);
   });
 });
@@ -103,14 +121,23 @@ describe('recursive schemas and JSON', () => {
     let value: unknown = { tag: 'leaf', value: null };
     for (let index = 0; index < 20; index++) value = { tag: 'branch', value: [value] };
     expect(encodeCanonical({ kind: 'ref', type: tree }, value, { registry }).ok).toBe(true);
-    expect(encodeCanonical({ kind: 'ref', type: tree }, value, { registry, limits: { maxBytes: 4096, maxDepth: 8, maxNodes: 100 } }).ok).toBe(false);
+    expect(
+      encodeCanonical({ kind: 'ref', type: tree }, value, {
+        registry,
+        limits: { maxBytes: 4096, maxDepth: 8, maxNodes: 100 },
+      }).ok,
+    ).toBe(false);
 
     const impossible = ids.type('type:test.impossible');
-    expect(() => defineSchemaRegistry([{
-      id: impossible,
-      fingerprint,
-      schema: { kind: 'record', fields: [{ name: 'next', schema: { kind: 'ref', type: impossible } }] },
-    }])).toThrow('no finite inhabitant');
+    expect(() =>
+      defineSchemaRegistry([
+        {
+          id: impossible,
+          fingerprint,
+          schema: { kind: 'record', fields: [{ name: 'next', schema: { kind: 'ref', type: impossible } }] },
+        },
+      ]),
+    ).toThrow('no finite inhabitant');
   });
 
   it('uses the accepted sorted tagged JsonValue representation', () => {
@@ -120,16 +147,36 @@ describe('recursive schemas and JSON', () => {
     expect(result.value).toEqual({
       tag: 'object',
       value: [
-        ['a', { tag: 'array', value: [{ tag: 'boolean', value: true }, { tag: 'number', value: 0 }] }],
+        [
+          'a',
+          {
+            tag: 'array',
+            value: [
+              { tag: 'boolean', value: true },
+              { tag: 'number', value: 0 },
+            ],
+          },
+        ],
         ['z', { tag: 'null', value: null }],
       ],
     });
     expect(Object.isFrozen(result.value)).toBe(true);
-    expect(encodeCanonical({ kind: 'ref', type: JSON_VALUE_TYPE }, result.value, { registry: JSON_VALUE_REGISTRY }).ok).toBe(true);
-    expect(encodeCanonical({ kind: 'ref', type: JSON_VALUE_TYPE }, {
-      tag: 'object',
-      value: [['z', { tag: 'null', value: null }], ['a', { tag: 'null', value: null }]],
-    }, { registry: JSON_VALUE_REGISTRY }).ok).toBe(false);
+    expect(
+      encodeCanonical({ kind: 'ref', type: JSON_VALUE_TYPE }, result.value, { registry: JSON_VALUE_REGISTRY }).ok,
+    ).toBe(true);
+    expect(
+      encodeCanonical(
+        { kind: 'ref', type: JSON_VALUE_TYPE },
+        {
+          tag: 'object',
+          value: [
+            ['z', { tag: 'null', value: null }],
+            ['a', { tag: 'null', value: null }],
+          ],
+        },
+        { registry: JSON_VALUE_REGISTRY },
+      ).ok,
+    ).toBe(false);
     const cycle: unknown[] = [];
     cycle.push(cycle);
     expect(canonicalJson(cycle).ok).toBe(false);
@@ -142,15 +189,29 @@ describe('identities and compatibility', () => {
     expect(String(ids.request(invocation, 7))).toBe('request:0123456789abcdef0123456789abcdef:7');
     expect(String(ids.module('module:@host/api'))).toBe('module:@host/api');
     expect(() => ids.operation('effect:tasks.create')).toThrow();
-    expect(String(hash('source', Uint8Array.of(1)))).toBe('d8e0671485299b0d850838d8b99972fa4c6d404061f3ea340761e1e6a3fdb5c1');
+    expect(String(hash('source', Uint8Array.of(1)))).toBe(
+      'd8e0671485299b0d850838d8b99972fa4c6d404061f3ea340761e1e6a3fdb5c1',
+    );
     expect(hash('source', Uint8Array.of(1))).not.toBe(hash('ir', Uint8Array.of(1)));
   });
 
   it('fails closed on independent version dimensions', () => {
     const contractId = ids.contract('contract:test.host');
     const failures = checkCompatibility(
-      { language: { major: 1, minor: 1 }, ir: { major: 1, minor: 0 }, abi: { major: 1, minor: 0 }, contractId, contract: { major: 1, minor: 2, patch: 0 } },
-      { language: { major: 1, minor: 2 }, ir: { major: 2, minor: 0 }, abi: { major: 1, minor: 0 }, contractId, contract: { major: 1, minor: 1, patch: 0 } },
+      {
+        language: { major: 1, minor: 1 },
+        ir: { major: 1, minor: 0 },
+        abi: { major: 1, minor: 0 },
+        contractId,
+        contract: { major: 1, minor: 2, patch: 0 },
+      },
+      {
+        language: { major: 1, minor: 2 },
+        ir: { major: 2, minor: 0 },
+        abi: { major: 1, minor: 0 },
+        contractId,
+        contract: { major: 1, minor: 1, patch: 0 },
+      },
     );
     expect(failures.map((failure) => failure.dimension)).toEqual(['language', 'ir']);
     expect(Object.isFrozen(failures)).toBe(true);

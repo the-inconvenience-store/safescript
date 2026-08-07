@@ -7,7 +7,9 @@
     ".": "./src/index.ts"
   },
   "nx": {
-    "tags": ["layer:contracts"],
+    "tags": [
+      "layer:contracts"
+    ],
     "targets": {
       "build": {},
       "lint": {},

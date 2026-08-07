@@ -10,7 +10,9 @@
     "@safescript/sdk": "*"
   },
   "nx": {
-    "tags": ["layer:cli"],
+    "tags": [
+      "layer:cli"
+    ],
     "targets": {
       "build": {},
       "lint": {},

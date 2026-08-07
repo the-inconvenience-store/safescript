@@ -9,6 +9,8 @@
   ],
   "scripts": {
     "build": "nx run-many -t build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "nx run-many -t test",
     "lint": "nx run-many -t lint",
     "typecheck": "nx run-many -t typecheck"
@@ -22,6 +24,7 @@
     "@types/bun": "1.3.10",
     "eslint": "10.8.0",
     "nx": "23.1.1",
+    "prettier": "3.9.6",
     "typescript": "6.0.3",
     "typescript-eslint": "8.66.0"
   }

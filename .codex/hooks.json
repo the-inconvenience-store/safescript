@@ -1,0 +1,18 @@
+{
+  "description": "Repository formatting hooks.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "^(apply_patch|Edit|Write)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$(git rev-parse --show-toplevel)\" && bun run format",
+            "timeout": 120,
+            "statusMessage": "Formatting repository"
+          }
+        ]
+      }
+    ]
+  }
+}

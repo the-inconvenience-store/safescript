@@ -11,7 +11,9 @@
     "@safescript/engine": "*"
   },
   "nx": {
-    "tags": ["layer:sdk"],
+    "tags": [
+      "layer:sdk"
+    ],
     "targets": {
       "build": {},
       "lint": {},

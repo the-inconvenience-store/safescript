@@ -7,7 +7,9 @@
     "@safescript/contracts": "*"
   },
   "nx": {
-    "tags": ["layer:conformance"],
+    "tags": [
+      "layer:conformance"
+    ],
     "targets": {
       "build": {},
       "lint": {},

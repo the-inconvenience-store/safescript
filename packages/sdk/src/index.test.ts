@@ -74,7 +74,15 @@ const contract = defineContract({
 const facts: ExecutionFacts = Object.freeze({
   actions: Object.freeze([]),
   trace: Object.freeze({ records: Object.freeze([]), truncated: false }),
-  usage: Object.freeze({ fuel: 1, allocations: 0, allocatedBytes: 0, peakRetainedBytes: 0, hostCalls: 1, traceBytes: 0, outputBytes: 2 }),
+  usage: Object.freeze({
+    fuel: 1,
+    allocations: 0,
+    allocatedBytes: 0,
+    peakRetainedBytes: 0,
+    hostCalls: 1,
+    traceBytes: 0,
+    outputBytes: 2,
+  }),
 });
 
 class FakeBridge implements RuntimeBridge {
@@ -82,16 +90,25 @@ class FakeBridge implements RuntimeBridge {
   closed = false;
   executeResult?: (request: BridgeExecuteRequest, host: RuntimeBridgeHost) => Promise<ExecutionResult>;
 
-  async check(): Promise<CheckResult> { return { status: 'rejected', diagnostics: [], usage: { sourceBytes: 0, syntaxNodes: 0, typeWork: 0 } }; }
-  async inspect(): Promise<InspectResult> { return { status: 'rejected', diagnostics: [], usage: { sourceBytes: 0, syntaxNodes: 0, typeWork: 0 } }; }
+  async check(): Promise<CheckResult> {
+    return { status: 'rejected', diagnostics: [], usage: { sourceBytes: 0, syntaxNodes: 0, typeWork: 0 } };
+  }
+  async inspect(): Promise<InspectResult> {
+    return { status: 'rejected', diagnostics: [], usage: { sourceBytes: 0, syntaxNodes: 0, typeWork: 0 } };
+  }
   async execute(request: BridgeExecuteRequest, host: RuntimeBridgeHost): Promise<ExecutionResult> {
     if (this.executeResult) return this.executeResult(request, host);
     const output = encodeCanonical({ kind: 'string' }, 'done');
     if (!output.ok) throw new Error('fixture encoding failed');
     return { status: 'completed', output: [...output.value], facts };
   }
-  async cancel(): Promise<CancelResult> { return { status: 'not_active' }; }
-  async close(): Promise<CloseResult> { this.closed = true; return { status: 'closed' }; }
+  async cancel(): Promise<CancelResult> {
+    return { status: 'not_active' };
+  }
+  async close(): Promise<CloseResult> {
+    this.closed = true;
+    return { status: 'closed' };
+  }
 }
 
 function action(request: BridgeExecuteRequest): ActionRequest {
@@ -120,14 +137,31 @@ describe('defineContract', () => {
     expect(contract.declarations).toContain('export type TestInput');
     const codec = contract.codecs[inputType.id];
     expect(codec?.decode(codec.encode({ value: 7n }))).toEqual({ value: 7n });
-    expect(() => defineContract({ ...contract, operations: {}, slots: { ...contract.slots, bad: { ...contract.slots.main, effects: [ids.effect('effect:test.missing')] } } })).toThrow(ContractDefinitionError);
+    expect(() =>
+      defineContract({
+        ...contract,
+        operations: {},
+        slots: { ...contract.slots, bad: { ...contract.slots.main, effects: [ids.effect('effect:test.missing')] } },
+      }),
+    ).toThrow(ContractDefinitionError);
   });
 });
 
 describe('createSafeScript', () => {
   it('validates configuration and runs current authorisation before one typed handler dispatch', async () => {
-    expect(() => createSafeScript({ contract, handlers: {} as never, authorise: () => ({ status: 'allowed' }), bridge: new FakeBridge() })).toThrow(SdkConfigurationError);
-    const direct = createSafeScript({ contract, handlers: { read: () => ({ tag: 'error', value: 'unused' } as const) }, authorise: () => ({ status: 'allowed' }) });
+    expect(() =>
+      createSafeScript({
+        contract,
+        handlers: {} as never,
+        authorise: () => ({ status: 'allowed' }),
+        bridge: new FakeBridge(),
+      }),
+    ).toThrow(SdkConfigurationError);
+    const direct = createSafeScript({
+      contract,
+      handlers: { read: () => ({ tag: 'error', value: 'unused' }) as const },
+      authorise: () => ({ status: 'allowed' }),
+    });
     expect(await direct.close()).toEqual({ status: 'closed' });
     const bridge = new FakeBridge();
     const order: string[] = [];
@@ -136,16 +170,39 @@ describe('createSafeScript', () => {
       bridge.actions.push(outcome);
       const output = encodeCanonical({ kind: 'string' }, 'done');
       if (!output.ok) throw new Error('fixture encoding failed');
-      return { status: 'completed', output: [...output.value], facts: { ...facts, actions: [{ phase: 'requested', request: action(request) }, { phase: 'resolved', requestId: action(request).requestId, outcome }] } };
+      return {
+        status: 'completed',
+        output: [...output.value],
+        facts: {
+          ...facts,
+          actions: [
+            { phase: 'requested', request: action(request) },
+            { phase: 'resolved', requestId: action(request).requestId, outcome },
+          ],
+        },
+      };
     };
     const safe = createSafeScript({
       contract,
       bridge,
-      handlers: { read: async (input, context) => { order.push(`handler:${context.resourceScope.value}`); return { tag: 'ok', value: `value:${input.value}` }; } },
-      authorise: (context: { readonly resourceScope: Readonly<Record<string, string>> }) => { order.push(`authorise:${context.resourceScope.value}`); return { status: 'allowed' }; },
+      handlers: {
+        read: async (input, context) => {
+          order.push(`handler:${context.resourceScope.value}`);
+          return { tag: 'ok', value: `value:${input.value}` };
+        },
+      },
+      authorise: (context: { readonly resourceScope: Readonly<Record<string, string>> }) => {
+        order.push(`authorise:${context.resourceScope.value}`);
+        return { status: 'allowed' };
+      },
       createInvocationId: () => invocationId,
     });
-    const result = await safe.execute({ slot: 'main', program: { kind: 'artifact', bytes: [] }, input: { value: 3n }, context: { actor: 'a' } });
+    const result = await safe.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 3n },
+      context: { actor: 'a' },
+    });
     expect(result.status).toBe('completed');
     expect(result.status === 'completed' && result.output).toBe('done');
     expect(result.status === 'completed' && result.facts.invocationId).toBe(invocationId);
@@ -166,11 +223,22 @@ describe('createSafeScript', () => {
     const safe = createSafeScript({
       contract,
       bridge,
-      handlers: { read: () => { productionCalls++; throw new Error('secret'); } },
-      authorise: () => { productionCalls++; return { status: 'allowed' }; },
+      handlers: {
+        read: () => {
+          productionCalls++;
+          throw new Error('secret');
+        },
+      },
+      authorise: () => {
+        productionCalls++;
+        return { status: 'allowed' };
+      },
     });
     await safe.execute({ slot: 'main', program: { kind: 'artifact', bytes: [] }, input: { value: 1n }, context: {} });
-    expect(bridge.actions[0]?.result).toEqual({ tag: 'failed', value: { effectState: 'unknown', failure: { code: 'handler_fault' } } });
+    expect(bridge.actions[0]?.result).toEqual({
+      tag: 'failed',
+      value: { effectState: 'unknown', failure: { code: 'handler_fault' } },
+    });
     const report = await safe.test({
       name: 'scripted read',
       slot: 'main',
@@ -182,8 +250,19 @@ describe('createSafeScript', () => {
     expect(report.passed).toBe(true);
     expect(productionCalls).toBe(2);
     expect(await safe.close()).toEqual({ status: 'closed' });
-    expect((await safe.check({ slot: 'main', source: { entryModule: ids.module('module:main'), modules: [{ id: ids.module('module:main'), source: '' }] } })).status).toBe('bridge_error');
-    expect(STANDARD_COMPILE_LIMITS.sourceBytes).toBeGreaterThan(contract.registry.slots[0]?.compileLimits.sourceBytes ?? Infinity);
-    expect(STANDARD_EXECUTION_LIMITS.fuel).toBeGreaterThan(contract.registry.slots[0]?.executionLimits.fuel ?? Infinity);
+    expect(
+      (
+        await safe.check({
+          slot: 'main',
+          source: { entryModule: ids.module('module:main'), modules: [{ id: ids.module('module:main'), source: '' }] },
+        })
+      ).status,
+    ).toBe('bridge_error');
+    expect(STANDARD_COMPILE_LIMITS.sourceBytes).toBeGreaterThan(
+      contract.registry.slots[0]?.compileLimits.sourceBytes ?? Infinity,
+    );
+    expect(STANDARD_EXECUTION_LIMITS.fuel).toBeGreaterThan(
+      contract.registry.slots[0]?.executionLimits.fuel ?? Infinity,
+    );
   });
 });
