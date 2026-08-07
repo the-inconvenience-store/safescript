@@ -16,6 +16,10 @@ _Avoid_: Wrapper object
 The maximum depth, node count, and encoded size permitted for one canonical value at a SafeScript seam.
 _Avoid_: Recursion settings
 
+**JSON value**:
+A bounded recursive tagged union that safely represents data parsed from JSON when no closed target schema is known. It is canonical data, not an unchecked TypeScript value.
+_Avoid_: Unknown JSON, `any`
+
 **Contract-owned identifier**:
 A stable host-declared identity for a contract type, effect, capability, operation, or extension slot. Its meaning cannot change and its name cannot be reused.
 _Avoid_: Display name, array index
