@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "safescript": "./src/index.ts"
+  },
   "exports": {
     ".": "./src/index.ts"
   },
@@ -16,6 +19,7 @@
     "targets": {
       "build": {},
       "lint": {},
+      "test": {},
       "typecheck": {}
     }
   }
