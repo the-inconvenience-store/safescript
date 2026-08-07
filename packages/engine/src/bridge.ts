@@ -11,6 +11,7 @@ import {
   policyErrorValue,
   resultSchema,
   type ActionOutcome,
+  type ActionRequest,
   type ActionRecord,
   type BridgeError,
   type CanonicalBytes,
@@ -28,6 +29,7 @@ import {
   type ExecutionUsage,
   type InspectRequest,
   type InspectResult,
+  type OperationDefinition,
   type RuntimeBridge,
   type RuntimeBridgeHost,
   type Schema,
@@ -75,6 +77,12 @@ interface MutableUsage {
   hostCalls: number;
   traceBytes: number;
   outputBytes: number;
+}
+
+interface ValueLimits {
+  readonly maxDepth: number;
+  readonly maxNodes: number;
+  readonly maxBytes: number;
 }
 
 class ExecutionFault extends Error {
@@ -298,10 +306,231 @@ function emptyUsage(): MutableUsage {
   };
 }
 
+function valueLimits(limits: ExecutionLimits, maxBytes = limits.maxBytes): ValueLimits {
+  return { maxDepth: limits.maxDepth, maxNodes: limits.maxNodes, maxBytes };
+}
+
+class ExecutionMeter {
+  constructor(
+    readonly usage: MutableUsage,
+    private readonly limits: ExecutionLimits,
+    private readonly registry: ContractRegistry,
+  ) {}
+
+  charge(fuel: number, allocation?: Readonly<{ value: CanonicalValue; type: Schema }>): void {
+    const allocatedBytes = allocation ? this.encodedSize(allocation) : 0;
+    const nextFuel = this.usage.fuel + fuel + (allocation ? Math.ceil(allocatedBytes / 16) : 0);
+    const nextAllocations = this.usage.allocations + (allocation ? 1 : 0);
+    const nextAllocatedBytes = this.usage.allocatedBytes + allocatedBytes;
+    const nextRetainedBytes = Math.max(this.usage.peakRetainedBytes, nextAllocatedBytes);
+    const exceeded = [
+      nextFuel > this.limits.fuel && 'fuel',
+      nextAllocations > this.limits.allocations && 'allocations',
+      nextAllocatedBytes > this.limits.allocatedBytes && 'allocatedBytes',
+      nextRetainedBytes > this.limits.retainedBytes && 'retainedBytes',
+    ].find(Boolean);
+    if (exceeded) throw new ExecutionFault('resource_exhausted', String(exceeded));
+    Object.assign(this.usage, {
+      fuel: nextFuel,
+      allocations: nextAllocations,
+      allocatedBytes: nextAllocatedBytes,
+      peakRetainedBytes: nextRetainedBytes,
+    });
+  }
+
+  private encodedSize(allocation: Readonly<{ value: CanonicalValue; type: Schema }>): number {
+    const encoded = encodeCanonical(allocation.type, allocation.value, {
+      registry: this.registry.schemas,
+      limits: valueLimits(this.limits),
+    });
+    if (!encoded.ok) throw new ExecutionFault('value_limit', encoded.failure.code);
+    return encoded.value.length;
+  }
+}
+
+class ExecutionTrace {
+  readonly records: CanonicalBytes[] = [];
+  truncated = false;
+
+  constructor(
+    private readonly enabled: boolean,
+    private readonly limit: number,
+    private readonly usage: MutableUsage,
+  ) {}
+
+  add(event: string, source: SourceLocation): void {
+    if (!this.enabled || this.truncated) return;
+    const bytes = frozenBytes(encoder.encode(JSON.stringify({ event, source, fuel: this.usage.fuel })));
+    if (this.usage.traceBytes + bytes.length > this.limit) {
+      this.truncated = true;
+      return;
+    }
+    this.usage.traceBytes += bytes.length;
+    this.records.push(bytes);
+  }
+}
+
 function actionInstructions(artifact: CheckedArtifact): Extract<IrTerminator, { tag: 'action' }>[] {
   return artifact.program.program.blocks.flatMap((block) =>
     block.terminator.tag === 'action' ? [block.terminator] : [],
   );
+}
+
+type ExecutionRequest = Parameters<RuntimeBridge['execute']>[0];
+type ActionInstruction = Extract<IrTerminator, { tag: 'action' }>;
+
+class ActionDispatcher {
+  private sequence = 0;
+
+  constructor(
+    private readonly request: ExecutionRequest,
+    private readonly host: RuntimeBridgeHost,
+    private readonly active: ActiveInvocation,
+    private readonly artifact: CheckedArtifact,
+    private readonly records: ActionRecord[],
+    private readonly meter: ExecutionMeter,
+    private readonly usage: MutableUsage,
+  ) {}
+
+  async handle(instruction: ActionInstruction, value: CanonicalValue): Promise<CanonicalValue> {
+    if (this.active.cancelled) throw new InterpreterFault('cancelled');
+    const operation = this.artifact.program.operations.get(instruction.operationId);
+    if (!operation) throw new ExecutionFault('invalid_ir', 'unknown operation');
+    const input = this.encodeInput(instruction, value);
+    this.assertHostCapacity();
+    this.meter.charge(100 + operation.effectCost + Math.ceil(input.length / 16));
+    this.usage.hostCalls++;
+    const actionRequest = this.createRequest(instruction, operation, input);
+    this.records.push(Object.freeze({ phase: 'requested', request: actionRequest }));
+    return this.dispatch(actionRequest, operation);
+  }
+
+  private encodeInput(instruction: ActionInstruction, value: CanonicalValue): CanonicalBytes {
+    const encoded = encodeCanonical(instruction.inputType, value, {
+      registry: this.request.registry.schemas,
+      limits: valueLimits(this.request.limits),
+    });
+    if (!encoded.ok) throw new ExecutionFault('value_limit', encoded.failure.code);
+    return frozenBytes(encoded.value);
+  }
+
+  private assertHostCapacity(): void {
+    if (this.usage.hostCalls + 1 > this.request.limits.hostCalls || this.request.limits.concurrentActions < 1)
+      throw new ExecutionFault(
+        'resource_exhausted',
+        this.usage.hostCalls + 1 > this.request.limits.hostCalls ? 'hostCalls' : 'concurrentActions',
+      );
+  }
+
+  private createRequest(
+    instruction: ActionInstruction,
+    operation: OperationDefinition,
+    input: CanonicalBytes,
+  ): ActionRequest {
+    const requestId = ids.request(this.request.invocationId, this.sequence);
+    const key =
+      operation.idempotency === 'required'
+        ? deriveIdempotencyKey({
+            seed: this.request.idempotencySeed as CanonicalBytes,
+            contractId: this.request.registry.id,
+            operationId: operation.id,
+            actionSiteId: instruction.actionSiteId,
+            sequence: this.sequence,
+            actionInput: input,
+          })
+        : undefined;
+    if (key && !key.ok) throw new ExecutionFault('invalid_request', key.failure.code);
+    this.sequence++;
+    return Object.freeze({
+      abiVersion: ABI_VERSION,
+      contractId: this.request.registry.id,
+      requiredContractVersion: this.request.registry.version,
+      irDigest: this.artifact.digest,
+      invocationId: this.request.invocationId,
+      requestId,
+      slotId: this.request.slotId,
+      operationId: operation.id,
+      effectId: operation.effect,
+      capabilityId: operation.capability,
+      actionSiteId: instruction.actionSiteId,
+      source: instruction.source,
+      input,
+      ...(key?.ok ? { idempotencyKey: key.value } : {}),
+    });
+  }
+
+  private async dispatch(actionRequest: ActionRequest, operation: OperationDefinition): Promise<CanonicalValue> {
+    if (this.active.cancelled) return this.cancel(actionRequest.requestId, 'not_performed');
+    this.active.dispatched = true;
+    let received: unknown;
+    try {
+      received = await this.host.handleAction(actionRequest);
+    } catch {
+      received = failedOutcome(actionRequest.requestId, 'handler_fault', 'unknown');
+    }
+    if (this.active.cancelled) return this.cancel(actionRequest.requestId, 'unknown');
+    return this.interpretOutcome(actionRequest.requestId, operation, received);
+  }
+
+  private cancel(requestId: ActionOutcome['requestId'], effectState: 'not_performed' | 'unknown'): never {
+    const outcome = failedOutcome(requestId, 'cancelled', effectState);
+    this.records.push(Object.freeze({ phase: 'resolved', requestId, outcome }));
+    throw new InterpreterFault('cancelled');
+  }
+
+  private interpretOutcome(
+    requestId: ActionOutcome['requestId'],
+    operation: OperationDefinition,
+    received: unknown,
+  ): CanonicalValue {
+    if (!matchingOutcome(received, requestId)) {
+      const outcome = failedOutcome(requestId, 'gateway_fault', 'unknown');
+      this.records.push(Object.freeze({ phase: 'resolved', requestId, outcome }));
+      throw new ExecutionFault('action_outcome_invalid');
+    }
+    if (received.result.tag === 'failed') {
+      this.records.push(Object.freeze({ phase: 'resolved', requestId, outcome: received }));
+      throw new ExecutionFault(received.result.value.failure.code, received.result.value.effectState);
+    }
+    if (received.result.tag === 'rejected') return this.policyRejection(requestId, operation, received);
+    return this.completed(requestId, operation, received);
+  }
+
+  private policyRejection(
+    requestId: ActionOutcome['requestId'],
+    operation: OperationDefinition,
+    received: ActionOutcome,
+  ): CanonicalValue {
+    if (received.result.tag !== 'rejected') throw new ExecutionFault('invalid_ir', 'expected rejected outcome');
+    const error = policyErrorValue(schemaRef(operation.error), this.request.registry.schemas, received.result.value);
+    if (error === undefined) {
+      const outcome = failedOutcome(requestId, 'invalid_result', 'not_performed');
+      this.records.push(Object.freeze({ phase: 'resolved', requestId, outcome }));
+      throw new ExecutionFault('action_outcome_invalid', 'policy error does not match operation error schema');
+    }
+    this.records.push(Object.freeze({ phase: 'resolved', requestId, outcome: received }));
+    return Object.freeze({ tag: 'error', value: error });
+  }
+
+  private completed(
+    requestId: ActionOutcome['requestId'],
+    operation: OperationDefinition,
+    received: ActionOutcome,
+  ): CanonicalValue {
+    if (received.result.tag !== 'completed') throw new ExecutionFault('invalid_ir', 'expected completed outcome');
+    const decoded = decodeCanonical(
+      resultSchema(schemaRef(operation.output), schemaRef(operation.error)),
+      Uint8Array.from(received.result.value),
+      { registry: this.request.registry.schemas, limits: valueLimits(this.request.limits) },
+    );
+    if (!decoded.ok) {
+      const outcome = failedOutcome(requestId, 'invalid_result', 'unknown');
+      this.records.push(Object.freeze({ phase: 'resolved', requestId, outcome }));
+      throw new ExecutionFault('action_outcome_invalid', decoded.failure.code);
+    }
+    this.records.push(Object.freeze({ phase: 'resolved', requestId, outcome: received }));
+    return decoded.value;
+  }
 }
 
 /**
@@ -463,196 +692,41 @@ export class DirectRuntimeBridge implements RuntimeBridge {
     });
     if (!input.ok)
       return { status: 'not_started', error: bridgeError('execute', 'invalid_request', 'slot input is not canonical') };
-    const trace: CanonicalBytes[] = [];
-    let traceTruncated = false;
-    let sequence = 0;
-    const charge = (fuel: number, allocation?: Readonly<{ value: CanonicalValue; type: Schema }>): void => {
-      let allocatedBytes = 0;
-      if (allocation) {
-        const encoded = encodeCanonical(allocation.type, allocation.value, {
-          registry: request.registry.schemas,
-          limits: {
-            maxDepth: request.limits.maxDepth,
-            maxNodes: request.limits.maxNodes,
-            maxBytes: request.limits.maxBytes,
-          },
-        });
-        if (!encoded.ok) throw new ExecutionFault('value_limit', encoded.failure.code);
-        allocatedBytes = encoded.value.length;
-      }
-      const next = {
-        fuel: usageValue.fuel + fuel + (allocation ? Math.ceil(allocatedBytes / 16) : 0),
-        allocations: usageValue.allocations + (allocation ? 1 : 0),
-        allocatedBytes: usageValue.allocatedBytes + allocatedBytes,
-        retainedBytes: Math.max(usageValue.peakRetainedBytes, usageValue.allocatedBytes + allocatedBytes),
-      };
-      const exceeded = [
-        next.fuel > request.limits.fuel && 'fuel',
-        next.allocations > request.limits.allocations && 'allocations',
-        next.allocatedBytes > request.limits.allocatedBytes && 'allocatedBytes',
-        next.retainedBytes > request.limits.retainedBytes && 'retainedBytes',
-      ].find(Boolean);
-      if (exceeded) throw new ExecutionFault('resource_exhausted', String(exceeded));
-      usageValue.fuel = next.fuel;
-      usageValue.allocations = next.allocations;
-      usageValue.allocatedBytes = next.allocatedBytes;
-      usageValue.peakRetainedBytes = next.retainedBytes;
-    };
-    const addTrace = (event: string, source: SourceLocation): void => {
-      if (request.trace === 'none' || traceTruncated) return;
-      const bytes = frozenBytes(encoder.encode(JSON.stringify({ event, source, fuel: usageValue.fuel })));
-      if (usageValue.traceBytes + bytes.length > request.limits.traceBytes) {
-        traceTruncated = true;
-        return;
-      }
-      usageValue.traceBytes += bytes.length;
-      trace.push(bytes);
-    };
+    const meter = new ExecutionMeter(usageValue, request.limits, request.registry);
+    const trace = new ExecutionTrace(request.trace !== 'none', request.limits.traceBytes, usageValue);
+    const dispatcher = new ActionDispatcher(request, host, active, artifact, records, meter, usageValue);
     try {
-      addTrace('invocation_started', {
+      trace.add('invocation_started', {
         module: artifact.program.program.blocks[0]?.terminator.source.module as SourceLocation['module'],
         start: 0,
         end: 0,
       });
       const value = await interpret(artifact.program, input.value, {
-        charge,
+        charge: (fuel, allocation) => meter.charge(fuel, allocation),
         cancelled: () => active.cancelled,
-        trace: addTrace,
-        action: async (instruction, actionValue) => {
-          if (active.cancelled) throw new InterpreterFault('cancelled');
-          const operation = artifact.program.operations.get(instruction.operationId);
-          if (!operation) throw new ExecutionFault('invalid_ir', 'unknown operation');
-          const encoded = encodeCanonical(instruction.inputType, actionValue, {
-            registry: request.registry.schemas,
-            limits: {
-              maxDepth: request.limits.maxDepth,
-              maxNodes: request.limits.maxNodes,
-              maxBytes: request.limits.maxBytes,
-            },
-          });
-          if (!encoded.ok) throw new ExecutionFault('value_limit', encoded.failure.code);
-          if (usageValue.hostCalls + 1 > request.limits.hostCalls || request.limits.concurrentActions < 1)
-            throw new ExecutionFault(
-              'resource_exhausted',
-              usageValue.hostCalls + 1 > request.limits.hostCalls ? 'hostCalls' : 'concurrentActions',
-            );
-          charge(100 + operation.effectCost + Math.ceil(encoded.value.length / 16));
-          usageValue.hostCalls++;
-          const requestId = ids.request(request.invocationId, sequence);
-          const inputBytes = frozenBytes(encoded.value);
-          const key =
-            operation.idempotency === 'required'
-              ? deriveIdempotencyKey({
-                  seed: request.idempotencySeed as CanonicalBytes,
-                  contractId: request.registry.id,
-                  operationId: operation.id,
-                  actionSiteId: instruction.actionSiteId,
-                  sequence,
-                  actionInput: inputBytes,
-                })
-              : undefined;
-          if (key && !key.ok) throw new ExecutionFault('invalid_request', key.failure.code);
-          sequence++;
-          const actionRequest = Object.freeze({
-            abiVersion: ABI_VERSION,
-            contractId: request.registry.id,
-            requiredContractVersion: request.registry.version,
-            irDigest: artifact.digest,
-            invocationId: request.invocationId,
-            requestId,
-            slotId: request.slotId,
-            operationId: operation.id,
-            effectId: operation.effect,
-            capabilityId: operation.capability,
-            actionSiteId: instruction.actionSiteId,
-            source: instruction.source,
-            input: inputBytes,
-            ...(key?.ok ? { idempotencyKey: key.value } : {}),
-          });
-          // Request-first ordering is observable and must precede policy evaluation or any external operation.
-          records.push(Object.freeze({ phase: 'requested', request: actionRequest }));
-          if (active.cancelled) {
-            const outcome = failedOutcome(requestId, 'cancelled', 'not_performed');
-            records.push(Object.freeze({ phase: 'resolved', requestId, outcome }));
-            throw new InterpreterFault('cancelled');
-          }
-          active.dispatched = true;
-          let received: unknown;
-          try {
-            received = await host.handleAction(actionRequest);
-          } catch {
-            received = failedOutcome(requestId, 'handler_fault', 'unknown');
-          }
-          if (active.cancelled) {
-            const outcome = failedOutcome(requestId, 'cancelled', 'unknown');
-            records.push(Object.freeze({ phase: 'resolved', requestId, outcome }));
-            throw new InterpreterFault('cancelled');
-          }
-          // A mismatched outcome cannot resume the pending IR continuation, even from an in-process host adapter.
-          if (!matchingOutcome(received, requestId)) {
-            const outcome = failedOutcome(requestId, 'gateway_fault', 'unknown');
-            records.push(Object.freeze({ phase: 'resolved', requestId, outcome }));
-            throw new ExecutionFault('action_outcome_invalid');
-          }
-          if (received.result.tag === 'failed') {
-            records.push(Object.freeze({ phase: 'resolved', requestId, outcome: received }));
-            throw new ExecutionFault(received.result.value.failure.code, received.result.value.effectState);
-          }
-          if (received.result.tag === 'rejected') {
-            const error = policyErrorValue(schemaRef(operation.error), request.registry.schemas, received.result.value);
-            if (error === undefined) {
-              const outcome = failedOutcome(requestId, 'invalid_result', 'not_performed');
-              records.push(Object.freeze({ phase: 'resolved', requestId, outcome }));
-              throw new ExecutionFault('action_outcome_invalid', 'policy error does not match operation error schema');
-            }
-            records.push(Object.freeze({ phase: 'resolved', requestId, outcome: received }));
-            return Object.freeze({ tag: 'error', value: error });
-          }
-          const decoded = decodeCanonical(
-            resultSchema(schemaRef(operation.output), schemaRef(operation.error)),
-            Uint8Array.from(received.result.value),
-            {
-              registry: request.registry.schemas,
-              limits: {
-                maxDepth: request.limits.maxDepth,
-                maxNodes: request.limits.maxNodes,
-                maxBytes: request.limits.maxBytes,
-              },
-            },
-          );
-          if (!decoded.ok) {
-            const outcome = failedOutcome(requestId, 'invalid_result', 'unknown');
-            records.push(Object.freeze({ phase: 'resolved', requestId, outcome }));
-            throw new ExecutionFault('action_outcome_invalid', decoded.failure.code);
-          }
-          records.push(Object.freeze({ phase: 'resolved', requestId, outcome: received }));
-          return decoded.value;
-        },
+        trace: (event, source) => trace.add(event, source),
+        action: (instruction, actionValue) => dispatcher.handle(instruction, actionValue),
       });
       const output = encodeCanonical(schemaRef(slot.output), value, {
         registry: request.registry.schemas,
-        limits: {
-          maxDepth: request.limits.maxDepth,
-          maxNodes: request.limits.maxNodes,
-          maxBytes: Math.min(request.limits.maxBytes, request.limits.outputBytes),
-        },
+        limits: valueLimits(request.limits, Math.min(request.limits.maxBytes, request.limits.outputBytes)),
       });
       if (!output.ok) throw new ExecutionFault('invalid_output', output.failure.code);
       if (usageValue.outputBytes + output.value.length > request.limits.outputBytes)
         throw new ExecutionFault('resource_exhausted', 'outputBytes');
-      charge(1 + Math.ceil(output.value.length / 16));
+      meter.charge(1 + Math.ceil(output.value.length / 16));
       usageValue.outputBytes += output.value.length;
       return Object.freeze({
         status: 'completed',
         output: frozenBytes(output.value),
-        facts: facts(preparation, records, usageValue, trace, traceTruncated),
+        facts: facts(preparation, records, usageValue, trace.records, trace.truncated),
       });
     } catch (error) {
       const fault =
         error instanceof ExecutionFault || error instanceof InterpreterFault
           ? error
           : new ExecutionFault('interpreter_fault');
-      const terminalFacts = facts(preparation, records, usageValue, trace, traceTruncated);
+      const terminalFacts = facts(preparation, records, usageValue, trace.records, trace.truncated);
       return fault.code === 'cancelled'
         ? { status: 'cancelled', error: { code: 'cancelled' }, facts: terminalFacts }
         : {

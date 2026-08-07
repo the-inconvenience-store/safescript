@@ -231,6 +231,19 @@ function executeRequest(
   };
 }
 
+function checkWithSource(value: string) {
+  return {
+    ...checkRequest,
+    source: { entry: moduleId, modules: [{ id: moduleId, source: [...new TextEncoder().encode(value)] }] },
+  };
+}
+
+const unreachableHost = {
+  handleAction: async (): Promise<never> => {
+    throw new Error('unreachable');
+  },
+};
+
 describe('direct RuntimeBridge walking skeleton', () => {
   it('derives behavior from checked source instead of fixture constants', async () => {
     const alternateSource = source.replace('2_000_000', '1_000_000').replace('Onboard ', 'Review ');
@@ -502,6 +515,221 @@ describe('direct RuntimeBridge walking skeleton', () => {
     expect(cancelled.status).toBe('cancelled');
     if (cancelled.status === 'cancelled')
       expect(cancelled.facts.actions.map((record) => record.phase)).toEqual(['requested', 'resolved']);
+  });
+});
+
+describe('compiler validation through the RuntimeBridge interface', () => {
+  it.each([
+    ['SS_SYNTAX', source.replace('export async function', 'export async function )')],
+    ['SS_AMBIENT_AUTHORITY', 'import { Ok } from "node:fs"\n' + source],
+    ['SS_IMPORT_FORM', 'import Prelude from "safescript:prelude"\n' + source],
+    ['SS_IMPORT_NAME', 'import { Nope } from "safescript:prelude"\n' + source],
+    ['SS_MODULE_SHAPE', source + '\nconst extra = 1'],
+    ['SS_HANDLER_SHAPE', source.replace('export async function', 'function')],
+    ['SS_MUTABLE_BINDING', source.replace('const result =', 'let result =')],
+    ['SS_INVALID_ACTION', source.replace('ctx.tasks.create({', 'ctx.tasks.missing({')],
+    ['SS_SWITCH_EXHAUSTIVE', source.replace('    case "error":\n      return Err(result.value)', '')],
+    ['SS_UNKNOWN_FIELD', source.replace('event.before.stage', 'event.before.missing')],
+    ['SS_UNSUPPORTED_OPERATOR', source.replace('event.before.stage === "won"', 'event.before.stage + "won"')],
+  ])('rejects %s deterministically', async (code, invalidSource) => {
+    const result = await createDirectRuntimeBridge().check(checkWithSource(invalidSource));
+    expect(result.status).toBe('rejected');
+    if (result.status === 'rejected') expect(result.diagnostics[0]?.code).toBe(code);
+  });
+
+  it('rejects invalid request envelopes and compile ceilings before parsing', async () => {
+    const bridge = createDirectRuntimeBridge();
+    expect((await bridge.check({ ...checkRequest, abiVersion: { major: 2, minor: 0 } })).status).toBe('bridge_error');
+    expect(
+      (
+        await bridge.check({
+          ...checkRequest,
+          limits: { ...STANDARD_COMPILE_LIMITS, modules: STANDARD_COMPILE_LIMITS.modules + 1 },
+        })
+      ).status,
+    ).toBe('rejected');
+    expect(
+      (
+        await bridge.check({
+          ...checkRequest,
+          source: { entry: moduleId, modules: [...checkRequest.source.modules, ...checkRequest.source.modules] },
+        })
+      ).status,
+    ).toBe('rejected');
+    expect(
+      (
+        await bridge.check({
+          ...checkRequest,
+          source: { entry: moduleId, modules: [{ id: moduleId, source: [0xff] }] },
+        })
+      ).status,
+    ).toBe('rejected');
+  });
+});
+
+describe('inspection and bridge lifecycle', () => {
+  it('returns a semantic graph only when requested', async () => {
+    const bridge = createDirectRuntimeBridge();
+    const inspected = await bridge.inspect({ ...checkRequest, views: ['semantic_graph'] });
+    expect(inspected.status).toBe('accepted');
+    if (inspected.status === 'accepted') {
+      expect(inspected.check.status).toBe('accepted');
+      const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(inspected.views.semantic_graph ?? [])));
+      expect(graph.handler).toBe('onDealUpdated');
+      expect(graph.actions).toHaveLength(1);
+      expect(graph.predicates.length).toBeGreaterThan(0);
+    }
+    const omitted = await bridge.inspect({ ...checkRequest, views: [] });
+    if (omitted.status === 'accepted') expect(omitted.views).toEqual({});
+  });
+
+  it('closes idempotently and rejects later operations', async () => {
+    const bridge = createDirectRuntimeBridge();
+    expect(await bridge.close()).toEqual({ status: 'closed' });
+    expect(await bridge.close()).toEqual({ status: 'closed' });
+    expect((await bridge.check(checkRequest)).status).toBe('bridge_error');
+    expect((await bridge.inspect({ ...checkRequest, views: [] })).status).toBe('bridge_error');
+    expect(
+      (await bridge.execute(executeRequest({ kind: 'source', source: checkRequest }), unreachableHost)).status,
+    ).toBe('bridge_error');
+    expect(
+      (
+        await bridge.cancel({
+          abiVersion: { major: 1, minor: 0 },
+          invocationId: ids.invocation(`invocation:${'c'.repeat(32)}`),
+        })
+      ).status,
+    ).toBe('bridge_error');
+  });
+
+  it('reports unsupported and inactive cancellation requests', async () => {
+    const bridge = createDirectRuntimeBridge();
+    const invocationId = ids.invocation(`invocation:${'a'.repeat(32)}`);
+    expect((await bridge.cancel({ abiVersion: { major: 2, minor: 0 }, invocationId })).status).toBe('bridge_error');
+    expect(await bridge.cancel({ abiVersion: { major: 1, minor: 0 }, invocationId })).toEqual({ status: 'not_active' });
+  });
+});
+
+describe('execution validation, limits, and host outcomes', () => {
+  it('rejects invalid execution envelopes without dispatch', async () => {
+    const bridge = createDirectRuntimeBridge();
+    expect(
+      (
+        await bridge.execute(
+          { ...executeRequest({ kind: 'source', source: checkRequest }), abiVersion: { major: 2, minor: 0 } },
+          unreachableHost,
+        )
+      ).status,
+    ).toBe('bridge_error');
+    expect(
+      (
+        await bridge.execute(
+          executeRequest({ kind: 'source', source: checkRequest }, event(), {
+            ...STANDARD_EXECUTION_LIMITS,
+            fuel: STANDARD_EXECUTION_LIMITS.fuel + 1,
+          }),
+          unreachableHost,
+        )
+      ).status,
+    ).toBe('not_started');
+    const seeded = executeRequest({ kind: 'source', source: checkRequest });
+    const { idempotencySeed: _omitted, ...withoutIdempotencySeed } = seeded;
+    void _omitted;
+    expect((await bridge.execute(withoutIdempotencySeed, unreachableHost)).status).toBe('not_started');
+    expect(
+      (
+        await bridge.execute(
+          { ...executeRequest({ kind: 'source', source: checkRequest }), input: [0] },
+          unreachableHost,
+        )
+      ).status,
+    ).toBe('not_started');
+  });
+
+  it('prevents duplicate active invocation IDs', async () => {
+    const bridge = createDirectRuntimeBridge();
+    const invocationId = ids.invocation(`invocation:${'d'.repeat(32)}`);
+    let release: (() => void) | undefined;
+    const pending = bridge.execute(
+      { ...executeRequest({ kind: 'source', source: checkRequest }), invocationId },
+      {
+        handleAction: () =>
+          new Promise<ActionOutcome>((resolve) => {
+            release = () =>
+              resolve({
+                abiVersion: { major: 1, minor: 0 },
+                requestId: ids.request(invocationId, 0),
+                result: { tag: 'failed', value: { effectState: 'unknown', failure: { code: 'cancelled' } } },
+              });
+          }),
+      },
+    );
+    while (!release) await Promise.resolve();
+    const duplicate = await bridge.execute(
+      { ...executeRequest({ kind: 'source', source: checkRequest }), invocationId },
+      unreachableHost,
+    );
+    expect(duplicate.status).toBe('not_started');
+    await bridge.cancel({ abiVersion: { major: 1, minor: 0 }, invocationId });
+    release?.();
+    await pending;
+  });
+
+  it.each([
+    ['handler fault', async () => Promise.reject(new Error('host failed')), 'handler_fault'],
+    [
+      'mismatched request',
+      async () => ({
+        abiVersion: { major: 1, minor: 0 } as const,
+        requestId: ids.request(ids.invocation(`invocation:${'f'.repeat(32)}`), 0),
+        result: {
+          tag: 'failed' as const,
+          value: { effectState: 'unknown' as const, failure: { code: 'gateway_fault' as const } },
+        },
+      }),
+      'action_outcome_invalid',
+    ],
+    [
+      'explicit failure',
+      async (request: ActionRequest) => ({
+        abiVersion: { major: 1, minor: 0 } as const,
+        requestId: request.requestId,
+        result: {
+          tag: 'failed' as const,
+          value: { effectState: 'unknown' as const, failure: { code: 'unavailable' as const } },
+        },
+      }),
+      'unavailable',
+    ],
+  ])('maps %s to a stable execution fault', async (_name, handleAction, code) => {
+    const result = await createDirectRuntimeBridge().execute(executeRequest({ kind: 'source', source: checkRequest }), {
+      handleAction,
+    });
+    expect(result.status).toBe('failed');
+    if (result.status === 'failed') expect(result.error.code).toBe(code);
+  });
+
+  it.each([
+    ['hostCalls', { hostCalls: 0 }],
+    ['concurrentActions', { concurrentActions: 0 }],
+    ['allocations', { allocations: 0 }],
+    ['traceBytes', { traceBytes: 1 }],
+  ])('enforces or records the %s ceiling', async (limit, override) => {
+    const request = {
+      ...executeRequest({ kind: 'source' as const, source: checkRequest }, event(), {
+        ...STANDARD_EXECUTION_LIMITS,
+        ...override,
+      }),
+      trace: 'semantic' as const,
+    };
+    const result = await createDirectRuntimeBridge().execute(request, unreachableHost);
+    if (limit === 'traceBytes') {
+      expect(result.status).toBe('failed');
+      if (result.status === 'failed') expect(result.facts.trace.truncated).toBe(true);
+    } else {
+      expect(result.status).toBe('failed');
+      if (result.status === 'failed') expect(result.error.code).toBe('resource_exhausted');
+    }
   });
 });
 

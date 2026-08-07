@@ -445,69 +445,12 @@ class Lowerer {
     environment: Map<string, Binding>,
   ): Binding {
     if (ts.isParenthesizedExpression(expression)) return this.expression(expression.expression, expected, environment);
-    if (ts.isIdentifier(expression)) {
-      const binding = environment.get(expression.text);
-      if (!binding) this.fail(expression, 'SS_UNKNOWN_IDENTIFIER', `unknown identifier ${expression.text}`);
-      if (expected && !sameType(binding.type, expected))
-        this.fail(expression, 'SS_TYPE_MISMATCH', 'expression does not match its checked context');
-      return binding;
-    }
-    if (ts.isPropertyAccessExpression(expression)) {
-      if (expression.name.text === 'value' && ts.isIdentifier(expression.expression)) {
-        const narrowed = environment.get(expression.expression.text);
-        if (narrowed?.payload && narrowed.payloadType)
-          return { register: narrowed.payload, type: narrowed.payloadType };
-      }
-      const base = this.expression(expression.expression, undefined, environment);
-      const type = fieldType(base.type, expression.name.text, this.registry);
-      if (!type)
-        this.fail(expression, 'SS_UNKNOWN_FIELD', `field ${expression.name.text} is not present on the checked record`);
-      if (expected && !sameType(type, expected))
-        this.fail(expression, 'SS_TYPE_MISMATCH', 'projected field does not match its checked context');
-      return this.emit({
-        tag: 'project-field',
-        destination: this.register(expression.name.text),
-        type,
-        from: base.register,
-        field: expression.name.text,
-        source: this.location(expression),
-      });
-    }
-    if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) {
-      const type =
-        expected && ['string', 'brand'].includes(resolveSchema(expected, this.registry)?.kind ?? '')
-          ? expected
-          : { kind: 'string' as const, maxBytes: new TextEncoder().encode(expression.text).length };
-      return this.emit({
-        tag: 'constant',
-        destination: this.register('string'),
-        type,
-        value: expression.text,
-        source: this.location(expression),
-      });
-    }
-    if (ts.isBigIntLiteral(expression) || ts.isNumericLiteral(expression)) {
-      const resolved = expected && resolveSchema(expected, this.registry);
-      const type =
-        resolved?.kind === 'float64'
-          ? (expected as Schema)
-          : resolved?.kind === 'int64' || resolved?.kind === 'brand'
-            ? (expected as Schema)
-            : ts.isBigIntLiteral(expression) || !expression.text.includes('.')
-              ? ({ kind: 'int64' } as const)
-              : ({ kind: 'float64' } as const);
-      const value =
-        resolveSchema(type, this.registry)?.kind === 'int64'
-          ? expression.text.replaceAll('_', '').replace(/n$/, '')
-          : Number(expression.text.replaceAll('_', ''));
-      return this.emit({
-        tag: 'constant',
-        destination: this.register('number'),
-        type,
-        value,
-        source: this.location(expression),
-      });
-    }
+    if (ts.isIdentifier(expression)) return this.identifier(expression, expected, environment);
+    if (ts.isPropertyAccessExpression(expression)) return this.property(expression, expected, environment);
+    if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression))
+      return this.stringLiteral(expression, expected);
+    if (ts.isBigIntLiteral(expression) || ts.isNumericLiteral(expression))
+      return this.numericLiteral(expression, expected);
     if (expression.kind === ts.SyntaxKind.TrueKeyword || expression.kind === ts.SyntaxKind.FalseKeyword) {
       return this.emit({
         tag: 'constant',
@@ -529,91 +472,185 @@ class Lowerer {
       const value = typeof instruction.value === 'number' ? -instruction.value : `-${instruction.value}`;
       return this.emit({ ...instruction, destination: operand.register, value, source: this.location(expression) });
     }
-    if (ts.isObjectLiteralExpression(expression)) {
-      if (!expected) this.fail(expression, 'SS_CONTEXT_REQUIRED', 'record literal requires a registered expected type');
-      const record = resolveSchema(expected, this.registry);
-      if (record?.kind !== 'record')
-        this.fail(expression, 'SS_TYPE_MISMATCH', 'object literal is not a registered record');
-      if (
-        expression.properties.length !== record.fields.length ||
-        expression.properties.some((property) => !ts.isPropertyAssignment(property) || !ts.isIdentifier(property.name))
-      )
-        this.fail(expression, 'SS_RECORD_SHAPE', 'record literal requires every field exactly once');
-      const fields: (readonly [string, RegisterId])[] = [];
-      for (const field of record.fields) {
-        const property = expression.properties.find(
-          (candidate): candidate is ts.PropertyAssignment =>
-            ts.isPropertyAssignment(candidate) && ts.isIdentifier(candidate.name) && candidate.name.text === field.name,
-        );
-        if (!property) this.fail(expression, 'SS_RECORD_SHAPE', `missing record field ${field.name}`);
-        fields.push([field.name, this.expression(property.initializer, field.schema, environment).register]);
-      }
-      return this.emit({
-        tag: 'construct-record',
-        destination: this.register('record'),
-        type: expected,
-        fields: Object.freeze(fields),
-        source: this.location(expression),
-      });
-    }
-    if (ts.isTemplateExpression(expression)) {
-      const parts: (string | Readonly<{ register: RegisterId }>)[] = [expression.head.text];
-      for (const span of expression.templateSpans) {
-        const value = this.expression(span.expression, undefined, environment);
-        const resolved = resolveSchema(value.type, this.registry);
-        if (!resolved || !['string', 'int64', 'float64', 'boolean', 'brand'].includes(resolved.kind))
-          this.fail(
-            span.expression,
-            'SS_TEMPLATE_TYPE',
-            'template interpolation has no deterministic bounded conversion',
-          );
-        parts.push({ register: value.register }, span.literal.text);
-      }
-      const type =
-        expected && resolveSchema(expected, this.registry)?.kind === 'string' ? expected : { kind: 'string' as const };
-      return this.emit({
-        tag: 'build-template',
-        destination: this.register('template'),
-        type,
-        parts: Object.freeze(parts),
-        source: this.location(expression),
-      });
-    }
+    if (ts.isObjectLiteralExpression(expression)) return this.objectLiteral(expression, expected, environment);
+    if (ts.isTemplateExpression(expression)) return this.template(expression, expected, environment);
     if (
       ts.isCallExpression(expression) &&
       ts.isIdentifier(expression.expression) &&
       (expression.expression.text === 'Ok' || expression.expression.text === 'Err')
-    ) {
-      const resultType = expected ?? { kind: 'ref' as const, type: this.slot.output };
-      const tag = expression.expression.text === 'Ok' ? 'ok' : 'error';
-      const payloadType = variantType(resultType, tag, this.registry);
-      if (!payloadType || expression.arguments.length > 1 || (tag === 'error' && expression.arguments.length !== 1))
-        this.fail(expression, 'SS_RESULT_CONSTRUCTION', 'invalid checked result construction');
-      let payload: Binding;
-      if (expression.arguments.length === 0) {
-        if (resolveSchema(payloadType, this.registry)?.kind !== 'unit')
-          this.fail(expression, 'SS_RESULT_CONSTRUCTION', 'Ok() requires a unit result');
-        payload = this.emit({
-          tag: 'constant',
-          destination: this.register('unit'),
-          type: payloadType,
-          value: null,
-          source: this.location(expression),
-        });
-      } else {
-        payload = this.expression(expression.arguments[0] as ts.Expression, payloadType, environment);
-      }
-      return this.emit({
-        tag: 'construct-variant',
-        destination: this.register(tag),
-        type: resultType,
-        variant: tag,
-        payload: payload.register,
-        source: this.location(expression),
-      });
-    }
+    )
+      return this.result(expression, expected, environment);
     if (ts.isBinaryExpression(expression)) return this.comparison(expression, environment);
     this.fail(expression, 'SS_UNSUPPORTED_EXPRESSION', `unsupported expression ${ts.SyntaxKind[expression.kind]}`);
+  }
+
+  private identifier(
+    expression: ts.Identifier,
+    expected: Schema | undefined,
+    environment: Map<string, Binding>,
+  ): Binding {
+    const binding = environment.get(expression.text);
+    if (!binding) this.fail(expression, 'SS_UNKNOWN_IDENTIFIER', `unknown identifier ${expression.text}`);
+    if (expected && !sameType(binding.type, expected))
+      this.fail(expression, 'SS_TYPE_MISMATCH', 'expression does not match its checked context');
+    return binding;
+  }
+
+  private property(
+    expression: ts.PropertyAccessExpression,
+    expected: Schema | undefined,
+    environment: Map<string, Binding>,
+  ): Binding {
+    if (expression.name.text === 'value' && ts.isIdentifier(expression.expression)) {
+      const narrowed = environment.get(expression.expression.text);
+      if (narrowed?.payload && narrowed.payloadType) return { register: narrowed.payload, type: narrowed.payloadType };
+    }
+    const base = this.expression(expression.expression, undefined, environment);
+    const type = fieldType(base.type, expression.name.text, this.registry);
+    if (!type)
+      this.fail(expression, 'SS_UNKNOWN_FIELD', `field ${expression.name.text} is not present on the checked record`);
+    if (expected && !sameType(type, expected))
+      this.fail(expression, 'SS_TYPE_MISMATCH', 'projected field does not match its checked context');
+    return this.emit({
+      tag: 'project-field',
+      destination: this.register(expression.name.text),
+      type,
+      from: base.register,
+      field: expression.name.text,
+      source: this.location(expression),
+    });
+  }
+
+  private stringLiteral(expression: ts.StringLiteralLike, expected: Schema | undefined): Binding {
+    const type =
+      expected && ['string', 'brand'].includes(resolveSchema(expected, this.registry)?.kind ?? '')
+        ? expected
+        : { kind: 'string' as const, maxBytes: new TextEncoder().encode(expression.text).length };
+    return this.emit({
+      tag: 'constant',
+      destination: this.register('string'),
+      type,
+      value: expression.text,
+      source: this.location(expression),
+    });
+  }
+
+  private numericLiteral(expression: ts.NumericLiteral | ts.BigIntLiteral, expected: Schema | undefined): Binding {
+    const resolved = expected && resolveSchema(expected, this.registry);
+    const type =
+      resolved?.kind === 'float64'
+        ? (expected as Schema)
+        : resolved?.kind === 'int64' || resolved?.kind === 'brand'
+          ? (expected as Schema)
+          : ts.isBigIntLiteral(expression) || !expression.text.includes('.')
+            ? ({ kind: 'int64' } as const)
+            : ({ kind: 'float64' } as const);
+    const value =
+      resolveSchema(type, this.registry)?.kind === 'int64'
+        ? expression.text.replaceAll('_', '').replace(/n$/, '')
+        : Number(expression.text.replaceAll('_', ''));
+    return this.emit({
+      tag: 'constant',
+      destination: this.register('number'),
+      type,
+      value,
+      source: this.location(expression),
+    });
+  }
+
+  private objectLiteral(
+    expression: ts.ObjectLiteralExpression,
+    expected: Schema | undefined,
+    environment: Map<string, Binding>,
+  ): Binding {
+    if (!expected) this.fail(expression, 'SS_CONTEXT_REQUIRED', 'record literal requires a registered expected type');
+    const record = resolveSchema(expected, this.registry);
+    if (record?.kind !== 'record')
+      this.fail(expression, 'SS_TYPE_MISMATCH', 'object literal is not a registered record');
+    if (
+      expression.properties.length !== record.fields.length ||
+      expression.properties.some((property) => !ts.isPropertyAssignment(property) || !ts.isIdentifier(property.name))
+    )
+      this.fail(expression, 'SS_RECORD_SHAPE', 'record literal requires every field exactly once');
+    const fields = record.fields.map((field): readonly [string, RegisterId] => {
+      const property = expression.properties.find(
+        (candidate): candidate is ts.PropertyAssignment =>
+          ts.isPropertyAssignment(candidate) && ts.isIdentifier(candidate.name) && candidate.name.text === field.name,
+      );
+      if (!property) this.fail(expression, 'SS_RECORD_SHAPE', `missing record field ${field.name}`);
+      return [field.name, this.expression(property.initializer, field.schema, environment).register];
+    });
+    return this.emit({
+      tag: 'construct-record',
+      destination: this.register('record'),
+      type: expected,
+      fields: Object.freeze(fields),
+      source: this.location(expression),
+    });
+  }
+
+  private template(
+    expression: ts.TemplateExpression,
+    expected: Schema | undefined,
+    environment: Map<string, Binding>,
+  ): Binding {
+    const parts: (string | Readonly<{ register: RegisterId }>)[] = [expression.head.text];
+    for (const span of expression.templateSpans) {
+      const value = this.expression(span.expression, undefined, environment);
+      const resolved = resolveSchema(value.type, this.registry);
+      if (!resolved || !['string', 'int64', 'float64', 'boolean', 'brand'].includes(resolved.kind))
+        this.fail(
+          span.expression,
+          'SS_TEMPLATE_TYPE',
+          'template interpolation has no deterministic bounded conversion',
+        );
+      parts.push({ register: value.register }, span.literal.text);
+    }
+    const type =
+      expected && resolveSchema(expected, this.registry)?.kind === 'string' ? expected : { kind: 'string' as const };
+    return this.emit({
+      tag: 'build-template',
+      destination: this.register('template'),
+      type,
+      parts: Object.freeze(parts),
+      source: this.location(expression),
+    });
+  }
+
+  private result(
+    expression: ts.CallExpression,
+    expected: Schema | undefined,
+    environment: Map<string, Binding>,
+  ): Binding {
+    const resultType = expected ?? { kind: 'ref' as const, type: this.slot.output };
+    const tag = (expression.expression as ts.Identifier).text === 'Ok' ? 'ok' : 'error';
+    const payloadType = variantType(resultType, tag, this.registry);
+    if (!payloadType || expression.arguments.length > 1 || (tag === 'error' && expression.arguments.length !== 1))
+      this.fail(expression, 'SS_RESULT_CONSTRUCTION', 'invalid checked result construction');
+    const payload =
+      expression.arguments.length === 0
+        ? this.unitResultPayload(expression, payloadType)
+        : this.expression(expression.arguments[0] as ts.Expression, payloadType, environment);
+    return this.emit({
+      tag: 'construct-variant',
+      destination: this.register(tag),
+      type: resultType,
+      variant: tag,
+      payload: payload.register,
+      source: this.location(expression),
+    });
+  }
+
+  private unitResultPayload(expression: ts.CallExpression, payloadType: Schema): Binding {
+    if (resolveSchema(payloadType, this.registry)?.kind !== 'unit')
+      this.fail(expression, 'SS_RESULT_CONSTRUCTION', 'Ok() requires a unit result');
+    return this.emit({
+      tag: 'constant',
+      destination: this.register('unit'),
+      type: payloadType,
+      value: null,
+      source: this.location(expression),
+    });
   }
 }
 
