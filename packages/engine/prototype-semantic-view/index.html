@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SafeScript semantic view prototype</title>
+  <style>
+    :root { color-scheme: dark; --ink:#eef2ff; --muted:#8993aa; --panel:#111827; --line:#2a3548; --accent:#7dd3fc; --green:#86efac; --amber:#fcd34d; --violet:#c4b5fd; --red:#fda4af; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:#080d16; color:var(--ink); font:14px/1.45 ui-sans-serif,system-ui,sans-serif; }
+    button { font:inherit; color:inherit; }
+    header { display:flex; justify-content:space-between; align-items:flex-start; padding:22px 28px; border-bottom:1px solid var(--line); background:#0b1220; }
+    h1,h2,h3,p { margin:0; }
+    h1 { font-size:18px; letter-spacing:.01em; }
+    .eyebrow { color:var(--accent); font:11px/1.4 ui-monospace,monospace; letter-spacing:.12em; text-transform:uppercase; margin-bottom:5px; }
+    .status { color:var(--muted); text-align:right; font-size:12px; }
+    main { min-height:calc(100vh - 82px); padding:24px 28px 100px; }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; }
+    .subtle { color:var(--muted); }
+    .pill { display:inline-flex; padding:3px 7px; border:1px solid var(--line); border-radius:999px; color:var(--muted); font:11px ui-monospace,monospace; }
+    .tag-effect { color:var(--amber); border-color:#665525; }
+    .tag-cap { color:var(--violet); border-color:#4d4273; }
+    .node { background:#101a2a; border:1px solid var(--line); border-radius:10px; padding:13px; cursor:pointer; text-align:left; transition:.12s; }
+    .node:hover,.node.selected { border-color:var(--accent); transform:translateY(-1px); }
+    .node strong { display:block; margin:4px 0; }
+    .node small { color:var(--muted); }
+    .kind { color:var(--accent); font:10px ui-monospace,monospace; text-transform:uppercase; letter-spacing:.08em; }
+    .switcher { position:fixed; z-index:10; bottom:22px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:12px; padding:8px; border:1px solid #53627b; border-radius:999px; background:#172033; box-shadow:0 12px 35px #000a; }
+    .switcher button { width:36px; height:32px; border:0; border-radius:999px; background:#27344b; cursor:pointer; }
+    .switcher span { min-width:230px; text-align:center; font-weight:650; }
+    details.state { margin-top:18px; }
+    details.state summary { cursor:pointer; color:var(--muted); }
+    pre { margin:10px 0 0; padding:14px; overflow:auto; border-radius:9px; background:#070b12; color:#b7c4dc; font:11px/1.5 ui-monospace,monospace; }
+
+    /* A: a sparse, human-first flow. */
+    .flow-layout { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:18px; }
+    .flow-canvas { min-height:590px; padding:24px; }
+    .flow-title { display:flex; justify-content:space-between; align-items:end; margin-bottom:38px; }
+    .flow { display:grid; grid-template-columns:1fr 52px 1.2fr 52px 1fr; align-items:center; }
+    .arrow { color:#59667b; font-size:24px; text-align:center; }
+    .guard-stack { display:grid; gap:8px; }
+    .guard { padding:10px; border-left:3px solid var(--amber); background:#151c26; border-radius:5px; }
+    .branch-row { grid-column:3/6; display:grid; grid-template-columns:1fr 52px 1fr; margin-top:44px; align-items:center; }
+    .edge-label { color:var(--muted); font:11px ui-monospace,monospace; text-align:center; }
+    .inspector { padding:18px; }
+    .fact-list { display:grid; gap:10px; margin-top:16px; }
+    .fact { padding-top:10px; border-top:1px solid var(--line); }
+    .fact dt { color:var(--muted); font-size:11px; }
+    .fact dd { margin:3px 0 0; font-family:ui-monospace,monospace; overflow-wrap:anywhere; }
+
+    /* B: dense compiler lanes. */
+    .lanes { display:grid; grid-template-columns:150px 1fr; min-height:620px; overflow:hidden; }
+    .lane-labels { background:#0c1422; border-right:1px solid var(--line); }
+    .lane-label { height:190px; padding:18px; border-bottom:1px solid var(--line); }
+    .lane-label b { display:block; margin-bottom:5px; }
+    .lane-grid { position:relative; display:grid; grid-template-columns:repeat(7,minmax(115px,1fr)); grid-template-rows:190px 190px 190px; gap:0; overflow:auto; }
+    .lane-grid::before,.lane-grid::after { content:""; position:absolute; left:0; right:0; border-top:1px solid var(--line); }
+    .lane-grid::before { top:190px; } .lane-grid::after { top:380px; }
+    .lane-node { margin:26px 10px; align-self:start; position:relative; }
+    .lane-node::after { content:"→"; position:absolute; right:-20px; top:38%; color:#526078; }
+    .lane-node.end::after { content:""; }
+    .r1 { grid-row:1; } .r2 { grid-row:2; } .r3 { grid-row:3; }
+    .legend { display:flex; gap:12px; padding:12px 16px; border-top:1px solid var(--line); color:var(--muted); }
+
+    /* C: source is the navigation. */
+    .source-layout { display:grid; grid-template-columns:minmax(520px,1.25fr) minmax(360px,.75fr); gap:18px; }
+    .source { overflow:hidden; }
+    .source-head,.facts-head { padding:14px 18px; border-bottom:1px solid var(--line); }
+    .code { padding:12px 0; font:12px/1.72 ui-monospace,monospace; }
+    .code-line { display:grid; grid-template-columns:44px 1fr; padding:0 16px 0 0; cursor:pointer; }
+    .code-line:hover,.code-line.active { background:#16243a; }
+    .ln { color:#536078; text-align:right; padding-right:14px; user-select:none; }
+    .kw { color:var(--violet); } .str { color:var(--green); } .num { color:var(--amber); }
+    .facts { min-height:640px; }
+    .fact-card { margin:12px; padding:14px; border-left:3px solid var(--accent); background:#0d1625; border-radius:7px; }
+    .mini-flow { display:grid; grid-template-columns:1fr 28px 1fr 28px 1fr; align-items:center; margin:16px 12px; }
+    @media (max-width:900px) { .flow-layout,.source-layout { grid-template-columns:1fr; } .flow { grid-template-columns:1fr; gap:10px; } .arrow { transform:rotate(90deg); } .branch-row { grid-column:auto; grid-template-columns:1fr; gap:10px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div><div class="eyebrow">Throwaway prototype · read only</div><h1>Deal update semantic inspection</h1></div>
+    <div class="status">source: <code>6e5b…a92f</code><br>contract: <code>crm@1.2.0</code></div>
+  </header>
+  <main id="app"></main>
+  <nav class="switcher" aria-label="Prototype variants">
+    <button id="previous" aria-label="Previous variant">←</button><span id="variant-label"></span><button id="next" aria-label="Next variant">→</button>
+  </nav>
+  <script>
+    // Three variants of a read-only SafeScript inspection view, switchable via ?variant=.
+    const graph = {
+      schemaVersion: { major: 1, minor: 0 },
+      sourceHash: "6e5bf2…a92f",
+      programHash: "278abd…5c01",
+      entry: "symbol:on-deal-updated",
+      nodes: [
+        { id:"slot", kind:"slot", label:"deal.updated", type:"type:crm.deal-updated", source:"host contract" },
+        { id:"handler", kind:"function", label:"onDealUpdated", symbolId:"symbol:on-deal-updated", type:"(DealUpdated) → Result<unit, TaskError>", source:"8:1–31:2" },
+        { id:"transition", kind:"predicate", label:"Transition into won", type:"boolean", reads:["event.before.stage","event.after.stage"], source:"12:7–13:35" },
+        { id:"amount", kind:"predicate", label:"AUD at least A$20,000", type:"boolean", reads:["event.after.amount.currency","event.after.amount.minorUnits"], source:"14:7–15:47" },
+        { id:"input", kind:"construction", label:"TaskCreateInput", type:"type:tasks.create-input", reads:["event.after.workspaceId","event.after.id","event.after.name"], source:"21:43–25:6" },
+        { id:"action", kind:"action", label:"tasks.create", actionSiteId:"action-site:tasks-create", operationId:"operation:tasks.create", effectId:"effect:tasks.create", capabilityId:"capability:tasks.write", type:"Result<Task, TaskError>", source:"21:24–25:7" },
+        { id:"no-action", kind:"return", label:"No action · Ok(unit)", type:"type:result-unit-task-error", source:"17:7–17:18" },
+        { id:"result", kind:"switch", label:"Handle task result", type:"type:result-task-task-error", source:"27:3–32:4" },
+        { id:"done", kind:"return", label:"Return Ok or declared Err", type:"type:result-unit-task-error", source:"29:9–31:32" }
+      ],
+      edges: [
+        ["slot","handler","invokes"], ["handler","transition","control"], ["transition","amount","true"], ["transition","no-action","false"],
+        ["amount","input","true"], ["amount","no-action","false"], ["input","action","data"], ["action","result","resume"], ["result","done","cases"]
+      ],
+      summary: { effects:["effect:tasks.create"], capabilities:["capability:tasks.write"], actionSites:1, hostCalls:1, concurrentActions:1 }
+    };
+    const projection = {
+      nodes:[
+        { id:"p-trigger", label:"Deal updated", sourceNodes:["slot","handler"] },
+        { id:"p-condition", label:"Newly won · AUD ≥ A$20,000", sourceNodes:["transition","amount"] },
+        { id:"p-action", label:"Create onboarding task", sourceNodes:["input","action"] },
+        { id:"p-no-action", label:"No action", sourceNodes:["no-action"] },
+        { id:"p-result", label:"Return task result", sourceNodes:["result","done"] }
+      ],
+      edges:[["p-trigger","p-condition"],["p-condition","p-action","yes"],["p-condition","p-no-action","no"],["p-action","p-result"]]
+    };
+    const variants = [
+      { key:"A", name:"Human flow" },
+      { key:"B", name:"Compiler lanes" },
+      { key:"C", name:"Source anchored" }
+    ];
+    const params = new URLSearchParams(location.search);
+    let current = Math.max(0, variants.findIndex(v => v.key === (params.get("variant") || "A")));
+    let selected = "action";
+    const app = document.querySelector("#app");
+    const node = id => graph.nodes.find(item => item.id === id);
+    const pills = item => [item.effectId && `<span class="pill tag-effect">${item.effectId}</span>`, item.capabilityId && `<span class="pill tag-cap">${item.capabilityId}</span>`].filter(Boolean).join(" ");
+    const nodeCard = (id, extra="") => { const item=node(id); return `<button class="node ${selected===id?"selected":""} ${extra}" data-node="${id}"><span class="kind">${item.kind}</span><strong>${item.label}</strong><small>${item.type}</small><div style="margin-top:8px">${pills(item)}</div></button>`; };
+    const inspector = () => { const item=node(selected); return `<aside class="panel inspector"><div class="eyebrow">Selected compiler fact</div><h2>${item.label}</h2><dl class="fact-list">${Object.entries(item).filter(([k])=>!['id','label'].includes(k)).map(([k,v])=>`<div class="fact"><dt>${k}</dt><dd>${Array.isArray(v)?v.join('<br>'):v}</dd></div>`).join('')}</dl></aside>`; };
+    const state = () => `<details class="state"><summary>Full prototype state</summary><pre>${escapeHtml(JSON.stringify({ variant:variants[current], selected, graph, projection }, null, 2))}</pre></details>`;
+    function variantA() {
+      return `<section class="flow-layout"><div class="panel flow-canvas"><div class="flow-title"><div><div class="eyebrow">Projection first</div><h2>What this extension can do</h2></div><span class="pill">1 reachable action</span></div><div class="flow">${nodeCard('slot')}<div class="arrow">→</div><div class="node" data-node="transition"><span class="kind">condition group</span><strong>Newly won and AUD ≥ A$20,000</strong><div class="guard-stack"><div class="guard">Stage changes into <b>won</b></div><div class="guard">Currency is <b>AUD</b></div><div class="guard">Minor units ≥ <b>2,000,000</b></div></div></div><div class="arrow">→</div>${nodeCard('action')}<div class="branch-row">${nodeCard('no-action')}<div class="edge-label">no / yes</div>${nodeCard('done')}</div></div>${state()}</div>${inspector()}</section>`;
+    }
+    function variantB() {
+      return `<section class="panel"><div class="lanes"><div class="lane-labels"><div class="lane-label"><b>Control</b><span class="subtle">Branches and returns</span></div><div class="lane-label"><b>Data</b><span class="subtle">Typed reads and construction</span></div><div class="lane-label"><b>Authority</b><span class="subtle">Effects and capabilities</span></div></div><div class="lane-grid">${nodeCard('handler','lane-node r1')}${nodeCard('transition','lane-node r1')}${nodeCard('amount','lane-node r1')}${nodeCard('result','lane-node r1')}${nodeCard('done','lane-node r1 end')}${nodeCard('slot','lane-node r2')}${nodeCard('input','lane-node r2')}${nodeCard('no-action','lane-node r2 end')}${nodeCard('action','lane-node r3 end')}</div></div><div class="legend"><span>→ control/data dependency</span><span class="pill tag-effect">effect</span><span class="pill tag-cap">capability</span></div></section><div class="flow-layout" style="margin-top:18px">${inspector()}<div class="panel inspector"><div class="eyebrow">Program summary</div><pre>${escapeHtml(JSON.stringify(graph.summary,null,2))}</pre>${state()}</div></div>`;
+    }
+    const source = [
+      `export async function onDealUpdated(event, ctx) {`, `  if (`, `    event.before.stage === <span class="str">"won"</span> ||`, `    event.after.stage !== <span class="str">"won"</span> ||`, `    event.after.amount.currency !== <span class="str">"AUD"</span> ||`, `    event.after.amount.minorUnits &lt; <span class="num">2_000_000</span>`, `  ) {`, `    return Ok()`, `  }`, ``, `  const result = await ctx.tasks.create({`, `    workspaceId: event.after.workspaceId,`, `    relatedDealId: event.after.id,`, `    title: <span class="str">\`Onboard \${event.after.name}\`</span>,`, `  })`, ``, `  switch (result.tag) {`, `    case <span class="str">"ok"</span>: return Ok()`, `    case <span class="str">"error"</span>: return Err(result.value)`, `  }`, `}`
+    ];
+    const sourceFacts = { 1:'handler',3:'transition',4:'transition',5:'amount',6:'amount',8:'no-action',11:'action',12:'input',13:'input',14:'input',17:'result',18:'done',19:'done' };
+    function variantC() {
+      const item=node(selected); return `<section class="source-layout"><div class="panel source"><div class="source-head"><div class="eyebrow">Source is canonical</div><h2>onDealUpdated.ts</h2></div><div class="code">${source.map((line,i)=>`<div class="code-line ${sourceFacts[i+1]===selected?'active':''}" data-node="${sourceFacts[i+1]||'handler'}"><span class="ln">${i+1}</span><span>${line||'&nbsp;'}</span></div>`).join('')}</div></div><div class="panel facts"><div class="facts-head"><div class="eyebrow">Facts at selection</div><h2>${item.label}</h2></div><div class="fact-card"><span class="kind">${item.kind}</span><h3>${item.type}</h3><p class="subtle">${item.source}</p></div><div class="fact-card"><h3>Authority</h3><p>${pills(item)||'<span class="subtle">No authority retained here</span>'}</p></div><div class="mini-flow"><span class="pill">Deal updated</span><span>→</span><span class="pill">Conditions</span><span>→</span><span class="pill tag-effect">Task create</span></div><div style="padding:0 12px">${state()}</div></div></section>`;
+    }
+    function escapeHtml(value) { return value.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
+    function render() {
+      app.innerHTML = [variantA,variantB,variantC][current]();
+      document.querySelector('#variant-label').textContent = `${variants[current].key} — ${variants[current].name}`;
+      document.querySelectorAll('[data-node]').forEach(el => el.addEventListener('click', () => { selected=el.dataset.node; render(); }));
+    }
+    function move(delta) { current=(current+delta+variants.length)%variants.length; const url=new URL(location); url.searchParams.set('variant',variants[current].key); history.replaceState({},'',url); selected='action'; render(); }
+    document.querySelector('#previous').onclick=()=>move(-1); document.querySelector('#next').onclick=()=>move(1);
+    addEventListener('keydown', event => { if (['INPUT','TEXTAREA'].includes(document.activeElement.tagName)||document.activeElement.isContentEditable) return; if(event.key==='ArrowLeft')move(-1); if(event.key==='ArrowRight')move(1); });
+    render();
+  </script>
+</body>
+</html>
