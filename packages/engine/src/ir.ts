@@ -1,3 +1,7 @@
+/**
+ * Typed SafeScript IR records, schema helpers, and structural verifier.
+ * @packageDocumentation
+ */
 import {
   encodeCanonical,
   ids,
@@ -12,9 +16,21 @@ import {
   type SourceLocation,
 } from '@safescript/contracts';
 
+/**
+ * Private single-assignment register identity within one IR program.
+ * @internal
+ */
 export type RegisterId = string;
+/**
+ * Private basic-block identity within one IR program.
+ * @internal
+ */
 export type BlockId = string;
 
+/**
+ * Closed instruction set for pure value computation. Host effects are terminators, never instructions.
+ * @internal
+ */
 export type IrInstruction =
   | Readonly<{
       tag: 'constant';
@@ -63,6 +79,10 @@ export type IrInstruction =
       source: SourceLocation;
     }>;
 
+/**
+ * Closed control-flow operations, including the sole host-action suspension point.
+ * @internal
+ */
 export type IrTerminator =
   | Readonly<{ tag: 'jump'; target: BlockId; arguments: readonly RegisterId[]; source: SourceLocation }>
   | Readonly<{ tag: 'branch'; condition: RegisterId; whenTrue: BlockId; whenFalse: BlockId; source: SourceLocation }>
@@ -86,6 +106,10 @@ export type IrTerminator =
     }>
   | Readonly<{ tag: 'return'; value: RegisterId; source: SourceLocation }>;
 
+/**
+ * Basic block with typed parameters, straight-line instructions, and exactly one terminator.
+ * @internal
+ */
 export interface IrBlock {
   readonly id: BlockId;
   readonly parameters: readonly Readonly<{ register: RegisterId; type: Schema }>[];
@@ -93,6 +117,10 @@ export interface IrBlock {
   readonly terminator: IrTerminator;
 }
 
+/**
+ * Serialisable typed control-flow program emitted by the restricted compiler.
+ * @internal
+ */
 export interface IrProgram {
   readonly version: readonly [1, 0];
   readonly entry: BlockId;
@@ -102,6 +130,10 @@ export interface IrProgram {
   readonly summary: ProgramSummary;
 }
 
+/**
+ * IR plus lookup maps proven consistent with the current contract and slot.
+ * @internal
+ */
 export interface VerifiedProgram {
   readonly program: IrProgram;
   readonly blocks: ReadonlyMap<BlockId, IrBlock>;
@@ -120,10 +152,18 @@ function stable(value: unknown): string {
   return JSON.stringify(value);
 }
 
+/**
+ * Compares schema identity structurally without JavaScript object identity.
+ * @internal
+ */
 export function sameType(left: Schema, right: Schema): boolean {
   return stable(left) === stable(right);
 }
 
+/**
+ * Resolves named schema references while rejecting missing or cyclic alias chains.
+ * @internal
+ */
 export function resolveSchema(
   schema: Schema,
   registry: ContractRegistry,
@@ -135,6 +175,10 @@ export function resolveSchema(
   return definition ? resolveSchema(definition.schema, registry, new Set(seen).add(schema.type)) : undefined;
 }
 
+/**
+ * Returns a closed record field's schema after reference resolution.
+ * @internal
+ */
 export function fieldType(schema: Schema, field: string, registry: ContractRegistry): Schema | undefined {
   const resolved = resolveSchema(schema, registry);
   if (resolved?.kind === 'record') return resolved.fields.find((candidate) => candidate.name === field)?.schema;
@@ -142,6 +186,10 @@ export function fieldType(schema: Schema, field: string, registry: ContractRegis
   return undefined;
 }
 
+/**
+ * Returns a closed variant payload schema after reference resolution.
+ * @internal
+ */
 export function variantType(schema: Schema, tag: string, registry: ContractRegistry): Schema | undefined {
   const resolved = resolveSchema(schema, registry);
   return resolved?.kind === 'variant'
@@ -379,6 +427,13 @@ function successors(terminator: IrTerminator): readonly BlockId[] {
   }
 }
 
+/**
+ * Verifies untrusted decoded IR before it can be interpreted.
+ *
+ * @remarks Verification checks IDs, schema references, register definitions, control-flow arity and types, action
+ * permissions, and reachable block structure. The interpreter accepts only the resulting {@link VerifiedProgram}.
+ * @internal
+ */
 export function verifyProgram(
   value: unknown,
   registry: ContractRegistry,
@@ -589,6 +644,10 @@ export function verifyProgram(
   return Object.freeze({ program: value, blocks, operations });
 }
 
+/**
+ * Materialises a verifier-approved IR constant in its canonical runtime representation.
+ * @internal
+ */
 export function constantValue(instruction: Extract<IrInstruction, { tag: 'constant' }>): CanonicalValue {
   const resolved = instruction.type.kind === 'brand' ? instruction.type.base : instruction.type;
   return resolved.kind === 'int64' ? BigInt(instruction.value as string) : instruction.value;

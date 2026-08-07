@@ -1,3 +1,8 @@
+/**
+ * Transport-neutral direct bridge orchestration for checking, inspection, execution, actions, cancellation, and close.
+ *
+ * @packageDocumentation
+ */
 import {
   decodeCanonical,
   deriveIdempotencyKey,
@@ -299,6 +304,12 @@ function actionInstructions(artifact: CheckedArtifact): Extract<IrTerminator, { 
   );
 }
 
+/**
+ * Reference in-process implementation of the transport-neutral {@link RuntimeBridge}.
+ *
+ * @remarks The bridge owns compiler/runtime semantics and action-request formation, but never current host authority or
+ * operation handlers. Those remain behind the supplied `RuntimeBridgeHost` adapter.
+ */
 export class DirectRuntimeBridge implements RuntimeBridge {
   private closed = false;
   private readonly active = new Map<string, ActiveInvocation>();
@@ -364,6 +375,7 @@ export class DirectRuntimeBridge implements RuntimeBridge {
 
   execute(request: Parameters<RuntimeBridge['execute']>[0], host: RuntimeBridgeHost): Promise<ExecutionResult> {
     if (this.closed) return Promise.resolve({ status: 'bridge_error', error: bridgeError('execute', 'bridge_closed') });
+    // Invocation IDs are unique only while active; no durable tombstones or replay coordinator are retained.
     if (this.active.has(request.invocationId))
       return Promise.resolve({
         status: 'not_started',
@@ -557,6 +569,7 @@ export class DirectRuntimeBridge implements RuntimeBridge {
             input: inputBytes,
             ...(key?.ok ? { idempotencyKey: key.value } : {}),
           });
+          // Request-first ordering is observable and must precede policy evaluation or any external operation.
           records.push(Object.freeze({ phase: 'requested', request: actionRequest }));
           if (active.cancelled) {
             const outcome = failedOutcome(requestId, 'cancelled', 'not_performed');
@@ -575,6 +588,7 @@ export class DirectRuntimeBridge implements RuntimeBridge {
             records.push(Object.freeze({ phase: 'resolved', requestId, outcome }));
             throw new InterpreterFault('cancelled');
           }
+          // A mismatched outcome cannot resume the pending IR continuation, even from an in-process host adapter.
           if (!matchingOutcome(received, requestId)) {
             const outcome = failedOutcome(requestId, 'gateway_fault', 'unknown');
             records.push(Object.freeze({ phase: 'resolved', requestId, outcome }));
@@ -662,6 +676,7 @@ export class DirectRuntimeBridge implements RuntimeBridge {
   async close(): Promise<CloseResult> {
     if (this.closed) return { status: 'closed' };
     this.closed = true;
+    // Close follows ordinary cancellation semantics so late host results cannot replay or resume an invocation.
     for (const active of this.active.values()) active.cancelled = true;
     await Promise.allSettled([...this.executions]);
     return { status: 'closed' };

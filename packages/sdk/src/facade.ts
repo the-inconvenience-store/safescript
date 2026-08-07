@@ -1,3 +1,7 @@
+/**
+ * Six-method SafeScript facade and lifecycle coordination.
+ * @packageDocumentation
+ */
 import { randomBytes } from 'node:crypto';
 
 import {
@@ -47,6 +51,13 @@ function sourceProgram(source: SourceProgram): BridgeSourceProgram {
   });
 }
 
+/**
+ * Creates the host-facing SafeScript facade and binds current authorisation and operation handlers once.
+ *
+ * @remarks The direct in-process bridge is used unless `options.bridge` is supplied. All asynchronous methods resolve
+ * stable result unions; only invalid construction throws synchronously.
+ * @throws SdkConfigurationError when handlers, authorisation, or default limits do not match the contract.
+ */
 export function createSafeScript<C, O extends Operations, S extends Slots, E extends PolicyError = PolicyError>(
   options: CreateSafeScriptOptions<C, O, S, E>,
 ): SafeScript<O, S, C> {
@@ -80,6 +91,7 @@ export function createSafeScript<C, O extends Operations, S extends Slots, E ext
   let closePromise: Promise<CloseResult> | undefined;
   const active = new Set<Promise<unknown>>();
 
+  // Normal operational faults resolve closed result unions. Only construction-time configuration errors throw.
   const run = <T>(work: () => Promise<T>, closed: T): Promise<T> => {
     if (closing) return Promise.resolve(closed);
     let task: Promise<T>;
@@ -93,6 +105,7 @@ export function createSafeScript<C, O extends Operations, S extends Slots, E ext
     return task;
   };
   const slotFor = (key: PropertyKey): Slot<unknown, unknown> | undefined => slotsByKey.get(String(key));
+  // Slot limits are ceilings; SDK defaults and per-call values may only reduce them.
   const compileLimits = (slot: Slot<unknown, unknown>, request?: Partial<CompileLimits>): CompileLimits =>
     completeLimits(
       slot.compileLimits ? completeLimits(STANDARD_COMPILE_LIMITS, slot.compileLimits) : STANDARD_COMPILE_LIMITS,
@@ -142,6 +155,7 @@ export function createSafeScript<C, O extends Operations, S extends Slots, E ext
     });
     if (!input.ok) return bridgeError('execute', 'invalid_request');
     try {
+      // Clone every byte collection so later host mutation cannot change the logical bridge request.
       return freeze({
         abiVersion: ABI_VERSION,
         registry: options.contract.registry,
@@ -234,6 +248,7 @@ export function createSafeScript<C, O extends Operations, S extends Slots, E ext
         } catch {
           return freeze({ status: 'bridge_error', error: bridgeError('execute', 'invalid_request') });
         }
+        // One controller joins explicit cancel(), the caller's signal, and the signal observed by host handlers.
         const controller = new AbortController();
         controllers.set(invocationId, controller);
         const abort = (): void => controller.abort();
@@ -267,6 +282,7 @@ export function createSafeScript<C, O extends Operations, S extends Slots, E ext
               execution: freeze({ status: 'bridge_error', error: bridgeError('execute', 'invalid_request') }),
             });
           }
+          // Case identity supplies deterministic defaults without consulting production time, randomness, or IDs.
           const identity = hash('program', encodeUtf8(`${request.name}\0${stable(request.program)}`));
           const invocationId = request.fixed?.invocationId ?? ids.invocation(`invocation:${identity.slice(0, 32)}`);
           const scripted = createScriptedHost(options.contract, operationsById, request.actions ?? []);
@@ -314,6 +330,7 @@ export function createSafeScript<C, O extends Operations, S extends Slots, E ext
       closing = true;
       for (const controller of controllers.values()) controller.abort();
       closePromise = (async () => {
+        // The bridge owns cancellation semantics; facade bookkeeping is awaited after bridge closure settles.
         let result: CloseResult;
         try {
           result = await bridge.close();

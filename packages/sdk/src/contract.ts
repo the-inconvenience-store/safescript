@@ -1,3 +1,7 @@
+/**
+ * Host contract authoring types and canonical contract derivation.
+ * @packageDocumentation
+ */
 import {
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
@@ -31,16 +35,24 @@ import {
 import { generateDeclarations } from './declarations.js';
 import { completeLimits, encodeUtf8, freeze, stable } from './shared.js';
 
+/** Host-startup configuration error raised while deriving a contract. */
 export class ContractDefinitionError extends TypeError {
   override readonly name = 'ContractDefinitionError';
 }
 
+/** Couples a stable schema identity and runtime schema with its host-side TypeScript type. */
 export interface ContractType<T> {
   readonly id: TypeId;
   readonly schema: Schema;
   readonly _type?: T;
 }
 
+/**
+ * Declarative host-operation contract.
+ *
+ * @remarks `resourceScope` must be synchronous and pure. It extracts stable strings used for current authorisation;
+ * it must not perform I/O or make a policy decision.
+ */
 export interface Operation<I, O, E> {
   readonly id: OperationId;
   readonly input: ContractType<I>;
@@ -53,6 +65,7 @@ export interface Operation<I, O, E> {
   readonly resourceScope: (input: I) => Readonly<Record<string, string>>;
 }
 
+/** Host-defined execution point with fixed input/output types, permissions, language, and ceiling limits. */
 export interface Slot<I, O> {
   readonly id: SlotId;
   readonly input: ContractType<I>;
@@ -64,6 +77,7 @@ export interface Slot<I, O> {
   readonly executionLimits?: Partial<ExecutionLimits>;
 }
 
+/** Internal generic constraint for a named operation table. */
 export type Operations = Readonly<
   Record<
     string,
@@ -71,8 +85,10 @@ export type Operations = Readonly<
       Readonly<{ resourceScope: (input: never) => Readonly<Record<string, string>> }>
   >
 >;
+/** Internal generic constraint for a named extension-slot table. */
 export type Slots = Readonly<Record<string, Slot<unknown, unknown>>>;
 
+/** Single host-owned authority from which declarations, codecs, fingerprints, and registry records are derived. */
 export interface ContractDefinition<O extends Operations, S extends Slots> {
   readonly id: ContractId;
   readonly version: SemVer;
@@ -81,11 +97,13 @@ export interface ContractDefinition<O extends Operations, S extends Slots> {
   readonly slots: S;
 }
 
+/** Schema-directed canonical codec generated for one contract type. */
 export interface Codec<T> {
   encode(value: T): CanonicalBytes;
   decode(bytes: Uint8Array | CanonicalBytes): T;
 }
 
+/** Validated, deeply immutable result of {@link defineContract}. */
 export interface Contract<O extends Operations, S extends Slots> {
   readonly id: ContractId;
   readonly version: SemVer;
@@ -101,6 +119,14 @@ function fingerprint(domain: 'type' | 'contract', value: unknown): Sha256Digest 
   return hash(domain, encodeUtf8(stable(value)));
 }
 
+/**
+ * Validates one host definition and derives every compiler, runtime, editor, and codec artifact from it.
+ *
+ * @remarks JavaScript handlers and resource-scope functions remain host-local and are deliberately omitted from the
+ * serialisable registry.
+ * @throws {@link ContractDefinitionError} if identities, schemas, permissions, versions, policy errors, limits, or
+ * generated declaration names are inconsistent.
+ */
 export function defineContract<const O extends Operations, const S extends Slots>(
   definition: ContractDefinition<O, S>,
 ): Contract<O, S> {

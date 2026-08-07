@@ -1,23 +1,48 @@
+/**
+ * Transport-neutral contracts, canonical codecs, stable identities, and runtime bridge records shared by all
+ * SafeScript implementations.
+ *
+ * @remarks Values exported here must remain immutable and language-neutral. Do not add JavaScript closures, object
+ * identity, host handles, credentials, or implementation exceptions to these interfaces.
+ *
+ * @packageDocumentation
+ */
 import { createHash } from 'node:crypto';
 
 declare const brand: unique symbol;
 
+/** Adds a compile-time nominal identity without changing a value's serialised representation. */
 export type Branded<T, Name extends string> = T & { readonly [brand]: Name };
 
+/** Stable identity of one host-owned contract. */
 export type ContractId = Branded<string, 'ContractId'>;
+/** Stable identity of one schema declared by a host contract. */
 export type TypeId = Branded<string, 'TypeId'>;
+/** Stable identity of a statically tracked class of host action. */
 export type EffectId = Branded<string, 'EffectId'>;
+/** Stable identity of authority required to request an operation. */
 export type CapabilityId = Branded<string, 'CapabilityId'>;
+/** Stable identity used to route an action request to a host handler. */
 export type OperationId = Branded<string, 'OperationId'>;
+/** Stable identity of a host-defined extension entry point. */
 export type SlotId = Branded<string, 'SlotId'>;
+/** Stable identity of a complete source module supplied in a compile request. */
 export type ModuleId = Branded<string, 'ModuleId'>;
+/** Reproducible identity of a source declaration. */
 export type SymbolId = Branded<string, 'SymbolId'>;
+/** Reproducible identity of a checked host-call site. */
 export type ActionSiteId = Branded<string, 'ActionSiteId'>;
+/** Opaque identity correlating one live execution and its actions. */
 export type InvocationId = Branded<string, 'InvocationId'>;
+/** Identity of one action attempt within an invocation; it is not an idempotency key. */
 export type RequestId = Branded<string, 'RequestId'>;
+/** Lowercase full-length SHA-256 digest. */
 export type Sha256Digest = Branded<string, 'Sha256Digest'>;
+/** Digest of canonical source bytes. */
 export type SourceHash = Branded<string, 'SourceHash'>;
+/** Digest of a canonically ordered complete source program. */
 export type ProgramHash = Branded<string, 'ProgramHash'>;
+/** Digest of verified typed IR. */
 export type IrDigest = Branded<string, 'IrDigest'>;
 
 const HOST_NAME = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/;
@@ -41,6 +66,12 @@ function parseNamedId<Id extends string>(prefix: IdPrefix, value: string): Id {
   return value as Id;
 }
 
+/**
+ * Validates and brands every stable identifier crossing a public seam.
+ *
+ * @remarks Contract-owned names are deliberately ASCII and length-bounded so every host language compares the same
+ * bytes. Invocation and request identities use closed formats for reliable correlation.
+ */
 export const ids = Object.freeze({
   contract: (value: string): ContractId => parseNamedId('contract', value),
   type: (value: string): TypeId => parseNamedId('type', value),
@@ -76,40 +107,54 @@ export const ids = Object.freeze({
   },
 });
 
+/** Domain separators supported by {@link hash}. */
 export type HashDomain =
   'action-site' | 'artifact' | 'contract' | 'idempotency' | 'ir' | 'program' | 'source' | 'symbol' | 'type';
 
+/**
+ * Computes a versioned, domain-separated SHA-256 digest.
+ *
+ * @param domain - Semantic domain that prevents identical bytes from sharing meaning across uses.
+ * @param bytes - Exact canonical bytes to digest.
+ */
 export function hash(domain: HashDomain, bytes: Uint8Array): Sha256Digest {
   return createHash('sha256').update(`safescript:${domain}:v1\0`, 'utf8').update(bytes).digest('hex') as Sha256Digest;
 }
 
+/** Derives a reproducible declaration identity from canonical semantic bytes. */
 export function derivedSymbolId(bytes: Uint8Array): SymbolId {
   return ids.symbol(`symbol:${hash('symbol', bytes)}`);
 }
 
+/** Derives a reproducible host-call-site identity from canonical semantic bytes. */
 export function derivedActionSiteId(bytes: Uint8Array): ActionSiteId {
   return ids.actionSite(`action-site:${hash('action-site', bytes)}`);
 }
 
+/** Computes the canonical hash of one source byte sequence. */
 export function sourceHash(bytes: Uint8Array): SourceHash {
   return hash('source', bytes) as unknown as SourceHash;
 }
 
+/** Major/minor version used for language, IR, and ABI compatibility. */
 export interface Version {
   readonly major: number;
   readonly minor: number;
 }
 
+/** Full semantic version used by host contracts and compiler provenance. */
 export interface SemVer extends Version {
   readonly patch: number;
   readonly prerelease?: string;
 }
 
+/** Exact compiler release and build that produced an artifact. */
 export interface CompilerVersion {
   readonly version: SemVer;
   readonly build: string;
 }
 
+/** Independent version requirements embedded in checked artifacts and bridge records. */
 export interface VersionRequirements {
   readonly language: Version;
   readonly ir: Version;
@@ -119,11 +164,13 @@ export interface VersionRequirements {
   readonly compiler?: CompilerVersion;
 }
 
+/** Associates a serialisable value with the ABI required to decode it. */
 export interface VersionEnvelope<T> {
   readonly abiVersion: Version;
   readonly value: T;
 }
 
+/** Versions and optional compiler allowlist accepted by a runtime. */
 export interface SupportedVersions {
   readonly language: Version;
   readonly ir: Version;
@@ -133,8 +180,10 @@ export interface SupportedVersions {
   readonly allowedCompilers?: readonly CompilerVersion[];
 }
 
+/** Independently negotiated semantic version dimensions. */
 export type CompatibilityDimension = 'language' | 'ir' | 'abi' | 'contract' | 'compiler';
 
+/** Machine-readable reason that one version dimension is incompatible. */
 export interface CompatibilityFailure {
   readonly code: 'incompatible_version';
   readonly dimension: CompatibilityDimension;
@@ -203,6 +252,12 @@ function sameCompiler(left: CompilerVersion, right: CompilerVersion): boolean {
   );
 }
 
+/**
+ * Checks all independent version dimensions without short-circuiting.
+ *
+ * @remarks Language, IR, and ABI accept older minor versions within one major. Contracts additionally require the
+ * same contract identity and a current semantic version at least as new as the requirement.
+ */
 export function checkCompatibility(
   supported: SupportedVersions,
   required: VersionRequirements,
@@ -231,23 +286,36 @@ export function checkCompatibility(
   return Object.freeze(failures.map((failure) => Object.freeze(failure)));
 }
 
+/** Immutable language-neutral byte representation used at serialisable seams. */
 export type CanonicalBytes = readonly number[];
 
+/** Nanosecond-precision instant with an explicit integer epoch representation. */
 export interface InstantValue {
   readonly epochSeconds: bigint;
   readonly nanoseconds: number;
 }
 
+/** Canonical unit value. */
 export type UnitValue = null;
+/** Explicit optional value; absence is never represented by JavaScript `undefined`. */
 export type Option<T> = Readonly<{ tag: 'none'; value: UnitValue }> | Readonly<{ tag: 'some'; value: T }>;
+/** Explicit typed success or declared error value. */
 export type Result<T, E> = Readonly<{ tag: 'ok'; value: T }> | Readonly<{ tag: 'error'; value: E }>;
+/** Runtime representation of a closed schema variant. */
 export interface VariantValue {
   readonly tag: string;
   readonly value: CanonicalValue;
 }
+/** Runtime representation of a schema-declared immutable record. */
 export interface RecordValue {
   readonly [key: string]: CanonicalValue;
 }
+/**
+ * Values permitted inside SafeScript and across its ABI.
+ *
+ * @remarks This union deliberately excludes `undefined`, functions, symbols, class instances, mutable handles, and
+ * cyclic object graphs.
+ */
 export type CanonicalValue =
   | UnitValue
   | boolean
@@ -260,6 +328,7 @@ export type CanonicalValue =
   | RecordValue
   | VariantValue;
 
+/** Bounded tagged representation of JSON when no closed host schema is available. */
 export type JsonValue =
   | Readonly<{ tag: 'null'; value: UnitValue }>
   | Readonly<{ tag: 'boolean'; value: boolean }>
@@ -268,75 +337,93 @@ export type JsonValue =
   | Readonly<{ tag: 'array'; value: readonly JsonValue[] }>
   | Readonly<{ tag: 'object'; value: readonly (readonly [string, JsonValue])[] }>;
 
+/** Schema for {@link UnitValue}. */
 export interface UnitSchema {
   readonly kind: 'unit';
 }
+/** Schema for a canonical boolean. */
 export interface BooleanSchema {
   readonly kind: 'boolean';
 }
+/** Schema for a signed 64-bit integer represented as `bigint`. */
 export interface Int64Schema {
   readonly kind: 'int64';
   readonly minimum?: bigint;
   readonly maximum?: bigint;
 }
+/** Schema for a finite IEEE-754 double. */
 export interface Float64Schema {
   readonly kind: 'float64';
   readonly minimum?: number;
   readonly maximum?: number;
 }
+/** UTF-8 string schema with an optional encoded-byte ceiling. */
 export interface StringSchema {
   readonly kind: 'string';
   readonly maxBytes?: number;
 }
+/** Byte-string schema with an optional length ceiling. */
 export interface BytesSchema {
   readonly kind: 'bytes';
   readonly maxBytes?: number;
 }
+/** Instant schema with optional inclusive bounds. */
 export interface InstantSchema {
   readonly kind: 'instant';
   readonly minimum?: InstantValue;
   readonly maximum?: InstantValue;
 }
+/** Homogeneous immutable list schema with an optional item ceiling. */
 export interface ListSchema {
   readonly kind: 'list';
   readonly item: Schema;
   readonly maxItems?: number;
 }
+/** Fixed-length heterogeneous tuple schema. */
 export interface TupleSchema {
   readonly kind: 'tuple';
   readonly items: readonly Schema[];
 }
+/** Named field in a closed record schema. */
 export interface RecordField {
   readonly name: string;
   readonly schema: Schema;
 }
+/** Closed record schema; unknown or missing fields fail validation. */
 export interface RecordSchema {
   readonly kind: 'record';
   readonly fields: readonly RecordField[];
 }
+/** One case in a closed discriminated union. */
 export interface VariantCase {
   readonly tag: string;
   readonly schema: Schema;
 }
+/** Closed discriminated-union schema represented by `{ tag, value }`. */
 export interface VariantSchema {
   readonly kind: 'variant';
   readonly variants: readonly VariantCase[];
 }
+/** Nominal type layered over a canonical primitive without adding a runtime wrapper. */
 export interface BrandSchema {
   readonly kind: 'brand';
   readonly type: TypeId;
   readonly base: PrimitiveSchema;
 }
+/** Reference to a named schema in the active {@link SchemaRegistry}. */
 export interface RefSchema {
   readonly kind: 'ref';
   readonly type: TypeId;
 }
 
+/** Schema kinds with no nested canonical values. */
 export type PrimitiveSchema =
   UnitSchema | BooleanSchema | Int64Schema | Float64Schema | StringSchema | BytesSchema | InstantSchema;
+/** Closed schema language accepted by canonical codecs and the compiler. */
 export type Schema =
   PrimitiveSchema | ListSchema | TupleSchema | RecordSchema | VariantSchema | BrandSchema | RefSchema;
 
+/** Creates the standard `none | some` optional-value schema. */
 export function optionSchema(value: Schema): VariantSchema {
   return Object.freeze({
     kind: 'variant',
@@ -347,6 +434,7 @@ export function optionSchema(value: Schema): VariantSchema {
   });
 }
 
+/** Creates the standard `ok | error` result schema. */
 export function resultSchema(value: Schema, error: Schema): VariantSchema {
   return Object.freeze({
     kind: 'variant',
@@ -357,22 +445,26 @@ export function resultSchema(value: Schema, error: Schema): VariantSchema {
   });
 }
 
+/** Named schema and its structural fingerprint in a host contract. */
 export interface TypeDefinition {
   readonly id: TypeId;
   readonly schema: Schema;
   readonly fingerprint: Sha256Digest;
 }
 
+/** Immutable set of named schemas used to resolve {@link RefSchema} values. */
 export interface SchemaRegistry {
   readonly types: readonly TypeDefinition[];
 }
 
+/** Structural and encoded-size ceilings applied while validating one canonical value. */
 export interface ValueLimits {
   readonly maxDepth: number;
   readonly maxNodes: number;
   readonly maxBytes: number;
 }
 
+/** Deterministic ceilings for source ingestion, parsing, diagnostics, and type work. */
 export interface CompileLimits {
   readonly sourceBytes: number;
   readonly moduleBytes: number;
@@ -387,6 +479,7 @@ export interface CompileLimits {
   readonly derivedTemplateBytes: number;
 }
 
+/** Semantic execution ceilings enforced independently of JavaScript engine resource use. */
 export interface ExecutionLimits extends ValueLimits {
   readonly fuel: number;
   readonly allocations: number;
@@ -400,11 +493,13 @@ export interface ExecutionLimits extends ValueLimits {
   readonly outputBytes: number;
 }
 
+/** Conservative default value ceilings; hosts and slots may only lower them. */
 export const STANDARD_VALUE_LIMITS: ValueLimits = Object.freeze({
   maxDepth: 128,
   maxNodes: 250_000,
   maxBytes: 4 * 1024 * 1024,
 });
+/** Conservative default compiler ceilings; hosts and requests may only lower them. */
 export const STANDARD_COMPILE_LIMITS: CompileLimits = Object.freeze({
   sourceBytes: 1024 * 1024,
   moduleBytes: 256 * 1024,
@@ -418,6 +513,7 @@ export const STANDARD_COMPILE_LIMITS: CompileLimits = Object.freeze({
   diagnostics: 100,
   derivedTemplateBytes: 1024 * 1024,
 });
+/** Conservative default execution ceilings; hosts and requests may only lower them. */
 export const STANDARD_EXECUTION_LIMITS: ExecutionLimits = Object.freeze({
   ...STANDARD_VALUE_LIMITS,
   fuel: 5_000_000,
@@ -432,7 +528,9 @@ export const STANDARD_EXECUTION_LIMITS: ExecutionLimits = Object.freeze({
   outputBytes: 4 * 1024 * 1024,
 });
 
+/** Stable field/index path locating a canonical-value validation failure. */
 export type ValuePath = readonly (string | number)[];
+/** Closed machine-readable failure codes returned by canonical contract operations. */
 export type ContractFailureCode =
   | 'invalid_schema'
   | 'invalid_value'
@@ -443,6 +541,7 @@ export type ContractFailureCode =
   | 'trailing_bytes'
   | 'unknown_type';
 
+/** Bounded validation failure that is safe to cross a runtime bridge. */
 export interface ContractFailure {
   readonly code: ContractFailureCode;
   readonly path: ValuePath;
@@ -450,6 +549,7 @@ export interface ContractFailure {
   readonly detail?: string;
 }
 
+/** Non-throwing result returned by canonical codecs and digest helpers. */
 export type ContractResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; failure: ContractFailure }>;
 
 class CodecFault {
@@ -497,6 +597,12 @@ function validateValueLimits(limits: ValueLimits): void {
     if (!Number.isSafeInteger(value) || value < 0) fail('invalid_value', [], `invalid ${name}`);
 }
 
+/**
+ * Validates, recursively closes, sorts, and freezes named schema definitions.
+ *
+ * @throws TypeError if identifiers collide, references are missing, bounds are invalid, or recursion has no finite
+ * inhabitant.
+ */
 export function defineSchemaRegistry(definitions: readonly TypeDefinition[]): SchemaRegistry {
   const idsSeen = new Set<TypeId>();
   for (const definition of definitions) {
@@ -681,6 +787,12 @@ interface EncodeTask {
   readonly depth: number;
 }
 
+/**
+ * Encodes a value using the deterministic SafeScript CBOR profile and a required schema.
+ *
+ * @remarks Encoding validates shape and limits first; JavaScript object identity and insertion order never affect
+ * the output bytes.
+ */
 export function encodeCanonical(
   schema: Schema,
   value: unknown,
@@ -955,6 +1067,9 @@ class Decoder {
   }
 }
 
+/**
+ * Decodes deterministic SafeScript CBOR and rejects alternate, non-canonical, malformed, or out-of-schema forms.
+ */
 export function decodeCanonical(
   schema: Schema,
   bytes: Uint8Array,
@@ -1164,6 +1279,7 @@ export function decodeCanonical(
   }
 }
 
+/** Validates a value by encoding and decoding it into its immutable canonical representation. */
 export function canonicalize(
   schema: Schema,
   value: unknown,
@@ -1173,6 +1289,7 @@ export function canonicalize(
   return encoded.ok ? decodeCanonical(schema, encoded.value, options) : encoded;
 }
 
+/** Compares schema-directed values by their canonical byte representation. */
 export function canonicalEqual(
   schema: Schema,
   left: unknown,
@@ -1191,6 +1308,7 @@ export function canonicalEqual(
   });
 }
 
+/** Computes a domain-separated digest over a schema-directed canonical value. */
 export function digestCanonical(
   domain: HashDomain,
   schema: Schema,
@@ -1201,6 +1319,12 @@ export function digestCanonical(
   return encoded.ok ? Object.freeze({ ok: true, value: hash(domain, encoded.value) }) : encoded;
 }
 
+/**
+ * Derives the stable key for one logical required-idempotency action.
+ *
+ * @remarks The input digest and action sequence distinguish changed intent and repeated visits to one action site.
+ * The host operation, not SafeScript, must enforce the returned key atomically.
+ */
 export function deriveIdempotencyKey(
   input: Readonly<{
     seed: CanonicalBytes;
@@ -1252,6 +1376,7 @@ interface JsonExitTask {
   readonly input: object;
 }
 
+/** Converts ordinary parsed JSON into the bounded tagged {@link JsonValue} representation. */
 export function canonicalJson(input: unknown, limits: ValueLimits = STANDARD_VALUE_LIMITS): ContractResult<JsonValue> {
   try {
     let root: JsonValue = { tag: 'null', value: null };
@@ -1372,6 +1497,7 @@ function validateJsonObjectOrder(root: unknown, limits: ValueLimits): void {
   }
 }
 
+/** Built-in type identity for the recursive tagged JSON representation. */
 export const JSON_VALUE_TYPE = ids.type('type:safescript.json-value');
 const JSON_VALUE_REF: RefSchema = Object.freeze({ kind: 'ref', type: JSON_VALUE_TYPE });
 const JSON_VALUE_SCHEMA: VariantSchema = {
@@ -1385,6 +1511,7 @@ const JSON_VALUE_SCHEMA: VariantSchema = {
     { tag: 'object', schema: { kind: 'list', item: { kind: 'tuple', items: [{ kind: 'string' }, JSON_VALUE_REF] } } },
   ],
 };
+/** Schema registry containing only the built-in recursive {@link JsonValue} definition. */
 export const JSON_VALUE_REGISTRY = defineSchemaRegistry([
   {
     id: JSON_VALUE_TYPE,
@@ -1407,12 +1534,14 @@ function deepFreeze<T>(root: T): T {
   return root;
 }
 
+/** Half-open source span in one submitted module. */
 export interface SourceLocation {
   readonly module: ModuleId;
   readonly start: number;
   readonly end: number;
 }
 
+/** Stable compiler diagnostic safe for editors, agents, and bridge transports. */
 export interface Diagnostic {
   readonly code: string;
   readonly severity: 'error' | 'warning' | 'info';
@@ -1421,12 +1550,14 @@ export interface Diagnostic {
   readonly related?: readonly SourceLocation[];
 }
 
+/** Adapter or request-envelope failure outside source and execution semantics. */
 export interface BridgeError {
   readonly code: 'bridge_closed' | 'invalid_request' | 'unsupported_version' | 'adapter_failure' | 'unavailable';
   readonly phase: 'check' | 'inspect' | 'execute' | 'cancel' | 'close' | 'action';
   readonly detail?: string;
 }
 
+/** Current host-policy rejection that extension code may handle as a declared error. */
 export interface PolicyError {
   readonly code: string;
   readonly detail?: string;
@@ -1439,6 +1570,11 @@ function resolvePolicySchema(schema: Schema, registry: SchemaRegistry, seen = ne
   return target ? resolvePolicySchema(target, registry, new Set(seen).add(schema.type)) : undefined;
 }
 
+/**
+ * Projects a host {@link PolicyError} into the registered program-visible error schema.
+ *
+ * @returns The canonical error value, or `undefined` when the schema cannot represent the policy error.
+ */
 export function policyErrorValue(
   schema: Schema,
   registry: SchemaRegistry,
@@ -1476,6 +1612,7 @@ export function policyErrorValue(
   return undefined;
 }
 
+/** Returns whether an operation error schema contains the required canonical `policy` member. */
 export function supportsPolicyError(schema: Schema, registry: SchemaRegistry): boolean {
   const error = resolvePolicySchema(schema, registry);
   if (error?.kind !== 'variant') return false;
@@ -1489,20 +1626,30 @@ export function supportsPolicyError(schema: Schema, registry: SchemaRegistry): b
     policyErrorValue(schema, registry, { code: 'policy', detail: 'detail' }) !== undefined,
   );
 }
+/** Closed infrastructure and host-adapter failures that terminate execution. */
 export type HostFailureCode =
   'cancelled' | 'timeout' | 'unavailable' | 'handler_fault' | 'invalid_result' | 'transport_lost' | 'gateway_fault';
+/** Bounded host failure safe to return without exposing exceptions or stack traces. */
 export interface HostFailure {
   readonly code: HostFailureCode;
   readonly detail?: string;
 }
+/** Knowledge of whether a failed host operation changed external state. `unknown` is never safe to retry implicitly. */
 export type EffectState = 'not_performed' | 'unknown';
 
+/** Source provenance retained on an action site after lowering to IR. */
 export interface SourceProvenance {
   readonly module: ModuleId;
   readonly start: number;
   readonly end: number;
 }
 
+/**
+ * Canonical request for one registered host operation.
+ *
+ * @remarks Recording this request proves only that the operation was proposed. The SDK gateway must validate the
+ * envelope and current authority before dispatching a handler.
+ */
 export interface ActionRequest {
   readonly abiVersion: Version;
   readonly contractId: ContractId;
@@ -1520,6 +1667,7 @@ export interface ActionRequest {
   readonly idempotencyKey?: Sha256Digest;
 }
 
+/** Terminal typed resolution of one action request. */
 export type ActionOutcome = Readonly<{
   abiVersion: Version;
   requestId: RequestId;
@@ -1529,22 +1677,27 @@ export type ActionOutcome = Readonly<{
     | Readonly<{ tag: 'failed'; value: Readonly<{ effectState: EffectState; failure: HostFailure }> }>;
 }>;
 
+/** Ordered in-memory fact distinguishing request creation from terminal resolution. */
 export type ActionRecord =
   | Readonly<{ phase: 'requested'; request: ActionRequest }>
   | Readonly<{ phase: 'resolved'; requestId: RequestId; outcome: ActionOutcome }>;
 
+/** Structural requirement for one contract-owned definition. */
 export interface DefinitionFingerprint {
   readonly id: ContractOwnedId;
   readonly fingerprint: Sha256Digest;
 }
+/** Registered effect identity and structural fingerprint. */
 export interface EffectDefinition {
   readonly id: EffectId;
   readonly fingerprint: Sha256Digest;
 }
+/** Registered capability identity and structural fingerprint. */
 export interface CapabilityDefinition {
   readonly id: CapabilityId;
   readonly fingerprint: Sha256Digest;
 }
+/** Language-neutral operation metadata used by the compiler, runtime, and SDK gateway. */
 export interface OperationDefinition {
   readonly id: OperationId;
   readonly input: TypeId;
@@ -1556,6 +1709,7 @@ export interface OperationDefinition {
   readonly idempotency: 'none' | 'required';
   readonly fingerprint: Sha256Digest;
 }
+/** Language-neutral extension-slot policy and resource ceilings. */
 export interface SlotDefinition {
   readonly id: SlotId;
   readonly input: TypeId;
@@ -1567,6 +1721,12 @@ export interface SlotDefinition {
   readonly executionLimits: ExecutionLimits;
   readonly fingerprint: Sha256Digest;
 }
+/**
+ * Canonical machine-readable authority derived from one host contract.
+ *
+ * @remarks The registry contains schemas and static eligibility metadata, never live handlers, credentials, or a
+ * cached authorisation decision.
+ */
 export interface ContractRegistry {
   readonly id: ContractId;
   readonly version: SemVer;
@@ -1579,11 +1739,13 @@ export interface ContractRegistry {
   readonly definitions: readonly DefinitionFingerprint[];
 }
 
+/** Structural contract-compatibility failure for a referenced definition. */
 export interface DefinitionCompatibilityFailure {
   readonly code: 'invalid_contract_digest' | 'invalid_definition_id' | 'missing_definition' | 'fingerprint_mismatch';
   readonly id?: ContractOwnedId;
 }
 
+/** Checks that every referenced definition still exists with the exact structural fingerprint. */
 export function checkDefinitionCompatibility(
   registry: ContractRegistry,
   required: readonly DefinitionFingerprint[],
@@ -1604,15 +1766,18 @@ export function checkDefinitionCompatibility(
   return Object.freeze(failures.map((failure) => Object.freeze(failure)));
 }
 
+/** Complete UTF-8 source bytes for one named module. */
 export interface SourceModule {
   readonly id: ModuleId;
   readonly source: CanonicalBytes;
 }
+/** Complete immutable module set and entry module submitted for checking. */
 export interface SourceProgram {
   readonly entry: ModuleId;
   readonly modules: readonly SourceModule[];
 }
 
+/** Hashes a complete source program after validating module identities, uniqueness, order, and byte values. */
 export function programHash(program: SourceProgram): ContractResult<ProgramHash> {
   const modules = [...program.modules].sort((left, right) =>
     String(left.id) < String(right.id) ? -1 : String(left.id) > String(right.id) ? 1 : 0,
@@ -1639,6 +1804,7 @@ export function programHash(program: SourceProgram): ContractResult<ProgramHash>
   ]);
   return digest.ok ? Object.freeze({ ok: true, value: digest.value as unknown as ProgramHash }) : digest;
 }
+/** Compatibility and integrity metadata retained by a checked execution artifact. */
 export interface CheckedArtifactHeader {
   readonly languageVersion: Version;
   readonly compilerVersion: CompilerVersion;
@@ -1653,11 +1819,13 @@ export interface CheckedArtifactHeader {
   readonly irDigest: IrDigest;
 }
 
+/** Deterministic compiler resources consumed by one check. */
 export interface CompileUsage {
   readonly sourceBytes: number;
   readonly syntaxNodes: number;
   readonly typeWork: number;
 }
+/** Deterministic semantic resources consumed by one started execution. */
 export interface ExecutionUsage {
   readonly fuel: number;
   readonly allocations: number;
@@ -1667,10 +1835,12 @@ export interface ExecutionUsage {
   readonly traceBytes: number;
   readonly outputBytes: number;
 }
+/** Statically reachable effects and capabilities; this summary does not grant runtime authority. */
 export interface ProgramSummary {
   readonly effects: readonly EffectId[];
   readonly capabilities: readonly CapabilityId[];
 }
+/** Compiler and semantic versions that produced an accepted artifact. */
 export interface CompilerProvenance {
   readonly compiler: CompilerVersion;
   readonly language: Version;
@@ -1678,6 +1848,7 @@ export interface CompilerProvenance {
   readonly abi: Version;
 }
 
+/** Complete transport-neutral inputs required to check source without ambient discovery. */
 export interface CheckRequest {
   readonly abiVersion: Version;
   readonly languageVersion: Version;
@@ -1687,6 +1858,7 @@ export interface CheckRequest {
   readonly limits: CompileLimits;
 }
 
+/** Accepted source, rejected source diagnostics, or a bridge-envelope failure. */
 export type CheckResult =
   | Readonly<{
       status: 'accepted';
@@ -1699,10 +1871,13 @@ export type CheckResult =
   | Readonly<{ status: 'rejected'; diagnostics: readonly Diagnostic[]; usage: CompileUsage }>
   | Readonly<{ status: 'bridge_error'; error: BridgeError }>;
 
+/** Read-only derived views available from an accepted compilation. */
 export type InspectView = 'semantic_graph';
+/** Check request plus the bounded derived views requested by the caller. */
 export interface InspectRequest extends CheckRequest {
   readonly views: readonly InspectView[];
 }
+/** Inspection result; rejected source never returns a partial trusted view. */
 export type InspectResult =
   | Readonly<{
       status: 'accepted';
@@ -1711,9 +1886,12 @@ export type InspectResult =
     }>
   | Extract<CheckResult, { status: 'rejected' | 'bridge_error' }>;
 
+/** Closed trace detail levels understood by all runtime adapters. */
 export type TraceMode = 'none' | 'summary' | 'semantic';
+/** Source to compile and execute in one call, or previously checked artifact bytes to reverify. */
 export type ExecutableProgram =
   Readonly<{ kind: 'source'; source: CheckRequest }> | Readonly<{ kind: 'artifact'; bytes: CanonicalBytes }>;
+/** Complete transport-neutral execution inputs; host invocation context remains in the SDK. */
 export interface ExecuteRequest {
   readonly abiVersion: Version;
   readonly registry: ContractRegistry;
@@ -1728,10 +1906,12 @@ export interface ExecuteRequest {
   readonly trace: TraceMode;
 }
 
+/** Bounded canonical trace records and an explicit truncation marker. */
 export interface TraceResult {
   readonly records: readonly CanonicalBytes[];
   readonly truncated: boolean;
 }
+/** Trusted preparation facts returned for every started source or artifact execution. */
 export type ExecutionPreparation =
   | Readonly<{
       kind: 'source';
@@ -1742,16 +1922,19 @@ export type ExecutionPreparation =
       diagnostics: readonly Diagnostic[];
     }>
   | Readonly<{ kind: 'artifact'; irDigest: IrDigest }>;
+/** Ordered action, trace, provenance, and resource facts returned by every started execution. */
 export interface ExecutionFacts {
   readonly preparation: ExecutionPreparation;
   readonly actions: readonly ActionRecord[];
   readonly trace: TraceResult;
   readonly usage: ExecutionUsage;
 }
+/** Structured runtime failure safe to return without leaking an implementation exception. */
 export interface ExecutionError {
   readonly code: string;
   readonly detail?: string;
 }
+/** Closed execution lifecycle result. Only `completed` contains a program output. */
 export type ExecutionResult =
   | Readonly<{ status: 'not_started'; diagnostics?: readonly Diagnostic[]; error?: BridgeError; usage?: CompileUsage }>
   | Readonly<{ status: 'completed'; output: CanonicalBytes; facts: ExecutionFacts }>
@@ -1759,23 +1942,33 @@ export type ExecutionResult =
   | Readonly<{ status: 'cancelled'; error: ExecutionError; facts: ExecutionFacts }>
   | Readonly<{ status: 'bridge_error'; error: BridgeError }>;
 
+/** Idempotent request to signal one active invocation. */
 export interface CancelRequest {
   readonly abiVersion: Version;
   readonly invocationId: InvocationId;
 }
+/** Whether cancellation reached an active invocation or no live invocation matched. */
 export interface CancelResult {
   readonly status: 'accepted' | 'not_active' | 'bridge_error';
   readonly error?: BridgeError;
 }
+/** Terminal result of idempotently closing a runtime bridge. */
 export interface CloseResult {
   readonly status: 'closed' | 'bridge_error';
   readonly error?: BridgeError;
 }
 
+/** Live SDK adapter invoked only when execution reaches a validated action instruction. */
 export interface RuntimeBridgeHost {
   handleAction(request: ActionRequest): Promise<ActionOutcome>;
 }
 
+/**
+ * Small transport-neutral seam shared by direct and future process adapters.
+ *
+ * @remarks Methods resolve closed result unions for defined operational failures. Implementations must not leak raw
+ * exceptions, compiler objects, interpreter frames, host context, or credentials across this interface.
+ */
 export interface RuntimeBridge {
   check(request: CheckRequest): Promise<CheckResult>;
   inspect(request: InspectRequest): Promise<InspectResult>;
@@ -1784,4 +1977,5 @@ export interface RuntimeBridge {
   close(): Promise<CloseResult>;
 }
 
+/** Creates one independently closable runtime bridge adapter. */
 export type RuntimeBridgeFactory = () => RuntimeBridge;

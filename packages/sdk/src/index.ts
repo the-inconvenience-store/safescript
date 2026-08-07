@@ -1,3 +1,8 @@
+/**
+ * Host-facing TypeScript integration interface for contracts, source checking, execution, and deterministic tests.
+ *
+ * @packageDocumentation
+ */
 export { ContractDefinitionError, defineContract } from './contract.js';
 export type { Codec, Contract, ContractDefinition, ContractType, Operation, Slot } from './contract.js';
 export { createSafeScript } from './facade.js';

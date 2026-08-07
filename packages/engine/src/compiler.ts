@@ -1,3 +1,7 @@
+/**
+ * Restricted TypeScript parsing, validation, and lowering for the SafeScript subset.
+ * @packageDocumentation
+ */
 import * as ts from 'typescript';
 
 import {
@@ -24,6 +28,10 @@ import {
   type RegisterId,
 } from './ir.js';
 
+/**
+ * Stable private failure lowered to a public machine-readable diagnostic by the bridge.
+ * @internal
+ */
 export interface CompileFailure {
   readonly code: string;
   readonly message: string;
@@ -31,6 +39,10 @@ export interface CompileFailure {
   readonly end: number;
 }
 
+/**
+ * Restricted compiler success with verified IR, or one bounded source failure.
+ * @internal
+ */
 export type CompileProgramResult =
   | Readonly<{
       ok: true;
@@ -669,6 +681,13 @@ function handlerTypesValid(handler: ts.FunctionDeclaration): boolean {
   return typeReference(result, 'Result', 2) && result.typeArguments?.[0]?.kind === ts.SyntaxKind.VoidKeyword;
 }
 
+/**
+ * Parses one module, rejects syntax outside the current allow-list, and lowers the accepted handler to verified IR.
+ *
+ * @remarks TypeScript supplies syntax trees and source spans only. SafeScript-owned checks define accepted source,
+ * host-operation resolution, type behavior, effects, capabilities, and execution semantics.
+ * @internal
+ */
 export function compileProgram(
   source: string,
   moduleId: ModuleId,
@@ -704,6 +723,7 @@ export function compileProgram(
       imports,
       declarations,
     };
+  // Imports are syntax declarations only; no module loader or package resolver is ever invoked.
   const importFailure = validateImports(sourceFile);
   if (importFailure)
     return {

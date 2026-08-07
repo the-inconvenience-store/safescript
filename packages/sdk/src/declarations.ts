@@ -1,3 +1,7 @@
+/**
+ * Generates editor-facing TypeScript declarations from a validated host contract.
+ * @packageDocumentation
+ */
 import type { OperationDefinition, Schema, TypeDefinition, TypeId } from '@safescript/contracts';
 
 interface DeclarationNode {
@@ -95,6 +99,12 @@ function hostDeclarations(operations: readonly OperationDefinition[], names: Rea
   ].join('\n');
 }
 
+/**
+ * Renders a self-contained editor declaration surface from validated registry definitions.
+ *
+ * @remarks Name and operation-path collisions fail here rather than producing ambiguous TypeScript for callers.
+ * @internal
+ */
 export function generateDeclarations(
   types: readonly TypeDefinition[],
   operations: readonly OperationDefinition[],

@@ -1,3 +1,7 @@
+/**
+ * Creation and fail-closed verification of disposable checked execution artifacts.
+ * @packageDocumentation
+ */
 import {
   checkDefinitionCompatibility,
   decodeCanonical,
@@ -34,6 +38,10 @@ interface ArtifactRecord {
   readonly program: IrProgram;
 }
 
+/**
+ * Verified artifact bytes plus private executable IR retained by the direct bridge.
+ * @internal
+ */
 export interface CheckedArtifact {
   readonly bytes: CanonicalBytes;
   readonly digest: IrDigest;
@@ -104,6 +112,10 @@ function digest(program: IrProgram): IrDigest {
   return hash('ir', encoder.encode(stringify(program))) as unknown as IrDigest;
 }
 
+/**
+ * Creates canonical artifact bytes bound to exact source, compiler, contract, slot, and verified IR facts.
+ * @internal
+ */
 export function createArtifact(
   request: CheckRequest,
   slot: SlotDefinition,
@@ -142,6 +154,13 @@ export function createArtifact(
     : undefined;
 }
 
+/**
+ * Revalidates every compatibility, canonicalisation, fingerprint, digest, and IR invariant before executable use.
+ *
+ * @remarks Artifact bytes are an untrusted cache input. Verification never treats a prior compilation as current
+ * authority and returns `undefined` for every malformed or incompatible form.
+ * @internal
+ */
 export function verifyArtifact(
   bytes: CanonicalBytes,
   registry: ContractRegistry,
@@ -163,6 +182,7 @@ export function verifyArtifact(
     const definitions = [...registry.definitions]
       .map((definition) => [String(definition.id), String(definition.fingerprint)] as const)
       .sort((left, right) => left[0].localeCompare(right[0]));
+    // Re-stringifying rejects alternate JSON spellings before any decoded field gains semantic meaning.
     if (
       !isRecord(value) ||
       stringify(value) !== text ||

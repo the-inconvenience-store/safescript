@@ -1,3 +1,7 @@
+/**
+ * Current-authorisation and typed host-operation adapter for runtime action requests.
+ * @packageDocumentation
+ */
 import {
   checkCompatibility,
   decodeCanonical,
@@ -18,10 +22,21 @@ import type { Operations, Slot, Slots } from './contract.js';
 import { ABI_VERSION, freeze } from './shared.js';
 import type { AbortSignal, ActionContext, AuthorisationDecision, CreateSafeScriptOptions } from './types.js';
 
+/**
+ * Host-local association between an ergonomic handler key and its stable operation definition.
+ * @internal
+ */
 export type OperationEntry<O extends Operations> = {
   [K in keyof O]: Readonly<{ key: K; operation: O[K] }>;
 }[keyof O];
 
+/**
+ * Creates the single live action adapter for one invocation.
+ *
+ * @remarks Every request is independently validated and authorised. The adapter consumes request sequence numbers
+ * before policy evaluation so rejected requests cannot be replayed within the invocation.
+ * @internal
+ */
 export function createGateway<C, O extends Operations, S extends Slots, E extends PolicyError = PolicyError>(
   options: CreateSafeScriptOptions<C, O, S, E>,
   operationsById: ReadonlyMap<OperationId, OperationEntry<O>>,
@@ -40,6 +55,7 @@ export function createGateway<C, O extends Operations, S extends Slots, E extend
           requestId: request.requestId,
           result: { tag: 'failed', value: { effectState, failure: { code } } },
         });
+      // Treat the bridge as a protocol peer, even in-process. Future process adapters must not weaken this seam.
       const validEnvelope = (() => {
         try {
           const compatible =
@@ -90,6 +106,7 @@ export function createGateway<C, O extends Operations, S extends Slots, E extend
       if (!validEnvelope || !entry) {
         return fail('not_performed', 'gateway_fault');
       }
+      // A valid request attempt consumes its sequence even when policy rejects it or the handler later fails.
       sequence++;
       const decoded = decodeCanonical({ kind: 'ref', type: entry.operation.input.id }, Uint8Array.from(request.input), {
         registry: options.contract.registry.schemas,
@@ -115,6 +132,7 @@ export function createGateway<C, O extends Operations, S extends Slots, E extend
         ...(request.idempotencyKey === undefined ? {} : { idempotencyKey: request.idempotencyKey }),
         signal,
       });
+      // Cancellation before dispatch proves that the external operation was not performed.
       let decision: AuthorisationDecision<E>;
       if (signal.aborted) return fail('not_performed', 'cancelled');
       try {

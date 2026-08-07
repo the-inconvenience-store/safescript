@@ -1,9 +1,25 @@
+/**
+ * Private deterministic SDK helpers shared by contract and facade modules.
+ * @packageDocumentation
+ */
 import { type BridgeError, type CompileLimits, type ExecutionLimits, type Version } from '@safescript/contracts';
 
+/**
+ * ABI emitted and accepted by the TypeScript SDK adapter.
+ * @internal
+ */
 export const ABI_VERSION: Version = Object.freeze({ major: 1, minor: 0 });
 
+/**
+ * Encodes host strings to exact UTF-8 bytes without ambient locale behavior.
+ * @internal
+ */
 export const encodeUtf8 = (value: string): Uint8Array => Buffer.from(value, 'utf8');
 
+/**
+ * Produces deterministic JSON-like text for fingerprints and deterministic test identities.
+ * @internal
+ */
 export function stable(value: unknown): string {
   if (typeof value === 'bigint') return `{"$bigint":"${value}"}`;
   if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
@@ -18,6 +34,10 @@ export function stable(value: unknown): string {
   return encoded;
 }
 
+/**
+ * Merges lower limit overrides while rejecting unknown, invalid, or ceiling-raising values.
+ * @internal
+ */
 export function completeLimits<T extends CompileLimits | ExecutionLimits>(
   standard: T,
   ...overrides: readonly (Partial<T> | undefined)[]
@@ -42,6 +62,10 @@ export function completeLimits<T extends CompileLimits | ExecutionLimits>(
   return Object.freeze(limits) as T;
 }
 
+/**
+ * Deeply freezes an acyclic or cyclic object graph without recursive stack growth.
+ * @internal
+ */
 export function freeze<T>(root: T): T {
   const pending: object[] =
     root !== null && (typeof root === 'object' || typeof root === 'function') ? [root as object] : [];
@@ -56,6 +80,10 @@ export function freeze<T>(root: T): T {
   return root;
 }
 
+/**
+ * Creates a bounded bridge error without exposing a caught JavaScript exception.
+ * @internal
+ */
 export function bridgeError(phase: BridgeError['phase'], code: BridgeError['code'] = 'adapter_failure'): BridgeError {
   return Object.freeze({ code, phase });
 }

@@ -1,7 +1,15 @@
+/**
+ * Bounded interpreter for verified SafeScript IR.
+ * @packageDocumentation
+ */
 import type { CanonicalValue, Schema } from '@safescript/contracts';
 
 import { constantValue, type IrInstruction, type IrTerminator, type VerifiedProgram } from './ir.js';
 
+/**
+ * Host hooks that keep limits, actions, cancellation, and traces outside pure IR evaluation.
+ * @internal
+ */
 export interface InterpreterHooks {
   readonly charge: (fuel: number, allocation?: Readonly<{ value: CanonicalValue; type: Schema }>) => void;
   readonly action: (
@@ -12,6 +20,10 @@ export interface InterpreterHooks {
   readonly trace: (event: string, source: IrTerminator['source']) => void;
 }
 
+/**
+ * Structured private fault converted to a public execution result by the runtime bridge.
+ * @internal
+ */
 export class InterpreterFault extends Error {
   constructor(
     readonly code: string,
@@ -98,6 +110,13 @@ function allocation(
     : undefined;
 }
 
+/**
+ * Executes verified IR with explicit semantic charging and no access to JavaScript globals or host services.
+ *
+ * @remarks The verifier establishes structural safety; runtime checks remain defense in depth against corrupted
+ * internal values. Host effects can occur only through `hooks.action` after the bridge records a request.
+ * @internal
+ */
 export async function interpret(
   program: VerifiedProgram,
   input: CanonicalValue,
@@ -113,6 +132,7 @@ export async function interpret(
       registers.set(parameter.register, values[index] as CanonicalValue);
     current = target;
   };
+  // The IR verifier guarantees reachable terminators, so execution ends only through return, cancellation, or fault.
   while (true) {
     if (hooks.cancelled()) throw new InterpreterFault('cancelled');
     const block = program.blocks.get(current);

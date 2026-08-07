@@ -1,3 +1,7 @@
+/**
+ * Deterministic scripted host adapter and test-result comparison helpers.
+ * @packageDocumentation
+ */
 import {
   encodeCanonical,
   resultSchema,
@@ -16,12 +20,20 @@ function mismatch(path: string, expected: unknown, actual: unknown): TestMismatc
   return Object.freeze({ path, expected, actual });
 }
 
+/**
+ * Mutable bookkeeping retained by one deterministic test-host adapter.
+ * @internal
+ */
 export interface ScriptedHost {
   readonly host: RuntimeBridgeHost;
   readonly mismatches: TestMismatch[];
   finish(): void;
 }
 
+/**
+ * Creates a host adapter that consumes one exact ordered action script without production authority or handlers.
+ * @internal
+ */
 export function createScriptedHost<O extends Operations, S extends Slots>(
   contract: Contract<O, S>,
   operationsById: ReadonlyMap<OperationId, OperationEntry<O>>,
@@ -110,6 +122,10 @@ export function createScriptedHost<O extends Operations, S extends Slots>(
   };
 }
 
+/**
+ * Appends stable mismatches for every explicitly requested observable expectation.
+ * @internal
+ */
 export function compareExpectations<O>(
   expected: TestExpectation<O> | undefined,
   execution: ExecutionResult<O>,
@@ -161,6 +177,10 @@ export function compareExpectations<O>(
   }
 }
 
+/**
+ * Creates one immutable path-addressed mismatch.
+ * @internal
+ */
 export function testMismatch(path: string, expected: unknown, actual: unknown): TestMismatch {
   return mismatch(path, expected, actual);
 }
