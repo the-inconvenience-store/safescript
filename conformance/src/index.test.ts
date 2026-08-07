@@ -14,6 +14,7 @@ import {
 import { createDirectRuntimeBridge } from '@safescript/engine';
 
 import { withRuntimeBridge } from './index.js';
+import { blindApplicationExtensionReference, blindDeviceRuleReference } from './authoring-fixtures.js';
 import {
   measureV1ReferenceResourceLedgers,
   V1_REFERENCE_RESOURCE_LEDGERS,
@@ -187,6 +188,56 @@ describe('runtime bridge conformance corpus', () => {
     }
     await bridge.close();
   });
+
+  it.each([
+    [
+      blindApplicationExtensionReference,
+      referenceInput,
+      ['operation:tasks.create', 'operation:notifications.send', 'operation:notifications.send'],
+    ],
+    [
+      blindDeviceRuleReference,
+      {
+        ...referenceInput,
+        after: { ...referenceInput.after, stage: 'closed_won' },
+      },
+      ['operation:actuator.set'],
+    ],
+  ] as const)(
+    'executes the exact blind-agent $name source without a deterministic fault',
+    async (reference, input, operations) => {
+      const bridge = factory();
+      const checked = await bridge.check(referenceCheckRequest(reference));
+      expect(checked.status).toBe('accepted');
+      if (checked.status !== 'accepted') return;
+      expect(checked.summary.effects).toEqual(
+        reference.expectedOperations.map((operation) => ids.effect(operation.replace('operation:', 'effect:'))).sort(),
+      );
+      expect(checked.summary.capabilities).toEqual(
+        reference.expectedOperations
+          .map(
+            (operation) =>
+              referenceRegistry.operations.find((candidate) => candidate.id === ids.operation(operation))?.capability,
+          )
+          .filter((capability) => capability !== undefined)
+          .sort(),
+      );
+      const calls: string[] = [];
+      const request = executionRequest(reference, { kind: 'artifact', bytes: checked.artifact }, 'd');
+      const result = await bridge.execute(
+        { ...request, input: encode(ref(referenceTypes.event), input) },
+        {
+          handleAction: async (action) => {
+            calls.push(action.operationId);
+            return completedAction(action);
+          },
+        },
+      );
+      expect(result.status).toBe('completed');
+      expect(calls).toEqual([...operations]);
+      await bridge.close();
+    },
+  );
 
   it.each(references)('matches the locked $name semantic resource ledger', async (reference) => {
     const expected = V1_REFERENCE_RESOURCE_LEDGERS.find(({ name }) => name === reference.name);

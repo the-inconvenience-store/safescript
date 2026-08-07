@@ -157,6 +157,28 @@ function arithmetic(operator: string, left: RuntimeValue, right: RuntimeValue): 
     if (!Number.isFinite(result)) throw new InterpreterFault('non_finite_number');
     return result;
   }
+  if (
+    ((typeof left === 'bigint' && typeof right === 'number') ||
+      (typeof left === 'number' && typeof right === 'bigint')) &&
+    ['add', 'subtract', 'multiply', 'divide', 'remainder'].includes(operator)
+  ) {
+    const promotedLeft = Number(left);
+    const promotedRight = Number(right);
+    if ((operator === 'divide' || operator === 'remainder') && promotedRight === 0)
+      throw new InterpreterFault('invalid_arithmetic', 'division by zero');
+    const result =
+      operator === 'add'
+        ? promotedLeft + promotedRight
+        : operator === 'subtract'
+          ? promotedLeft - promotedRight
+          : operator === 'multiply'
+            ? promotedLeft * promotedRight
+            : operator === 'divide'
+              ? promotedLeft / promotedRight
+              : promotedLeft % promotedRight;
+    if (!Number.isFinite(result)) throw new InterpreterFault('non_finite_number');
+    return result;
+  }
   if (operator === 'add' && typeof left === 'string' && typeof right === 'string') return left + right;
   throw new InterpreterFault('invalid_ir', 'incompatible binary operands');
 }
@@ -247,6 +269,12 @@ export async function interpretStructured(
           return { kind: 'builtin', name: expression.name, receiver: value };
         }
         const valueRecord = record(value);
+        if (
+          expression.name === 'toString' &&
+          typeof valueRecord.epochSeconds === 'bigint' &&
+          typeof valueRecord.nanoseconds === 'number'
+        )
+          return { kind: 'builtin', name: 'Temporal.Instant.toString', receiver: value };
         if (!Object.hasOwn(valueRecord, expression.name)) return Object.freeze({ tag: 'none', value: null });
         return valueRecord[expression.name] as RuntimeValue;
       }
@@ -317,7 +345,14 @@ export async function interpretStructured(
         const right = await evaluate(expression.right, environment);
         if (expression.operator === 'equal' || expression.operator === 'not-equal') {
           hooks.scan([canonical(left), canonical(right)]);
-          const equal = stable(canonical(left)) === stable(canonical(right));
+          const mixedNumericEqual =
+            typeof left === 'bigint' && typeof right === 'number'
+              ? Number.isInteger(right) && BigInt(right) === left
+              : typeof left === 'number' && typeof right === 'bigint'
+                ? Number.isInteger(left) && BigInt(left) === right
+                : undefined;
+          const equal =
+            mixedNumericEqual === undefined ? stable(canonical(left)) === stable(canonical(right)) : mixedNumericEqual;
           return expression.operator === 'equal' ? equal : !equal;
         }
         if (['less', 'less-equal', 'greater', 'greater-equal'].includes(expression.operator)) {
@@ -528,7 +563,11 @@ export async function interpretStructured(
           const tag = typeof value === 'object' && value !== null && !Array.isArray(value) ? record(value).tag : value;
           const selected = statement.cases.find((item) => item.value === tag);
           if (!selected) throw new InterpreterFault('invalid_ir', 'non-exhaustive switch');
-          await executeStatements(selected.body, new Environment(environment));
+          try {
+            await executeStatements(selected.body, new Environment(environment));
+          } catch (signal) {
+            if (!(signal instanceof BreakSignal)) throw signal;
+          }
           break;
         }
       }
@@ -718,13 +757,12 @@ async function invokeBuiltin(
   if (builtin.name === 'Bytes.fromHex') {
     const text = arguments_[0];
     if (typeof text !== 'string' || !/^(?:[0-9a-fA-F]{2})*$/.test(text))
-      return created(Object.freeze({ tag: 'error', value: Object.freeze({ code: 'invalid_hex' }) }));
-    return created(
-      Object.freeze({
-        tag: 'ok',
-        value: Object.freeze(text.match(/../g)?.map((item) => Number.parseInt(item, 16)) ?? []),
-      }),
-    );
+      throw new InterpreterFault('invalid_ir', 'Bytes.fromHex requires valid hexadecimal text');
+    const value = Object.freeze(text.match(/../g)?.map((item) => Number.parseInt(item, 16)) ?? []);
+    // Conversion retains its locked V1 semantic charge even though the public
+    // authoring surface returns the byte sequence directly.
+    hooks.allocate(Object.freeze({ tag: 'ok', value }));
+    return value;
   }
   if (builtin.name === 'Temporal.Instant.from') {
     const text = arguments_[0];
@@ -757,6 +795,19 @@ async function invokeBuiltin(
         ? 0n
         : 1n;
   }
+  if (builtin.name === 'Temporal.Instant.toString') {
+    const item = record(receiver as RuntimeValue);
+    if (typeof item.epochSeconds !== 'bigint' || typeof item.nanoseconds !== 'number')
+      throw new InterpreterFault('invalid_ir', 'invalid instant');
+    const milliseconds = Number(item.epochSeconds) * 1000 + Math.trunc(item.nanoseconds / 1_000_000);
+    if (!Number.isFinite(milliseconds)) throw new InterpreterFault('invalid_ir', 'instant is outside V1 range');
+    const date = new Date(milliseconds);
+    if (Number.isNaN(date.getTime())) throw new InterpreterFault('invalid_ir', 'instant is outside V1 range');
+    const base = date.toISOString();
+    if (item.nanoseconds === 0) return created(base.replace('.000Z', 'Z'));
+    const fraction = String(item.nanoseconds).padStart(9, '0').replace(/0+$/, '');
+    return created(`${base.slice(0, 19)}.${fraction}Z`);
+  }
   if (builtin.name === 'Temporal.Now.instant') {
     const value = hooks.fixedInstant();
     if (value === undefined) throw new InterpreterFault('fixed_instant_required');
@@ -774,6 +825,14 @@ async function invokeBuiltin(
   if (Array.isArray(receiver)) {
     hooks.collection(receiver.length);
     const callback = arguments_[0];
+    if (builtin.name === 'join') {
+      if (receiver.some((item) => typeof item !== 'string'))
+        throw new InterpreterFault('invalid_ir', 'join requires a bounded string list');
+      const separator = arguments_[0] === undefined ? ',' : arguments_[0];
+      if (typeof separator !== 'string') throw new InterpreterFault('invalid_ir', 'join separator must be text');
+      hooks.charge(receiver.length * 2);
+      return created((receiver as readonly string[]).join(separator));
+    }
     if (builtin.name === 'with') {
       const index = Number(arguments_[0]);
       if (!Number.isSafeInteger(index) || index < 0 || index >= receiver.length)

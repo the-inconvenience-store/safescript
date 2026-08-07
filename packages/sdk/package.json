@@ -1,14 +1,13 @@
 {
   "name": "@safescript/sdk",
-  "version": "0.0.0",
-  "private": true,
+  "version": "1.0.0",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@safescript/contracts": "*",
-    "@safescript/engine": "*"
+    "@safescript/contracts": "^1.0.0",
+    "@safescript/engine": "^1.0.0"
   },
   "nx": {
     "tags": [

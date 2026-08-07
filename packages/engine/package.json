@@ -1,13 +1,12 @@
 {
   "name": "@safescript/engine",
-  "version": "0.0.0",
-  "private": true,
+  "version": "1.0.0",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@safescript/contracts": "*",
+    "@safescript/contracts": "^1.0.0",
     "typescript": "6.0.3"
   },
   "nx": {

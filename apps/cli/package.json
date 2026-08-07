@@ -1,7 +1,6 @@
 {
   "name": "@safescript/cli",
-  "version": "0.0.0",
-  "private": true,
+  "version": "1.0.0",
   "type": "module",
   "bin": {
     "safescript": "./src/index.ts"
@@ -10,7 +9,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@safescript/sdk": "*"
+    "@safescript/sdk": "^1.0.0"
   },
   "nx": {
     "tags": [
