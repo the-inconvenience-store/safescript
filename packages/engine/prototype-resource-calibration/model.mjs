@@ -1,0 +1,191 @@
+// PROTOTYPE — answers whether a simple semantic charge schedule and default
+// limits give the V1 reference workloads useful headroom while bounding abuse.
+
+export const schedule = Object.freeze({
+  instruction: 1,
+  branch: 1,
+  loopBackedge: 1,
+  call: 5,
+  callback: 5,
+  collectionVisit: 2,
+  comparedNode: 2,
+  scannedByteChunk: 1,
+  allocation: 4,
+  allocatedByteChunk: 1,
+  jsonByteChunk: 1,
+  jsonNode: 2,
+  sortComparison: 3,
+  simpleMath: 4,
+  complexMath: 32,
+  randomDraw: 4,
+  temporalOperation: 8,
+  actionRequest: 100,
+  validatedNode: 2,
+  traceRecord: 5,
+  outputByteChunk: 1,
+})
+
+export const profiles = Object.freeze({
+  tight: Object.freeze({
+    fuel: 100_000,
+    allocations: 20_000,
+    allocatedBytes: 4 * 1024 * 1024,
+    retainedBytes: 2 * 1024 * 1024,
+    collectionItems: 10_000,
+    valueDepth: 64,
+    valueNodes: 50_000,
+    valueBytes: 1024 * 1024,
+    stackDepth: 64,
+    hostCalls: 16,
+    concurrentActions: 4,
+    traceBytes: 64 * 1024,
+    outputBytes: 1024 * 1024,
+  }),
+  standard: Object.freeze({
+    fuel: 5_000_000,
+    allocations: 100_000,
+    allocatedBytes: 32 * 1024 * 1024,
+    retainedBytes: 16 * 1024 * 1024,
+    collectionItems: 100_000,
+    valueDepth: 128,
+    valueNodes: 250_000,
+    valueBytes: 4 * 1024 * 1024,
+    stackDepth: 128,
+    hostCalls: 64,
+    concurrentActions: 8,
+    traceBytes: 256 * 1024,
+    outputBytes: 4 * 1024 * 1024,
+  }),
+  generous: Object.freeze({
+    fuel: 10_000_000,
+    allocations: 1_000_000,
+    allocatedBytes: 256 * 1024 * 1024,
+    retainedBytes: 128 * 1024 * 1024,
+    collectionItems: 1_000_000,
+    valueDepth: 256,
+    valueNodes: 1_000_000,
+    valueBytes: 16 * 1024 * 1024,
+    stackDepth: 256,
+    hostCalls: 256,
+    concurrentActions: 32,
+    traceBytes: 1024 * 1024,
+    outputBytes: 16 * 1024 * 1024,
+  }),
+})
+
+export const workloads = Object.freeze([
+  Object.freeze({
+    name: "CRM walking skeleton",
+    note: "One condition, one task action, one small result.",
+    instructions: 42, branches: 5, calls: 3, comparedNodes: 8,
+    scannedBytes: 180, allocations: 12, allocatedBytes: 1_200,
+    retainedBytes: 1_200, validationNodes: 24, validationBytes: 1_600,
+    actionRequests: 1, effectCost: 25, outputBytes: 64,
+    collectionItems: 4, valueDepth: 5, valueNodes: 24, valueBytes: 1_600,
+    stackDepth: 2, hostCalls: 1, concurrentActions: 1, traceBytes: 0,
+  }),
+  Object.freeze({
+    name: "Stored CRM extension",
+    note: "Stakeholder tree, callbacks, task, and eight notifications.",
+    instructions: 2_200, branches: 420, loopBackedges: 600, calls: 450,
+    callbacks: 300, collectionVisits: 1_800, comparedNodes: 900,
+    scannedBytes: 36_000, allocations: 1_200, allocatedBytes: 480_000,
+    retainedBytes: 180_000, sortComparisons: 1_800, validationNodes: 1_500,
+    validationBytes: 160_000, actionRequests: 9, effectCost: 360,
+    outputBytes: 24_000, collectionItems: 1_000, valueDepth: 24,
+    valueNodes: 8_000, valueBytes: 512_000, stackDepth: 32,
+    hostCalls: 9, concurrentActions: 8, traceRecords: 8, traceBytes: 4_096,
+  }),
+  Object.freeze({
+    name: "Code-mode API job",
+    note: "Eight JSON pages, transforms, sort, and bounded enrichment.",
+    instructions: 30_000, branches: 8_000, loopBackedges: 20_000,
+    calls: 22_000, callbacks: 20_000, collectionVisits: 70_000,
+    comparedNodes: 24_000, scannedBytes: 900_000, allocations: 32_000,
+    allocatedBytes: 18 * 1024 * 1024, retainedBytes: 9 * 1024 * 1024,
+    jsonBytes: 512 * 1024, jsonNodes: 18_000, sortComparisons: 62_000,
+    validationNodes: 24_000, validationBytes: 900_000,
+    actionRequests: 24, effectCost: 900, outputBytes: 1024 * 1024,
+    collectionItems: 20_000, valueDepth: 48, valueNodes: 80_000,
+    valueBytes: 3 * 1024 * 1024, stackDepth: 40, hostCalls: 24,
+    concurrentActions: 8, traceRecords: 32, traceBytes: 32 * 1024,
+  }),
+  Object.freeze({
+    name: "Device rule",
+    note: "Packet decode, bit masks, tree search, maths, time, actuator.",
+    instructions: 1_400, branches: 260, loopBackedges: 180, calls: 160,
+    collectionVisits: 300, comparedNodes: 220, scannedBytes: 2_400,
+    allocations: 180, allocatedBytes: 48_000, retainedBytes: 24_000,
+    simpleMath: 120, complexMath: 24, temporalOperations: 6,
+    validationNodes: 300, validationBytes: 16_000, actionRequests: 1,
+    effectCost: 40, outputBytes: 512, collectionItems: 256,
+    valueDepth: 32, valueNodes: 2_000, valueBytes: 128_000,
+    stackDepth: 48, hostCalls: 1, concurrentActions: 1,
+    traceRecords: 4, traceBytes: 1_024,
+  }),
+  Object.freeze({
+    name: "Hostile allocation loop",
+    note: "Churns small immutable values until a semantic limit stops it.",
+    instructions: 400_000, branches: 100_000, loopBackedges: 100_000,
+    allocations: 100_001, allocatedBytes: 40 * 1024 * 1024,
+    retainedBytes: 2_048, collectionItems: 8, valueDepth: 3,
+    valueNodes: 8, valueBytes: 512, stackDepth: 2, hostCalls: 0,
+    concurrentActions: 0, traceBytes: 0, outputBytes: 0,
+  }),
+])
+
+const chunks = (value = 0, size = 16) => Math.ceil(value / size)
+const count = (workload, name) => workload[name] ?? 0
+
+export function evaluate(workload, limits) {
+  const fuelParts = {
+    instructions: count(workload, "instructions") * schedule.instruction,
+    branches: count(workload, "branches") * schedule.branch,
+    loops: count(workload, "loopBackedges") * schedule.loopBackedge,
+    calls: count(workload, "calls") * schedule.call,
+    callbacks: count(workload, "callbacks") * schedule.callback,
+    collections: count(workload, "collectionVisits") * schedule.collectionVisit,
+    comparisons: count(workload, "comparedNodes") * schedule.comparedNode,
+    scannedBytes: chunks(count(workload, "scannedBytes")) * schedule.scannedByteChunk,
+    allocations: count(workload, "allocations") * schedule.allocation,
+    allocatedBytes: chunks(count(workload, "allocatedBytes")) * schedule.allocatedByteChunk,
+    jsonBytes: chunks(count(workload, "jsonBytes"), 8) * schedule.jsonByteChunk,
+    jsonNodes: count(workload, "jsonNodes") * schedule.jsonNode,
+    sorting: count(workload, "sortComparisons") * schedule.sortComparison,
+    simpleMath: count(workload, "simpleMath") * schedule.simpleMath,
+    complexMath: count(workload, "complexMath") * schedule.complexMath,
+    random: count(workload, "randomDraws") * schedule.randomDraw,
+    temporal: count(workload, "temporalOperations") * schedule.temporalOperation,
+    actions: count(workload, "actionRequests") * schedule.actionRequest + count(workload, "effectCost"),
+    validation: count(workload, "validationNodes") * schedule.validatedNode + chunks(count(workload, "validationBytes")),
+    traces: count(workload, "traceRecords") * schedule.traceRecord + chunks(count(workload, "traceBytes")),
+    output: chunks(count(workload, "outputBytes")) * schedule.outputByteChunk,
+  }
+  const usage = {
+    fuel: Object.values(fuelParts).reduce((sum, value) => sum + value, 0),
+    allocations: count(workload, "allocations"),
+    allocatedBytes: count(workload, "allocatedBytes"),
+    retainedBytes: count(workload, "retainedBytes"),
+    collectionItems: count(workload, "collectionItems"),
+    valueDepth: count(workload, "valueDepth"),
+    valueNodes: count(workload, "valueNodes"),
+    valueBytes: count(workload, "valueBytes"),
+    stackDepth: count(workload, "stackDepth"),
+    hostCalls: count(workload, "hostCalls"),
+    concurrentActions: count(workload, "concurrentActions"),
+    traceBytes: count(workload, "traceBytes"),
+    outputBytes: count(workload, "outputBytes"),
+  }
+  const checks = Object.fromEntries(Object.entries(usage).map(([name, value]) => [name, {
+    value,
+    limit: limits[name],
+    ratio: limits[name] === 0 ? (value === 0 ? 0 : Infinity) : value / limits[name],
+    passes: value <= limits[name],
+  }]))
+  return { workload, fuelParts, usage, checks, passes: Object.values(checks).every(check => check.passes) }
+}
+
+export function evaluateAll(profileName = "standard") {
+  const limits = profiles[profileName]
+  return workloads.map(workload => evaluate(workload, limits))
+}
