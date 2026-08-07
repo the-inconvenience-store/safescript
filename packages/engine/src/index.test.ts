@@ -826,6 +826,294 @@ export async function onDealUpdated(`,
     expect(completed.status).toBe('completed');
   });
 
+  it('executes checked JSON, numeric parsing, Bytes, Temporal, and console intrinsics', async () => {
+    const dataSource = source
+      .replace(
+        'export async function onDealUpdated(',
+        `function decodedAmount(): number {
+  const parsed = JSON.parse<{ readonly value: number }>("{\\"value\\":1000000}")
+  switch (parsed.tag) {
+    case "ok": return parsed.value.value
+    case "error": return 0
+  }
+}
+
+function numericAmount(): number {
+  const parsed = parseInt64("1000000")
+  switch (parsed.tag) {
+    case "ok": return parsed.value
+    case "error": return 0
+  }
+}
+
+export async function onDealUpdated(`,
+      )
+      .replace(
+        '  if (\n',
+        `  const bytes = Bytes.fromUtf8("safe")
+  const instant = Temporal.Instant.from("2026-08-07T00:00:00Z")
+  const current = Temporal.Now.instant()
+  const random = Math.random()
+  console.info("checked", bytes.length, instant)
+  const required = current === instant && random === random ? decodedAmount() + numericAmount() : 0
+
+  if (
+`,
+      )
+      .replace('event.after.amount.minorUnits < 2_000_000', 'event.after.amount.minorUnits < required');
+    const dataRegistry: ContractRegistry = {
+      ...registry,
+      digest: fingerprint(47),
+      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+    };
+    const request = {
+      ...checkWithSource(dataSource),
+      languageVersion: { major: 1, minor: 1 },
+      registry: dataRegistry,
+    } as const;
+    const bridge = createDirectRuntimeBridge();
+    expect((await bridge.check(request)).status).toBe('accepted');
+    const completed = await bridge.execute(
+      {
+        ...executeRequest({ kind: 'source', source: request }, event('open', 1_999_999n)),
+        registry: dataRegistry,
+        trace: 'semantic',
+        fixedInstant: { epochSeconds: 1_786_060_800n, nanoseconds: 0 },
+        randomSeed: [1, 2, 3, 4],
+      },
+      unreachableHost,
+    );
+    expect(completed.status).toBe('completed');
+    if (completed.status === 'completed') expect(completed.facts.trace.records.length).toBeGreaterThan(0);
+  });
+
+  it('lowers optional syntax and undefined checks to canonical Option absence', async () => {
+    const optionSource = source
+      .replace(
+        '  if (\n',
+        `  const settings: { readonly threshold?: number } = {}
+  const absent = settings.threshold === undefined
+  const required = absent ? (settings.threshold ?? 2_000_000) : 0
+
+  if (
+`,
+      )
+      .replace('event.after.amount.minorUnits < 2_000_000', 'event.after.amount.minorUnits < required');
+    const optionRegistry: ContractRegistry = {
+      ...registry,
+      digest: fingerprint(48),
+      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+    };
+    const request = {
+      ...checkWithSource(optionSource),
+      languageVersion: { major: 1, minor: 1 },
+      registry: optionRegistry,
+    } as const;
+    const bridge = createDirectRuntimeBridge();
+    expect((await bridge.check(request)).status).toBe('accepted');
+    const completed = await bridge.execute(
+      { ...executeRequest({ kind: 'source', source: request }, event('open', 1_999_999n)), registry: optionRegistry },
+      unreachableHost,
+    );
+    expect(completed.status).toBe('completed');
+
+    const nullResult = await bridge.check({
+      ...request,
+      source: {
+        entry: moduleId,
+        modules: [
+          { id: moduleId, source: [...new TextEncoder().encode(optionSource.replace('{}', '{ threshold: null }'))] },
+        ],
+      },
+    });
+    expect(nullResult.status).toBe('rejected');
+  });
+
+  it('executes multiple actions in deterministic Promise.all input order from verified artifacts', async () => {
+    const actionInput = `{
+    workspaceId: event.after.workspaceId,
+    relatedDealId: event.after.id,
+    title: \`Onboard \${event.after.name}\`,
+  }`;
+    const actionsSource = source.replace(
+      `const result = await ctx.tasks.create(${actionInput})`,
+      `const results = await Promise.all([
+    ctx.tasks.create(${actionInput}),
+    ctx.tasks.create(${actionInput}),
+  ])
+  const result = results[1]`,
+    );
+    const actionRegistry: ContractRegistry = {
+      ...registry,
+      digest: fingerprint(49),
+      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+    };
+    const request = {
+      ...checkWithSource(actionsSource),
+      languageVersion: { major: 1, minor: 1 },
+      registry: actionRegistry,
+    } as const;
+    const bridge = createDirectRuntimeBridge();
+    const checked = await bridge.check(request);
+    expect(checked.status).toBe('accepted');
+    if (checked.status !== 'accepted') return;
+    const calls: string[] = [];
+    const completed = await bridge.execute(
+      {
+        ...executeRequest({ kind: 'artifact', bytes: checked.artifact }),
+        registry: actionRegistry,
+      },
+      {
+        handleAction: async (action) => {
+          calls.push(action.requestId);
+          return {
+            abiVersion: { major: 1, minor: 0 },
+            requestId: action.requestId,
+            result: {
+              tag: 'completed',
+              value: encoded(resultSchema(ref(typeIds.task), ref(typeIds.taskError)), {
+                tag: 'ok',
+                value: { id: `task-${calls.length}` },
+              }),
+            },
+          };
+        },
+      },
+    );
+    expect(completed.status).toBe('completed');
+    expect(calls).toHaveLength(2);
+    if (completed.status === 'completed')
+      expect(completed.facts.actions.map((record) => record.phase)).toEqual([
+        'requested',
+        'resolved',
+        'requested',
+        'resolved',
+      ]);
+  });
+
+  it('resolves static registered modules without ambient package or filesystem access', async () => {
+    const helperId = ids.module('module:crm/helper');
+    const modularSource = source
+      .replace(
+        'import { Err, Ok, type Result } from "safescript:prelude"',
+        `import { Err, Ok, type Result } from "safescript:prelude"\nimport * as helpers from "${helperId}"`,
+      )
+      .replace('  if (\n', '  const required = helpers.threshold()\n\n  if (\n')
+      .replace('event.after.amount.minorUnits < 2_000_000', 'event.after.amount.minorUnits < required');
+    const helperSource = `export function threshold(): number { return 2_000_000 }`;
+    const moduleRegistry: ContractRegistry = {
+      ...registry,
+      digest: fingerprint(50),
+      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+    };
+    const request = {
+      ...checkWithSource(modularSource),
+      languageVersion: { major: 1, minor: 1 },
+      registry: moduleRegistry,
+      source: {
+        entry: moduleId,
+        modules: [
+          { id: moduleId, source: [...new TextEncoder().encode(modularSource)] },
+          { id: helperId, source: [...new TextEncoder().encode(helperSource)] },
+        ],
+      },
+    } as const;
+    const bridge = createDirectRuntimeBridge();
+    expect((await bridge.check(request)).status).toBe('accepted');
+    const completed = await bridge.execute(
+      { ...executeRequest({ kind: 'source', source: request }, event('open', 1_999_999n)), registry: moduleRegistry },
+      unreachableHost,
+    );
+    expect(completed.status).toBe('completed');
+  });
+
+  it('executes immutable spread and object and tuple destructuring', async () => {
+    const destructuringSource = source
+      .replace(
+        '  if (\n',
+        `  const base = { first: 500_000, second: 500_000 }
+  const combined = { ...base, third: 500_000 }
+  const values = [...Object.values(combined), 500_000]
+  const [first, second, third, fourth] = values
+  const { first: named } = combined
+  const required = first + second + third + fourth + named - 500_000
+
+  if (
+`,
+      )
+      .replace('event.after.amount.minorUnits < 2_000_000', 'event.after.amount.minorUnits < required');
+    const destructuringRegistry: ContractRegistry = {
+      ...registry,
+      digest: fingerprint(51),
+      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+    };
+    const request = {
+      ...checkWithSource(destructuringSource),
+      languageVersion: { major: 1, minor: 1 },
+      registry: destructuringRegistry,
+    } as const;
+    const bridge = createDirectRuntimeBridge();
+    expect((await bridge.check(request)).status).toBe('accepted');
+    const completed = await bridge.execute(
+      {
+        ...executeRequest({ kind: 'source', source: request }, event('open', 1_999_999n)),
+        registry: destructuringRegistry,
+      },
+      unreachableHost,
+    );
+    expect(completed.status).toBe('completed');
+  });
+
+  it('executes immutable replacement, reversal, splicing, and stable sorting', async () => {
+    const collectionSource = source
+      .replace(
+        '  if (\n',
+        `  const values = [250_000, 500_000, 750_000]
+    .with(0, 500_000)
+    .toReversed()
+    .toSpliced(1, 1, 250_000)
+    .toSorted((left, right) => left - right)
+  const required = values.reduce((total, value) => total + value, 0) + 500_000
+
+  if (
+`,
+      )
+      .replace('event.after.amount.minorUnits < 2_000_000', 'event.after.amount.minorUnits < required');
+    const collectionRegistry: ContractRegistry = {
+      ...registry,
+      digest: fingerprint(52),
+      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+    };
+    const request = {
+      ...checkWithSource(collectionSource),
+      languageVersion: { major: 1, minor: 1 },
+      registry: collectionRegistry,
+    } as const;
+    const bridge = createDirectRuntimeBridge();
+    expect((await bridge.check(request)).status).toBe('accepted');
+    const completed = await bridge.execute(
+      {
+        ...executeRequest({ kind: 'source', source: request }, event('open', 1_999_999n)),
+        registry: collectionRegistry,
+      },
+      unreachableHost,
+    );
+    expect(completed.status).toBe('completed');
+    const mutating = await bridge.check({
+      ...request,
+      source: {
+        entry: moduleId,
+        modules: [
+          {
+            id: moduleId,
+            source: [...new TextEncoder().encode(collectionSource.replace('.toReversed()', '.reverse()'))],
+          },
+        ],
+      },
+    });
+    expect(mutating.status).toBe('rejected');
+  });
+
   it.each([
     ['SS_SYNTAX', source.replace('export async function', 'export async function )')],
     ['SS_AMBIENT_AUTHORITY', 'import { Ok } from "node:fs"\n' + source],

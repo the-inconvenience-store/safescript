@@ -12,6 +12,7 @@ import {
 import type {
   StructuredExpression,
   StructuredFunction,
+  StructuredPattern,
   StructuredProgram,
   StructuredStatement,
 } from './structured-ir.js';
@@ -26,6 +27,35 @@ class Failure extends Error {
   constructor(readonly failure: StructuredCompileFailure) {
     super(failure.message);
   }
+}
+
+function checkedSource(sourceFile: ts.SourceFile): ts.SourceFile {
+  const fileName = '/safescript-entry.ts';
+  const host: ts.CompilerHost = {
+    fileExists: (candidate) => candidate === fileName,
+    readFile: (candidate) => (candidate === fileName ? sourceFile.text : undefined),
+    getSourceFile: (candidate) =>
+      candidate === fileName
+        ? ts.createSourceFile(candidate, sourceFile.text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS)
+        : undefined,
+    getDefaultLibFileName: () => 'safescript:no-ambient-lib',
+    writeFile: () => undefined,
+    getCurrentDirectory: () => '',
+    getDirectories: () => [],
+    getCanonicalFileName: (candidate) => candidate,
+    useCaseSensitiveFileNames: () => true,
+    getNewLine: () => '\n',
+  };
+  const program = ts.createProgram([fileName], { noLib: true, noResolve: true, strict: true, noEmit: true }, host);
+  const checked = program.getSourceFile(fileName);
+  if (!checked) throw new Error('SafeScript checker did not retain its in-memory entry source');
+  const checker = program.getTypeChecker();
+  const visit = (node: ts.Node): void => {
+    if (ts.isExpression(node) || ts.isTypeNode(node)) checker.getTypeAtLocation(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(checked);
+  return checked;
 }
 
 const binaryOperators = new Map<ts.SyntaxKind, Extract<StructuredExpression, { tag: 'binary' }>['operator']>([
@@ -68,6 +98,7 @@ class Lowerer {
   readonly effects = new Set<OperationDefinition['effect']>();
   readonly capabilities = new Set<OperationDefinition['capability']>();
   readonly mutable = new Set<string>();
+  private actionOrdinal = 0;
   constructor(
     readonly file: ts.SourceFile,
     readonly moduleId: ModuleId,
@@ -122,17 +153,16 @@ class Lowerer {
     if (ts.isArrayLiteralExpression(node))
       return {
         tag: 'array',
-        items: node.elements.map((item) => {
-          if (ts.isSpreadElement(item))
-            this.fail(item, 'SS_UNSUPPORTED_EXPRESSION', 'array spread is not implemented in this slice');
-          return this.expression(item as ts.Expression);
-        }),
+        items: node.elements.map((item) =>
+          ts.isSpreadElement(item) ? { spread: this.expression(item.expression) } : this.expression(item),
+        ),
         source: this.location(node),
       };
     if (ts.isObjectLiteralExpression(node))
       return {
         tag: 'object',
         fields: node.properties.map((property) => {
+          if (ts.isSpreadAssignment(property)) return { spread: this.expression(property.expression) };
           if (
             !ts.isPropertyAssignment(property) ||
             (!ts.isIdentifier(property.name) && !ts.isStringLiteral(property.name))
@@ -254,7 +284,9 @@ class Lowerer {
       effectId: operation.effect,
       capabilityId: operation.capability,
       actionSiteId: derivedActionSiteId(
-        new TextEncoder().encode(`${this.moduleId}\0${operation.id}\0${node.getText(this.file)}`),
+        new TextEncoder().encode(
+          `${this.moduleId}\0${operation.id}\0${this.actionOrdinal++}\0${node.getText(this.file)}`,
+        ),
       ),
       inputType: { kind: 'ref', type: operation.input },
       resultType: resultSchema({ kind: 'ref', type: operation.output }, { kind: 'ref', type: operation.error }),
@@ -266,6 +298,24 @@ class Lowerer {
   body(statement: ts.Statement): readonly StructuredStatement[] {
     return ts.isBlock(statement) ? this.statements(statement.statements) : this.statements([statement]);
   }
+  pattern(name: ts.BindingName): StructuredPattern {
+    if (ts.isIdentifier(name)) return { tag: 'name', name: name.text };
+    if (ts.isArrayBindingPattern(name))
+      return {
+        tag: 'array',
+        items: name.elements.map((element) => (ts.isOmittedExpression(element) ? null : this.pattern(element.name))),
+      };
+    return {
+      tag: 'object',
+      fields: name.elements.map((element) => {
+        if (element.dotDotDotToken) this.fail(element, 'SS_UNSUPPORTED_BINDING', 'rest destructuring is rejected');
+        const property = element.propertyName ?? element.name;
+        if (!ts.isIdentifier(property) && !ts.isStringLiteral(property))
+          this.fail(property, 'SS_UNSUPPORTED_BINDING', 'computed destructuring keys are rejected');
+        return { name: property.text, pattern: this.pattern(element.name) };
+      }),
+    };
+  }
   statements(nodes: readonly ts.Statement[]): readonly StructuredStatement[] {
     return nodes.map((node): StructuredStatement => {
       if (ts.isVariableStatement(node)) {
@@ -275,9 +325,17 @@ class Lowerer {
         )
           this.fail(node, 'SS_MUTABLE_BINDING', 'var and multi-declarations are rejected');
         const declaration = node.declarationList.declarations[0] as ts.VariableDeclaration;
-        if (!ts.isIdentifier(declaration.name) || !declaration.initializer)
-          this.fail(declaration, 'SS_UNSUPPORTED_BINDING', 'binding requires one identifier and initializer');
+        if (!declaration.initializer)
+          this.fail(declaration, 'SS_UNSUPPORTED_BINDING', 'binding requires an initializer');
         const mutable = (node.declarationList.flags & ts.NodeFlags.Let) !== 0;
+        if (!ts.isIdentifier(declaration.name))
+          return {
+            tag: 'destructure',
+            pattern: this.pattern(declaration.name),
+            mutable,
+            value: this.expression(declaration.initializer),
+            source: this.location(node),
+          };
         if (mutable) this.mutable.add(declaration.name.text);
         return {
           tag: 'variable',
@@ -444,10 +502,24 @@ function safetyFailure(sourceFile: ts.SourceFile): StructuredCompileFailure | un
       current = current.expression;
     return ts.isIdentifier(current) ? current.text : undefined;
   };
+  const consumedByPromiseAll = (node: ts.Node): boolean => {
+    let current: ts.Node | undefined = node.parent;
+    while (current && !ts.isCallExpression(current)) current = current.parent;
+    return (
+      !!current &&
+      ts.isPropertyAccessExpression(current.expression) &&
+      ts.isIdentifier(current.expression.expression) &&
+      current.expression.expression.text === 'Promise' &&
+      current.expression.name.text === 'all' &&
+      ts.isAwaitExpression(current.parent)
+    );
+  };
   const visit = (node: ts.Node): void => {
     if (failure) return;
     if (node.kind === ts.SyntaxKind.AnyKeyword || node.kind === ts.SyntaxKind.UnknownKeyword)
       reject(node, 'SS_UNSAFE_TYPE', 'any and general unknown are rejected');
+    else if (node.kind === ts.SyntaxKind.NullKeyword)
+      reject(node, 'SS_NULL_REJECTED', 'null is rejected; use canonical Option absence');
     else if (
       (ts.isAsExpression(node) && !ts.isConstTypeReference(node.type)) ||
       ts.isTypeAssertionExpression(node) ||
@@ -490,7 +562,18 @@ function safetyFailure(sourceFile: ts.SourceFile): StructuredCompileFailure | un
         reject(node, 'SS_PROMISE_RACE', 'Promise.race and Promise.any are rejected');
       else if (ts.isPropertyAccessExpression(node.expression) && /Locale/.test(node.expression.name.text))
         reject(node, 'SS_LOCALE_REJECTED', 'locale-sensitive behavior is rejected');
-      else if (rootIdentifier(node.expression) === 'ctx' && !ts.isAwaitExpression(node.parent))
+      else if (
+        ts.isPropertyAccessExpression(node.expression) &&
+        ['push', 'pop', 'shift', 'unshift', 'splice', 'reverse', 'sort', 'fill', 'copyWithin'].includes(
+          node.expression.name.text,
+        )
+      )
+        reject(node, 'SS_VALUE_MUTATION', 'mutable collection methods are rejected');
+      else if (
+        rootIdentifier(node.expression) === 'ctx' &&
+        !ts.isAwaitExpression(node.parent) &&
+        !consumedByPromiseAll(node)
+      )
         reject(node, 'SS_FLOATING_ACTION', 'every action must be consumed exactly once by await');
     }
     ts.forEachChild(node, visit);
@@ -506,6 +589,7 @@ export function compileStructuredProgram(
   slot: SlotDefinition,
 ): { ok: true; program: StructuredProgram; handler: string } | { ok: false; failure: StructuredCompileFailure } {
   try {
+    sourceFile = checkedSource(sourceFile);
     const unsafe = safetyFailure(sourceFile);
     if (unsafe) throw new Failure(unsafe);
     const declarations = sourceFile.statements.filter(ts.isFunctionDeclaration);

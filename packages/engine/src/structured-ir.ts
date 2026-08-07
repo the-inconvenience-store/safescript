@@ -27,10 +27,16 @@ export type StructuredExpression =
       optional: boolean;
       source: SourceLocation;
     }>
-  | Readonly<{ tag: 'array'; items: readonly StructuredExpression[]; source: SourceLocation }>
+  | Readonly<{
+      tag: 'array';
+      items: readonly (StructuredExpression | Readonly<{ spread: StructuredExpression }>)[];
+      source: SourceLocation;
+    }>
   | Readonly<{
       tag: 'object';
-      fields: readonly Readonly<{ name: string; value: StructuredExpression }>[];
+      fields: readonly (
+        Readonly<{ name: string; value: StructuredExpression }> | Readonly<{ spread: StructuredExpression }>
+      )[];
       source: SourceLocation;
     }>
   | Readonly<{ tag: 'template'; parts: readonly (string | StructuredExpression)[]; source: SourceLocation }>
@@ -102,6 +108,13 @@ export type StructuredExpression =
 export type StructuredStatement =
   | Readonly<{ tag: 'variable'; name: string; mutable: boolean; value: StructuredExpression; source: SourceLocation }>
   | Readonly<{
+      tag: 'destructure';
+      pattern: StructuredPattern;
+      mutable: boolean;
+      value: StructuredExpression;
+      source: SourceLocation;
+    }>
+  | Readonly<{
       tag: 'assign';
       name: string;
       operator:
@@ -161,6 +174,11 @@ export type StructuredStatement =
       source: SourceLocation;
     }>;
 
+export type StructuredPattern =
+  | Readonly<{ tag: 'name'; name: string }>
+  | Readonly<{ tag: 'array'; items: readonly (StructuredPattern | null)[] }>
+  | Readonly<{ tag: 'object'; fields: readonly Readonly<{ name: string; pattern: StructuredPattern }>[] }>;
+
 export interface StructuredFunction {
   readonly name: string;
   readonly parameters: readonly string[];
@@ -213,11 +231,15 @@ function expression(
     case 'index':
       return child(value.value) && child(value.index) && typeof value.optional === 'boolean';
     case 'array':
-      return Array.isArray(value.items) && value.items.every(child);
+      return (
+        Array.isArray(value.items) && value.items.every((item) => child(item) || (object(item) && child(item.spread)))
+      );
     case 'object':
       return (
         Array.isArray(value.fields) &&
-        value.fields.every((field) => object(field) && typeof field.name === 'string' && child(field.value))
+        value.fields.every(
+          (field) => object(field) && ((typeof field.name === 'string' && child(field.value)) || child(field.spread)),
+        )
       );
     case 'template':
       return Array.isArray(value.parts) && value.parts.every((part) => typeof part === 'string' || child(part));
@@ -292,9 +314,24 @@ function statements(
     if (!object(statement) || typeof statement.tag !== 'string' || !location(statement.source)) return false;
     const expr = (item: unknown) => expression(item, registry, slot, depth + 1);
     const body = (item: unknown) => statements(item, registry, slot, depth + 1);
+    const pattern = (item: unknown, nested = 0): boolean => {
+      if (!object(item) || typeof item.tag !== 'string' || nested > 128) return false;
+      if (item.tag === 'name') return typeof item.name === 'string';
+      if (item.tag === 'array')
+        return Array.isArray(item.items) && item.items.every((entry) => entry === null || pattern(entry, nested + 1));
+      return (
+        item.tag === 'object' &&
+        Array.isArray(item.fields) &&
+        item.fields.every(
+          (field) => object(field) && typeof field.name === 'string' && pattern(field.pattern, nested + 1),
+        )
+      );
+    };
     switch (statement.tag) {
       case 'variable':
         return typeof statement.name === 'string' && typeof statement.mutable === 'boolean' && expr(statement.value);
+      case 'destructure':
+        return pattern(statement.pattern) && typeof statement.mutable === 'boolean' && expr(statement.value);
       case 'assign':
         return (
           typeof statement.name === 'string' &&
@@ -405,8 +442,10 @@ export function structuredActions(
     else if (item.tag === 'index') {
       visitExpression(item.value);
       visitExpression(item.index);
-    } else if (item.tag === 'array') item.items.forEach(visitExpression);
-    else if (item.tag === 'object') item.fields.forEach((field) => visitExpression(field.value));
+    } else if (item.tag === 'array')
+      item.items.forEach((entry) => visitExpression('spread' in entry ? entry.spread : entry));
+    else if (item.tag === 'object')
+      item.fields.forEach((field) => visitExpression('spread' in field ? field.spread : field.value));
     else if (item.tag === 'template')
       item.parts.forEach((part) => {
         if (typeof part !== 'string') visitExpression(part);
@@ -428,7 +467,7 @@ export function structuredActions(
   };
   const visitStatements = (items: readonly StructuredStatement[]): void =>
     items.forEach((item) => {
-      if (item.tag === 'variable' || item.tag === 'assign') visitExpression(item.value);
+      if (item.tag === 'variable' || item.tag === 'destructure' || item.tag === 'assign') visitExpression(item.value);
       else if (item.tag === 'expression') visitExpression(item.expression);
       else if (item.tag === 'if') {
         visitExpression(item.condition);

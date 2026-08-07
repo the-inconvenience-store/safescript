@@ -22,6 +22,10 @@ export interface InterpreterHooks {
   readonly action: (instruction: ActionInstruction, input: CanonicalValue) => Promise<CanonicalValue>;
   readonly cancelled: () => boolean;
   readonly trace: (event: string, source: IrTerminator['source']) => void;
+  readonly random: () => number;
+  readonly fixedInstant: () => CanonicalValue | undefined;
+  readonly enterCall: () => () => void;
+  readonly collection: (items: number) => void;
 }
 
 /**

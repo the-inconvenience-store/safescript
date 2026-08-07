@@ -29,6 +29,7 @@ import {
   type ExecutionUsage,
   type InspectRequest,
   type InspectResult,
+  type ModuleId,
   type OperationDefinition,
   type RuntimeBridge,
   type RuntimeBridgeHost,
@@ -40,15 +41,15 @@ import {
 } from '@safescript/contracts';
 
 import { createArtifact, verifyArtifact, type CheckedArtifact } from './artifact.js';
-import { compileProgram } from './compiler.js';
+import { compileProgram, compileProgramModules } from './compiler.js';
 import { interpret, InterpreterFault } from './interpreter.js';
 import { verifyProgram, type IrTerminator } from './ir.js';
 import { structuredActions } from './structured-ir.js';
 
 const ABI_VERSION = Object.freeze({ major: 1, minor: 0 });
 const COMPILER = Object.freeze({
-  version: Object.freeze({ major: 0, minor: 1, patch: 0 }),
-  build: 'typed-ir-walking-skeleton',
+  version: Object.freeze({ major: 0, minor: 2, patch: 0 }),
+  build: 'typed-ir-language-1-1',
 });
 const COMPILER_NAME = `${COMPILER.version.major}.${COMPILER.version.minor}.${COMPILER.version.patch}+${COMPILER.build}`;
 const encoder = new TextEncoder();
@@ -186,15 +187,34 @@ function checkCompile(request: CheckRequest): InternalCheckResult {
     return reject('SS_SLOT_LANGUAGE_MISMATCH', 'slot language version does not match request');
   if (!compileLimitsValid(request.limits, slot.compileLimits))
     return reject('SS_COMPILER_LIMIT', 'compile limits exceed the slot ceiling');
-  if (request.source.modules.length !== 1 || request.source.modules.length > request.limits.modules)
-    return reject('SS_MODULE_SET_INVALID', 'language 1.0 accepts one source module plus reserved generated modules');
-  const module = request.source.modules[0];
-  if (!module || module.id !== request.source.entry) return reject('SS_MODULE_SET_INVALID', 'entry module is absent');
-  if (sourceBytes > request.limits.sourceBytes || module.source.length > request.limits.moduleBytes)
+  if (
+    request.source.modules.length === 0 ||
+    request.source.modules.length > request.limits.modules ||
+    (request.languageVersion.minor === 0 && request.source.modules.length !== 1)
+  )
+    return reject('SS_MODULE_SET_INVALID', 'module set is outside the selected language minor');
+  const module = request.source.modules.find((candidate) => candidate.id === request.source.entry);
+  if (!module) return reject('SS_MODULE_SET_INVALID', 'entry module is absent');
+  if (
+    sourceBytes > request.limits.sourceBytes ||
+    request.source.modules.some((candidate) => candidate.source.length > request.limits.moduleBytes)
+  )
     return reject('SS_COMPILER_LIMIT', 'source byte limit exceeded');
-  const text = decodeSource(module.source);
-  if (text === undefined) return reject('SS_SOURCE_ENCODING', 'source must be canonical UTF-8');
-  const compiled = compileProgram(text, module.id, request.registry, slot);
+  const texts = request.source.modules.map((candidate) => ({
+    id: candidate.id,
+    source: decodeSource(candidate.source),
+  }));
+  if (texts.some((candidate) => candidate.source === undefined))
+    return reject('SS_SOURCE_ENCODING', 'source must be canonical UTF-8');
+  const compiled =
+    request.languageVersion.minor === 1
+      ? compileProgramModules(
+          texts as readonly Readonly<{ id: ModuleId; source: string }>[],
+          request.source.entry,
+          request.registry,
+          slot,
+        )
+      : compileProgram(texts[0]?.source as string, module.id, request.registry, slot);
   compileUsage = usage(sourceBytes, compiled.syntaxNodes);
   if (
     compiled.imports > request.limits.imports ||
@@ -312,6 +332,21 @@ function emptyUsage(): MutableUsage {
 
 function valueLimits(limits: ExecutionLimits, maxBytes = limits.maxBytes): ValueLimits {
   return { maxDepth: limits.maxDepth, maxNodes: limits.maxNodes, maxBytes };
+}
+
+function seededRandom(seed: CanonicalBytes | undefined): () => number {
+  if (!seed || seed.length === 0)
+    return () => {
+      throw new InterpreterFault('random_seed_required');
+    };
+  let state = seed.reduce((value, byte) => Math.imul(value ^ byte, 16_777_619) >>> 0, 2_166_136_261) || 1;
+  return () => {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    state >>>= 0;
+    return state / 4_294_967_296;
+  };
 }
 
 class ExecutionMeter {
@@ -708,6 +743,8 @@ export class DirectRuntimeBridge implements RuntimeBridge {
     const meter = new ExecutionMeter(usageValue, request.limits, request.registry);
     const trace = new ExecutionTrace(request.trace !== 'none', request.limits.traceBytes, usageValue);
     const dispatcher = new ActionDispatcher(request, host, active, artifact, records, meter, usageValue);
+    const random = seededRandom(request.randomSeed);
+    let callDepth = 0;
     try {
       trace.add('invocation_started', {
         module: artifact.program.program.blocks[0]?.terminator.source.module as SourceLocation['module'],
@@ -718,6 +755,19 @@ export class DirectRuntimeBridge implements RuntimeBridge {
         charge: (fuel, allocation) => meter.charge(fuel, allocation),
         cancelled: () => active.cancelled,
         trace: (event, source) => trace.add(event, source),
+        random,
+        fixedInstant: () => request.fixedInstant as CanonicalValue | undefined,
+        enterCall: () => {
+          if (callDepth + 1 > request.limits.callDepth) throw new ExecutionFault('resource_exhausted', 'callDepth');
+          callDepth++;
+          return () => {
+            callDepth--;
+          };
+        },
+        collection: (items) => {
+          if (!Number.isSafeInteger(items) || items < 0 || items > request.limits.collectionItems)
+            throw new ExecutionFault('resource_exhausted', 'collectionItems');
+        },
         action: (instruction, actionValue) => dispatcher.handle(instruction, actionValue),
       });
       const output = encodeCanonical(schemaRef(slot.output), value, {

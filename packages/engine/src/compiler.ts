@@ -718,11 +718,15 @@ class Lowerer {
   }
 }
 
-function validateImports(sourceFile: ts.SourceFile): CompileFailure | undefined {
+function validateImports(
+  sourceFile: ts.SourceFile,
+  registered = new Set<string>(),
+  languageMinor: 0 | 1 = 0,
+): CompileFailure | undefined {
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement)) continue;
     const source = ts.isStringLiteral(statement.moduleSpecifier) ? statement.moduleSpecifier.text : '';
-    if (source !== 'safescript:prelude' && source !== 'host:api')
+    if (source !== 'safescript:prelude' && source !== 'host:api' && !registered.has(source))
       return {
         code: 'SS_AMBIENT_AUTHORITY',
         message: `unregistered import ${source}`,
@@ -730,7 +734,10 @@ function validateImports(sourceFile: ts.SourceFile): CompileFailure | undefined 
         end: statement.getEnd(),
       };
     const bindings = statement.importClause?.namedBindings;
-    if (!statement.importClause || statement.importClause.name || !bindings || !ts.isNamedImports(bindings))
+    if (
+      !statement.importClause ||
+      (languageMinor === 0 && (statement.importClause.name || !bindings || !ts.isNamedImports(bindings)))
+    )
       return {
         code: 'SS_IMPORT_FORM',
         message: 'only static named imports are accepted',
@@ -739,6 +746,8 @@ function validateImports(sourceFile: ts.SourceFile): CompileFailure | undefined 
       };
     if (
       source === 'safescript:prelude' &&
+      bindings &&
+      ts.isNamedImports(bindings) &&
       bindings.elements.some((item) => !['Err', 'Ok', 'Result'].includes(item.propertyName?.text ?? item.name.text))
     )
       return {
@@ -749,6 +758,65 @@ function validateImports(sourceFile: ts.SourceFile): CompileFailure | undefined 
       };
   }
   return undefined;
+}
+
+/** Compiles a complete registered 1.1 module map without consulting ambient resolution. */
+export function compileProgramModules(
+  modules: readonly Readonly<{ id: ModuleId; source: string }>[],
+  entry: ModuleId,
+  registry: ContractRegistry,
+  slot: SlotDefinition,
+): CompileProgramResult {
+  const registered = new Set(modules.map((module) => String(module.id)));
+  const parsed = modules.map((module) => ({
+    ...module,
+    file: ts.createSourceFile(String(module.id), module.source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS),
+  }));
+  for (const module of parsed) {
+    const invalid = validateImports(module.file, registered, 1);
+    if (invalid) return { ok: false, failure: invalid, syntaxNodes: 0, syntaxDepth: 0, imports: 0, declarations: 0 };
+  }
+  const defaultNames = new Map<string, string>();
+  for (const module of parsed) {
+    const declaration = module.file.statements.find(
+      (statement): statement is ts.FunctionDeclaration =>
+        ts.isFunctionDeclaration(statement) && hasModifier(statement, ts.SyntaxKind.DefaultKeyword) && !!statement.name,
+    );
+    if (declaration?.name) defaultNames.set(String(module.id), declaration.name.text);
+  }
+  let imports = 0;
+  const parts: string[] = [];
+  for (const module of parsed) {
+    const aliases = new Map<string, string>();
+    const namespaces = new Set<string>();
+    for (const statement of module.file.statements) {
+      if (!ts.isImportDeclaration(statement)) continue;
+      imports++;
+      const source = ts.isStringLiteral(statement.moduleSpecifier) ? statement.moduleSpecifier.text : '';
+      if (statement.importClause?.name) {
+        const target = defaultNames.get(source);
+        if (target) aliases.set(statement.importClause.name.text, target);
+      }
+      const bindings = statement.importClause?.namedBindings;
+      if (bindings && ts.isNamespaceImport(bindings)) namespaces.add(bindings.name.text);
+      if (bindings && ts.isNamedImports(bindings))
+        for (const element of bindings.elements)
+          aliases.set(element.name.text, element.propertyName?.text ?? element.name.text);
+    }
+    for (const statement of module.file.statements) {
+      if (ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement)) continue;
+      let text = statement.getText(module.file);
+      if (module.id !== entry) text = text.replace(/^export\s+(?:default\s+)?/, '');
+      for (const namespace of namespaces)
+        text = text.replace(new RegExp(`\\b${namespace.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\.`, 'g'), '');
+      for (const [local, imported] of aliases)
+        if (local !== imported)
+          text = text.replace(new RegExp(`\\b${local.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b`, 'g'), imported);
+      parts.push(text);
+    }
+  }
+  const result = compileProgram(parts.join('\n\n'), entry, registry, slot);
+  return result.ok ? { ...result, imports } : { ...result, imports };
 }
 
 function typeReference(
