@@ -1,0 +1,17 @@
+{
+  "name": "@safescript/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "nx": {
+    "tags": ["layer:contracts"],
+    "targets": {
+      "build": {},
+      "lint": {},
+      "typecheck": {}
+    }
+  }
+}

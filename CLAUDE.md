@@ -66,12 +66,11 @@ bd close <id>         # Complete work
 
 ## Build & Test
 
-_Add your build and test commands here_
-
 ```bash
-# Example:
-# npm install
-# npm test
+bun run build
+bun run test
+bun run lint
+bun run typecheck
 ```
 
 ## Agent skills
