@@ -59,3 +59,7 @@ _Avoid_: Workflow history, durable audit log
 **Idempotency key**:
 A deterministic token that lets the host identify a replay of the same logical action input. The host operation enforces it; a request identifier does not provide deduplication.
 _Avoid_: Request ID, permission token
+
+**Runtime bridge**:
+The transport-neutral serialisable seam through which a host SDK checks, inspects, executes, cancels, and closes SafeScript runtime work. It is not a transport protocol, host SDK, or execution backend.
+_Avoid_: Runtime API, IPC protocol, compiler service
