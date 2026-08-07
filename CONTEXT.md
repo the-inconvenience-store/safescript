@@ -39,3 +39,23 @@ _Avoid_: CPU cycle, implementation cost
 **Action suspension**:
 The bounded in-memory pause of one invocation after it records an action request and before it receives the matching validated outcome. It is private interpreter state, not a durable continuation.
 _Avoid_: Workflow state, checkpoint
+
+**Action request**:
+The canonical fact that an invocation has proposed one typed host operation. It is neither current authorisation nor proof that the external effect occurred.
+_Avoid_: Command execution, permission grant
+
+**Action outcome**:
+The terminal resolution of an action request as a completed declared result, a current-policy rejection, or a host failure with explicit effect state.
+_Avoid_: Host response, success flag
+
+**Effect state**:
+The knowledge attached to a failed action that its external effect was either provably not performed or is unknown. Unknown never means safe to retry.
+_Avoid_: Failure status, rollback status
+
+**Action record**:
+An ordered in-memory fact that an action was requested or later resolved with an action outcome. Resolution does not imply that the external effect succeeded.
+_Avoid_: Workflow history, durable audit log
+
+**Idempotency key**:
+A deterministic token that lets the host identify a replay of the same logical action input. The host operation enforces it; a request identifier does not provide deduplication.
+_Avoid_: Request ID, permission token
