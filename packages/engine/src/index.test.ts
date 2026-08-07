@@ -510,11 +510,14 @@ describe('direct RuntimeBridge walking skeleton', () => {
     );
     while (!dispatched) await Promise.resolve();
     expect(await bridge.cancel({ abiVersion: { major: 1, minor: 0 }, invocationId })).toEqual({ status: 'accepted' });
-    release?.();
     const cancelled = await pending;
     expect(cancelled.status).toBe('cancelled');
-    if (cancelled.status === 'cancelled')
+    if (cancelled.status === 'cancelled') {
       expect(cancelled.facts.actions.map((record) => record.phase)).toEqual(['requested', 'resolved']);
+      release?.();
+      await Promise.resolve();
+      expect(cancelled.facts.actions.map((record) => record.phase)).toEqual(['requested', 'resolved']);
+    }
   });
 });
 
@@ -958,37 +961,68 @@ export async function onDealUpdated(`,
     expect(checked.status).toBe('accepted');
     if (checked.status !== 'accepted') return;
     const calls: string[] = [];
-    const completed = await bridge.execute(
+    const releases: ((task: string) => void)[] = [];
+    const execution = bridge.execute(
       {
         ...executeRequest({ kind: 'artifact', bytes: checked.artifact }),
         registry: actionRegistry,
       },
       {
-        handleAction: async (action) => {
+        handleAction: (action) => {
           calls.push(action.requestId);
-          return {
-            abiVersion: { major: 1, minor: 0 },
-            requestId: action.requestId,
-            result: {
-              tag: 'completed',
-              value: encoded(resultSchema(ref(typeIds.task), ref(typeIds.taskError)), {
-                tag: 'ok',
-                value: { id: `task-${calls.length}` },
+          return new Promise<ActionOutcome>((resolve) => {
+            releases.push((task) =>
+              resolve({
+                abiVersion: { major: 1, minor: 0 },
+                requestId: action.requestId,
+                result: {
+                  tag: 'completed',
+                  value: encoded(resultSchema(ref(typeIds.task), ref(typeIds.taskError)), {
+                    tag: 'ok',
+                    value: { id: task },
+                  }),
+                },
               }),
-            },
-          };
+            );
+          });
         },
       },
     );
+    while (releases.length < 2) await Promise.resolve();
+    releases[1]?.('task-2');
+    releases[0]?.('task-1');
+    const completed = await execution;
     expect(completed.status).toBe('completed');
     expect(calls).toHaveLength(2);
     if (completed.status === 'completed')
       expect(completed.facts.actions.map((record) => record.phase)).toEqual([
         'requested',
-        'resolved',
         'requested',
         'resolved',
+        'resolved',
       ]);
+
+    let capacityCalls = 0;
+    const exhausted = await bridge.execute(
+      {
+        ...executeRequest({ kind: 'artifact', bytes: checked.artifact }),
+        registry: actionRegistry,
+        limits: { ...STANDARD_EXECUTION_LIMITS, concurrentActions: 1 },
+      },
+      {
+        handleAction: async (action) => {
+          capacityCalls++;
+          throw new Error(`unexpected dispatch ${action.requestId}`);
+        },
+      },
+    );
+    expect(exhausted.status).toBe('failed');
+    expect(capacityCalls).toBe(0);
+    if (exhausted.status === 'failed') {
+      expect(exhausted.error).toEqual({ code: 'resource_exhausted', detail: 'concurrentActions' });
+      expect(exhausted.facts.actions).toEqual([]);
+      expect(exhausted.facts.usage.hostCalls).toBe(0);
+    }
   });
 
   it('resolves static registered modules without ambient package or filesystem access', async () => {
@@ -1140,6 +1174,22 @@ export async function onDealUpdated(`,
         await bridge.check({
           ...checkRequest,
           limits: { ...STANDARD_COMPILE_LIMITS, modules: STANDARD_COMPILE_LIMITS.modules + 1 },
+        })
+      ).status,
+    ).toBe('rejected');
+    expect(
+      (
+        await bridge.check({
+          ...checkRequest,
+          limits: { ...STANDARD_COMPILE_LIMITS, typeDepth: 0 },
+        })
+      ).status,
+    ).toBe('rejected');
+    expect(
+      (
+        await bridge.check({
+          ...checkRequest,
+          limits: { ...STANDARD_COMPILE_LIMITS, derivedTemplateBytes: 1 },
         })
       ).status,
     ).toBe('rejected');

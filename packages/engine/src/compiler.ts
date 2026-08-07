@@ -96,6 +96,29 @@ function countSyntax(sourceFile: ts.SourceFile): { nodes: number; depth: number 
   return { nodes, depth };
 }
 
+/** Measures source-only compiler ceilings before type analysis or lowering. @internal */
+export function measureCompilerSource(source: string): Readonly<{ typeDepth: number; derivedTemplateBytes: number }> {
+  const sourceFile = ts.createSourceFile('limits.ts', source, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
+  let typeDepth = 0;
+  let derivedTemplateBytes = 0;
+  const encoder = new TextEncoder();
+  const visit = (node: ts.Node, currentTypeDepth: number): void => {
+    const nextTypeDepth = ts.isTypeNode(node) ? currentTypeDepth + 1 : currentTypeDepth;
+    typeDepth = Math.max(typeDepth, nextTypeDepth);
+    if (ts.isNoSubstitutionTemplateLiteral(node))
+      derivedTemplateBytes = Math.max(derivedTemplateBytes, encoder.encode(node.text).length);
+    else if (ts.isTemplateExpression(node)) {
+      const literalBytes =
+        encoder.encode(node.head.text).length +
+        node.templateSpans.reduce((total, span) => total + encoder.encode(span.literal.text).length, 0);
+      derivedTemplateBytes = Math.max(derivedTemplateBytes, literalBytes);
+    }
+    ts.forEachChild(node, (child) => visit(child, nextTypeDepth));
+  };
+  visit(sourceFile, 0);
+  return { typeDepth, derivedTemplateBytes };
+}
+
 function hasModifier(node: ts.Node, kind: ts.SyntaxKind): boolean {
   return ts.canHaveModifiers(node) && ts.getModifiers(node)?.some((modifier) => modifier.kind === kind) === true;
 }

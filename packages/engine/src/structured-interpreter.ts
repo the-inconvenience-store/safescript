@@ -267,9 +267,10 @@ export async function interpretStructured(
             values.push(...spread);
           } else values.push(canonical(await evaluate(item, environment)));
         }
-        hooks.charge(4);
         hooks.collection(values.length);
-        return Object.freeze(values);
+        const result = Object.freeze(values);
+        hooks.allocate(result);
+        return result;
       }
       case 'object': {
         const entries: [string, CanonicalValue][] = [];
@@ -281,12 +282,15 @@ export async function interpretStructured(
             );
           } else entries.push([field.name, canonical(await evaluate(field.value, environment))]);
         }
-        return Object.freeze(Object.fromEntries(entries)) as CanonicalValue;
+        const result = Object.freeze(Object.fromEntries(entries)) as CanonicalValue;
+        hooks.allocate(result);
+        return result;
       }
       case 'template': {
         let result = '';
         for (const part of expression.parts)
           result += typeof part === 'string' ? part : String(await evaluate(part, environment));
+        hooks.allocate(result);
         return result;
       }
       case 'unary': {
@@ -312,6 +316,7 @@ export async function interpretStructured(
           return left === null || isNone(left) ? evaluate(expression.right, environment) : left;
         const right = await evaluate(expression.right, environment);
         if (expression.operator === 'equal' || expression.operator === 'not-equal') {
+          hooks.scan([canonical(left), canonical(right)]);
           const equal = stable(canonical(left)) === stable(canonical(right));
           return expression.operator === 'equal' ? equal : !equal;
         }
@@ -330,11 +335,14 @@ export async function interpretStructured(
         return truth(await evaluate(expression.condition, environment))
           ? evaluate(expression.whenTrue, environment)
           : evaluate(expression.whenFalse, environment);
-      case 'result':
-        return Object.freeze({
+      case 'result': {
+        const result = Object.freeze({
           tag: expression.variant,
           value: canonical(await evaluate(expression.value, environment)),
         });
+        hooks.allocate(result);
+        return result;
+      }
       case 'action': {
         const action: ActionInstruction = {
           tag: 'action',
@@ -362,6 +370,43 @@ export async function interpretStructured(
           environment,
         };
       case 'call': {
+        // Promise.all is syntax in SafeScript rather than the ambient JavaScript
+        // Promise implementation. Keep the action expressions unevaluated until
+        // the complete group has been validated and reserved by the bridge.
+        if (
+          expression.callee.tag === 'member' &&
+          expression.callee.name === 'all' &&
+          expression.callee.value.tag === 'name' &&
+          expression.callee.value.name === 'Promise' &&
+          expression.arguments.length === 1 &&
+          expression.arguments[0]?.tag === 'array' &&
+          expression.arguments[0].items.every((item) => !('spread' in item) && item.tag === 'action')
+        ) {
+          const actions: { instruction: ActionInstruction; input: CanonicalValue }[] = [];
+          for (const item of expression.arguments[0].items) {
+            if ('spread' in item || item.tag !== 'action')
+              throw new InterpreterFault('invalid_ir', 'invalid concurrent action group');
+            actions.push({
+              instruction: {
+                tag: 'action',
+                operationId: item.operationId,
+                effectId: item.effectId,
+                capabilityId: item.capabilityId,
+                actionSiteId: item.actionSiteId,
+                input: '',
+                inputType: item.inputType,
+                resultType: item.resultType,
+                resume: '',
+                source: item.source,
+              },
+              input: canonical(await evaluate(item.input, environment)),
+            });
+          }
+          hooks.collection(actions.length);
+          const results = Object.freeze([...(await hooks.actionGroup(actions))]);
+          hooks.allocate(results);
+          return results;
+        }
         const callee = await evaluate(expression.callee, environment);
         const arguments_: RuntimeValue[] = [];
         for (const argument of expression.arguments) arguments_.push(await evaluate(argument, environment));
@@ -502,39 +547,56 @@ async function invokeBuiltin(
   source: StructuredExpression['source'],
 ): Promise<RuntimeValue> {
   const receiver = builtin.receiver;
+  const created = <T extends CanonicalValue>(value: T): T => {
+    hooks.allocate(value);
+    return value;
+  };
   if (builtin.name.startsWith('Object.')) {
     const value = arguments_[0] as RuntimeValue;
-    if (builtin.name === 'Object.keys') return Object.freeze(Object.keys(record(value)));
-    if (builtin.name === 'Object.values') return Object.freeze(Object.values(record(value)).map(canonical));
+    const entries = Object.entries(record(value));
+    if (builtin.name !== 'Object.hasOwn') hooks.charge(entries.length * 2);
+    if (builtin.name === 'Object.keys') return created(Object.freeze(entries.map(([key]) => key)));
+    if (builtin.name === 'Object.values') return created(Object.freeze(entries.map(([, item]) => canonical(item))));
     if (builtin.name === 'Object.entries')
-      return Object.freeze(Object.entries(record(value)).map(([key, item]) => Object.freeze([key, canonical(item)])));
+      return created(Object.freeze(entries.map(([key, item]) => Object.freeze([key, canonical(item)]))));
     if (builtin.name === 'Object.hasOwn') return Object.hasOwn(record(value), String(arguments_[1]));
     if (builtin.name === 'Object.fromEntries') {
       if (!Array.isArray(value)) throw new InterpreterFault('invalid_ir', 'Object.fromEntries requires tuples');
-      return Object.freeze(
-        Object.fromEntries(
-          value.map((item) => {
-            if (!Array.isArray(item) || item.length !== 2)
-              throw new InterpreterFault('invalid_ir', 'entry must be a pair');
-            return [String(item[0]), item[1]];
-          }),
-        ),
-      ) as CanonicalValue;
+      return created(
+        Object.freeze(
+          Object.fromEntries(
+            value.map((item) => {
+              if (!Array.isArray(item) || item.length !== 2)
+                throw new InterpreterFault('invalid_ir', 'entry must be a pair');
+              return [String(item[0]), item[1]];
+            }),
+          ),
+        ) as CanonicalValue,
+      );
     }
   }
   if (builtin.name.startsWith('Array.')) {
     if (builtin.name === 'Array.isArray') return Array.isArray(arguments_[0]);
     if (builtin.name === 'Array.from') {
       const value = arguments_[0];
-      if (Array.isArray(value)) return Object.freeze([...value]);
-      if (typeof value === 'string') return Object.freeze([...value]);
+      if (Array.isArray(value)) {
+        hooks.collection(value.length);
+        hooks.charge(value.length * 2);
+        return created(Object.freeze([...value]));
+      }
+      if (typeof value === 'string') {
+        const values = [...value];
+        hooks.collection(values.length);
+        hooks.charge(values.length * 2);
+        return created(Object.freeze(values));
+      }
       throw new InterpreterFault('invalid_ir', 'Array.from requires a bounded list or string');
     }
   }
   if (builtin.name === 'Promise.all') {
     const values = arguments_[0];
     if (!Array.isArray(values)) throw new InterpreterFault('invalid_ir', 'Promise.all requires a bounded list');
-    return Object.freeze([...values]);
+    return created(Object.freeze([...values]));
   }
   if (builtin.name.startsWith('Math.')) {
     const values = arguments_.map((value) => Number(value));
@@ -580,22 +642,25 @@ async function invokeBuiltin(
   if (builtin.name === 'parseInt64') {
     const text = arguments_[0];
     if (typeof text !== 'string' || !/^-?(?:0|[1-9][0-9]*)$/.test(text))
-      return Object.freeze({ tag: 'error', value: Object.freeze({ code: 'invalid_integer' }) });
+      return created(Object.freeze({ tag: 'error', value: Object.freeze({ code: 'invalid_integer' }) }));
     const value = BigInt(text);
     if (value < INT64_MIN || value > INT64_MAX)
-      return Object.freeze({ tag: 'error', value: Object.freeze({ code: 'integer_overflow' }) });
-    return Object.freeze({ tag: 'ok', value });
+      return created(Object.freeze({ tag: 'error', value: Object.freeze({ code: 'integer_overflow' }) }));
+    return created(Object.freeze({ tag: 'ok', value }));
   }
   if (builtin.name === 'parseFloat64') {
     const text = arguments_[0];
     const value = typeof text === 'string' && text.trim() === text && text !== '' ? Number(text) : Number.NaN;
-    return Number.isFinite(value)
-      ? Object.freeze({ tag: 'ok', value })
-      : Object.freeze({ tag: 'error', value: Object.freeze({ code: 'invalid_float' }) });
+    return created(
+      Number.isFinite(value)
+        ? Object.freeze({ tag: 'ok', value })
+        : Object.freeze({ tag: 'error', value: Object.freeze({ code: 'invalid_float' }) }),
+    );
   }
   if (builtin.name === 'JSON.parse') {
     const text = arguments_[0];
     if (typeof text !== 'string') throw new InterpreterFault('invalid_ir', 'JSON.parse requires text');
+    let converted: CanonicalValue;
     try {
       const convert = (value: unknown): CanonicalValue => {
         if (value === null || typeof value === 'boolean' || typeof value === 'string') return value;
@@ -614,11 +679,14 @@ async function invokeBuiltin(
           );
         throw new Error('unsupported');
       };
-      hooks.charge(Math.ceil(new TextEncoder().encode(text).length / 8));
-      return Object.freeze({ tag: 'ok', value: convert(JSON.parse(text)) });
+      converted = convert(JSON.parse(text));
     } catch {
-      return Object.freeze({ tag: 'error', value: Object.freeze({ code: 'invalid_json' }) });
+      return created(Object.freeze({ tag: 'error', value: Object.freeze({ code: 'invalid_json' }) }));
     }
+    hooks.charge(Math.ceil(new TextEncoder().encode(text).length / 8));
+    const result = Object.freeze({ tag: 'ok', value: converted });
+    hooks.scan([result]);
+    return created(result);
   }
   if (builtin.name === 'JSON.stringify') {
     const encode = (value: RuntimeValue): string => {
@@ -631,27 +699,32 @@ async function invokeBuiltin(
           .join(',')}}`;
       return JSON.stringify(value);
     };
-    return encode(arguments_[0] as RuntimeValue);
+    return created(encode(arguments_[0] as RuntimeValue));
   }
-  if (builtin.name === 'Bytes.fromUtf8') return Object.freeze([...new TextEncoder().encode(String(arguments_[0]))]);
+  if (builtin.name === 'Bytes.fromUtf8')
+    return created(Object.freeze([...new TextEncoder().encode(String(arguments_[0]))]));
   if (builtin.name === 'Bytes.toUtf8') {
     const value = arguments_[0];
     if (!Array.isArray(value) || value.some((item) => typeof item !== 'number'))
       throw new InterpreterFault('invalid_ir', 'Bytes.toUtf8 requires bytes');
+    let decoded: string;
     try {
-      return new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(value as number[]));
+      decoded = new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(value as number[]));
     } catch {
-      return Object.freeze({ tag: 'error', value: Object.freeze({ code: 'invalid_utf8' }) });
+      return created(Object.freeze({ tag: 'error', value: Object.freeze({ code: 'invalid_utf8' }) }));
     }
+    return created(decoded);
   }
   if (builtin.name === 'Bytes.fromHex') {
     const text = arguments_[0];
     if (typeof text !== 'string' || !/^(?:[0-9a-fA-F]{2})*$/.test(text))
-      return Object.freeze({ tag: 'error', value: Object.freeze({ code: 'invalid_hex' }) });
-    return Object.freeze({
-      tag: 'ok',
-      value: Object.freeze(text.match(/../g)?.map((item) => Number.parseInt(item, 16)) ?? []),
-    });
+      return created(Object.freeze({ tag: 'error', value: Object.freeze({ code: 'invalid_hex' }) }));
+    return created(
+      Object.freeze({
+        tag: 'ok',
+        value: Object.freeze(text.match(/../g)?.map((item) => Number.parseInt(item, 16)) ?? []),
+      }),
+    );
   }
   if (builtin.name === 'Temporal.Instant.from') {
     const text = arguments_[0];
@@ -660,12 +733,14 @@ async function invokeBuiltin(
       !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(text) ||
       !Number.isFinite(Date.parse(text))
     )
-      return Object.freeze({ tag: 'error', value: Object.freeze({ code: 'invalid_instant' }) });
+      return created(Object.freeze({ tag: 'error', value: Object.freeze({ code: 'invalid_instant' }) }));
     const milliseconds = Date.parse(text);
-    return Object.freeze({
-      epochSeconds: BigInt(Math.floor(milliseconds / 1000)),
-      nanoseconds: Math.trunc((milliseconds % 1000) * 1_000_000),
-    });
+    return created(
+      Object.freeze({
+        epochSeconds: BigInt(Math.floor(milliseconds / 1000)),
+        nanoseconds: Math.trunc((milliseconds % 1000) * 1_000_000),
+      }),
+    );
   }
   if (builtin.name === 'Temporal.Instant.compare') {
     const instant = (value: RuntimeValue): readonly [bigint, number] => {
@@ -705,9 +780,13 @@ async function invokeBuiltin(
         throw new InterpreterFault('invalid_arithmetic', 'replacement index out of range');
       const result = [...receiver];
       result[index] = canonical(arguments_[1] as RuntimeValue);
-      return Object.freeze(result);
+      hooks.charge(receiver.length * 2);
+      return created(Object.freeze(result));
     }
-    if (builtin.name === 'toReversed') return Object.freeze([...receiver].reverse());
+    if (builtin.name === 'toReversed') {
+      hooks.charge(receiver.length * 2);
+      return created(Object.freeze([...receiver].reverse()));
+    }
     if (builtin.name === 'toSpliced') {
       const start = Number(arguments_[0]);
       const remove = Number(arguments_[1]);
@@ -716,7 +795,8 @@ async function invokeBuiltin(
       const result = [...receiver];
       result.splice(start, remove, ...arguments_.slice(2).map(canonical));
       hooks.collection(result.length);
-      return Object.freeze(result);
+      hooks.charge(receiver.length * 2);
+      return created(Object.freeze(result));
     }
     if (builtin.name === 'toSorted') {
       const result = [...receiver];
@@ -738,7 +818,7 @@ async function invokeBuiltin(
         }
         result[position] = value;
       }
-      return Object.freeze(result);
+      return created(Object.freeze(result));
     }
     if (['map', 'filter', 'flatMap', 'find', 'some', 'every'].includes(builtin.name)) {
       if (!callback || !isClosure(callback))
@@ -760,7 +840,7 @@ async function invokeBuiltin(
       if (builtin.name === 'find') return Object.freeze({ tag: 'none', value: null });
       if (builtin.name === 'some') return false;
       if (builtin.name === 'every') return true;
-      return Object.freeze(produced);
+      return created(Object.freeze(produced));
     }
     if (builtin.name === 'reduce') {
       if (!callback || !isClosure(callback) || arguments_.length < 2)
@@ -774,23 +854,32 @@ async function invokeBuiltin(
     }
     if (builtin.name === 'includes')
       return receiver.some((item) => stable(item) === stable(canonical(arguments_[0] as RuntimeValue)));
-    if (builtin.name === 'slice')
-      return Object.freeze(
-        receiver.slice(Number(arguments_[0] ?? 0), arguments_[1] === undefined ? undefined : Number(arguments_[1])),
+    if (builtin.name === 'slice') {
+      hooks.charge(receiver.length * 2);
+      return created(
+        Object.freeze(
+          receiver.slice(Number(arguments_[0] ?? 0), arguments_[1] === undefined ? undefined : Number(arguments_[1])),
+        ),
       );
-    if (builtin.name === 'concat') return Object.freeze(receiver.concat(...arguments_.map(canonical)));
+    }
+    if (builtin.name === 'concat') {
+      hooks.charge(receiver.length * 2);
+      return created(Object.freeze(receiver.concat(...arguments_.map(canonical))));
+    }
   }
   if (typeof receiver === 'string') {
     if (builtin.name === 'includes') return receiver.includes(String(arguments_[0]));
     if (builtin.name === 'startsWith') return receiver.startsWith(String(arguments_[0]));
     if (builtin.name === 'endsWith') return receiver.endsWith(String(arguments_[0]));
     if (builtin.name === 'slice')
-      return [...receiver]
-        .slice(Number(arguments_[0] ?? 0), arguments_[1] === undefined ? undefined : Number(arguments_[1]))
-        .join('');
-    if (builtin.name === 'trim') return receiver.trim();
-    if (builtin.name === 'toUpperCase') return receiver.toUpperCase();
-    if (builtin.name === 'toLowerCase') return receiver.toLowerCase();
+      return created(
+        [...receiver]
+          .slice(Number(arguments_[0] ?? 0), arguments_[1] === undefined ? undefined : Number(arguments_[1]))
+          .join(''),
+      );
+    if (builtin.name === 'trim') return created(receiver.trim());
+    if (builtin.name === 'toUpperCase') return created(receiver.toUpperCase());
+    if (builtin.name === 'toLowerCase') return created(receiver.toLowerCase());
   }
   hooks.charge(1);
   throw new InterpreterFault('invalid_ir', `unsupported pure intrinsic ${builtin.name}`);

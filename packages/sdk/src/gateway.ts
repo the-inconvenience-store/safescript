@@ -12,6 +12,7 @@ import {
   type ActionRequest,
   type EffectState,
   type HostFailure,
+  type ExecutionLimits,
   type InvocationId,
   type OperationId,
   type PolicyError,
@@ -32,6 +33,8 @@ export type OperationEntry<O extends Operations> = {
 
 class InvocationGateway<C, O extends Operations, S extends Slots, E extends PolicyError> {
   private sequence = 0;
+  private attemptedCalls = 0;
+  private activeCalls = 0;
 
   constructor(
     private readonly options: CreateSafeScriptOptions<C, O, S, E>,
@@ -40,6 +43,7 @@ class InvocationGateway<C, O extends Operations, S extends Slots, E extends Poli
     private readonly slot: Slot<unknown, unknown>,
     private readonly signal: AbortSignal,
     private readonly invocationId: InvocationId,
+    private readonly limits: ExecutionLimits,
   ) {}
 
   async handle(request: ActionRequest): Promise<ActionOutcome> {
@@ -52,12 +56,23 @@ class InvocationGateway<C, O extends Operations, S extends Slots, E extends Poli
     if (!scope) return this.fail(request, 'not_performed', 'gateway_fault');
     const context = this.actionContext(request, scope);
     if (this.signal.aborted) return this.fail(request, 'not_performed', 'cancelled');
-    const decision = await this.authorise(request, context);
-    if ('result' in decision) return decision;
-    if (decision.status === 'rejected') return this.rejection(request, decision);
-    if (decision.status !== 'allowed') return this.fail(request, 'not_performed', 'gateway_fault');
-    if (this.signal.aborted) return this.fail(request, 'not_performed', 'cancelled');
-    return this.invoke(request, entry, decoded.value, context);
+    // Consume the attempted-call budget and reserve concurrency before current
+    // authorisation. A denial is still an attempted effect and cannot be used to
+    // evade the invocation budget.
+    if (this.attemptedCalls + 1 > this.limits.hostCalls || this.activeCalls + 1 > this.limits.concurrentActions)
+      return this.fail(request, 'not_performed', 'gateway_fault');
+    this.attemptedCalls++;
+    this.activeCalls++;
+    try {
+      const decision = await this.authorise(request, context);
+      if ('result' in decision) return decision;
+      if (decision.status === 'rejected') return this.rejection(request, decision);
+      if (decision.status !== 'allowed') return this.fail(request, 'not_performed', 'gateway_fault');
+      if (this.signal.aborted) return this.fail(request, 'not_performed', 'cancelled');
+      return this.invoke(request, entry, decoded.value, context);
+    } finally {
+      this.activeCalls--;
+    }
   }
 
   private validEnvelope(request: ActionRequest, entry: OperationEntry<O>): boolean {
@@ -122,8 +137,12 @@ class InvocationGateway<C, O extends Operations, S extends Slots, E extends Poli
       const resourceScope = entry.operation.resourceScope as unknown as (
         value: unknown,
       ) => Readonly<Record<string, string>>;
-      const scope = freeze({ ...resourceScope(input) });
-      return Object.values(scope).every((value) => typeof value === 'string') ? scope : undefined;
+      const extracted: unknown = resourceScope(input);
+      if (extracted === null || typeof extracted !== 'object' || Array.isArray(extracted)) return undefined;
+      const scope = freeze({ ...(extracted as Readonly<Record<string, unknown>>) });
+      return Object.values(scope).every((value) => typeof value === 'string')
+        ? (scope as Readonly<Record<string, string>>)
+        : undefined;
     } catch {
       return undefined;
     }
@@ -145,7 +164,13 @@ class InvocationGateway<C, O extends Operations, S extends Slots, E extends Poli
     context: ActionContext<C>,
   ): Promise<AuthorisationDecision<E> | ActionOutcome> {
     try {
-      return await this.options.authorise(context);
+      const decision: unknown = await this.options.authorise(context);
+      if (decision === null || typeof decision !== 'object')
+        return this.fail(request, 'not_performed', 'gateway_fault');
+      const candidate = decision as Partial<AuthorisationDecision<E>>;
+      if (candidate.status === 'allowed') return freeze({ status: 'allowed' });
+      if (candidate.status === 'rejected') return freeze({ status: 'rejected', error: candidate.error as E });
+      return this.fail(request, 'not_performed', 'gateway_fault');
     } catch {
       return this.fail(request, 'not_performed', 'gateway_fault');
     }
@@ -155,7 +180,11 @@ class InvocationGateway<C, O extends Operations, S extends Slots, E extends Poli
     request: ActionRequest,
     decision: Extract<AuthorisationDecision<E>, { status: 'rejected' }>,
   ): ActionOutcome {
-    return typeof decision.error?.code === 'string'
+    return typeof decision.error?.code === 'string' &&
+      decision.error.code.length > 0 &&
+      decision.error.code.length <= 64 &&
+      (decision.error.detail === undefined ||
+        (typeof decision.error.detail === 'string' && decision.error.detail.length <= 160))
       ? freeze({
           abiVersion: ABI_VERSION,
           requestId: request.requestId,
@@ -197,7 +226,16 @@ class InvocationGateway<C, O extends Operations, S extends Slots, E extends Poli
     const failure = outcome.failure as Partial<HostFailure> | null;
     if (
       (outcome.effectState !== 'not_performed' && outcome.effectState !== 'unknown') ||
-      typeof failure?.code !== 'string'
+      ![
+        'cancelled',
+        'timeout',
+        'unavailable',
+        'handler_fault',
+        'invalid_result',
+        'transport_lost',
+        'gateway_fault',
+      ].includes(String(failure?.code)) ||
+      (failure?.detail !== undefined && (typeof failure.detail !== 'string' || failure.detail.length > 160))
     )
       return this.fail(request, 'unknown', 'invalid_result');
     return freeze({
@@ -230,8 +268,9 @@ export function createGateway<C, O extends Operations, S extends Slots, E extend
   slot: Slot<unknown, unknown>,
   signal: AbortSignal,
   invocationId: InvocationId,
+  limits: ExecutionLimits,
 ): RuntimeBridgeHost {
-  const gateway = new InvocationGateway(options, operationsById, context, slot, signal, invocationId);
+  const gateway = new InvocationGateway(options, operationsById, context, slot, signal, invocationId, limits);
   return {
     handleAction: (request) => gateway.handle(request),
   };

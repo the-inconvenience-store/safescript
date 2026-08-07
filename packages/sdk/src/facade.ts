@@ -146,7 +146,7 @@ class RequestCodec<C, O extends Operations, S extends Slots> {
     );
   }
 
-  private executionLimits(slot: Slot<unknown, unknown>, request?: Partial<ExecutionLimits>): ExecutionLimits {
+  executionLimits(slot: Slot<unknown, unknown>, request?: Partial<ExecutionLimits>): ExecutionLimits {
     return completeLimits(
       slot.executionLimits
         ? completeLimits(STANDARD_EXECUTION_LIMITS, slot.executionLimits)
@@ -299,7 +299,15 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots, E extends Poli
       return await this.executeBridge(
         slot,
         request,
-        createGateway(this.options, this.operationsById, request.context, slot, controller.signal, invocationId),
+        createGateway(
+          this.options,
+          this.operationsById,
+          request.context,
+          slot,
+          controller.signal,
+          invocationId,
+          this.requests.executionLimits(slot, request.limits),
+        ),
         invocationId,
       );
     } finally {

@@ -92,7 +92,13 @@ const facts: ExecutionFacts = Object.freeze({
     allocations: 0,
     allocatedBytes: 0,
     peakRetainedBytes: 0,
+    peakCollectionItems: 0,
+    peakValueDepth: 0,
+    peakValueNodes: 0,
+    peakValueBytes: 0,
+    peakCallDepth: 0,
     hostCalls: 1,
+    peakConcurrentActions: 1,
     traceBytes: 0,
     outputBytes: 2,
   }),
@@ -558,6 +564,31 @@ describe('createSafeScript', () => {
         defaultCompileLimits: { sourceBytes: STANDARD_COMPILE_LIMITS.sourceBytes + 1 },
       }),
     ).toThrow(SdkConfigurationError);
+  });
+
+  it('resolves deployment, slot, and invocation limits by minimum', async () => {
+    const bridge = new FakeBridge();
+    bridge.executeResult = async (request) => {
+      expect(request.limits.fuel).toBe(700);
+      const output = encodeCanonical({ kind: 'string' }, 'done');
+      if (!output.ok) throw new Error('fixture encoding failed');
+      return { status: 'completed', output: [...output.value], facts };
+    };
+    const safe = createSafeScript({
+      contract,
+      bridge,
+      handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
+      authorise: () => ({ status: 'allowed' }),
+      defaultExecutionLimits: { fuel: 700 },
+    });
+    const result = await safe.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      context: {},
+      limits: { fuel: 900 },
+    });
+    expect(result.status).toBe('completed');
   });
 
   it('validates slots and maps bridge throws for check and inspect', async () => {

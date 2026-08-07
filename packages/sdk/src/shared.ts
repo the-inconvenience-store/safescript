@@ -56,7 +56,10 @@ export function completeLimits<T extends CompileLimits | ExecutionLimits>(
       ) {
         throw new TypeError(`invalid ${name} limit`);
       }
-      (limits as unknown as Record<string, number>)[name] = value;
+      (limits as unknown as Record<string, number>)[name] = Math.min(
+        (limits as unknown as Record<string, number>)[name] as number,
+        value,
+      );
     }
   }
   return Object.freeze(limits) as T;

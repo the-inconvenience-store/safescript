@@ -19,7 +19,12 @@ import { interpretStructured } from './structured-interpreter.js';
  */
 export interface InterpreterHooks {
   readonly charge: (fuel: number, allocation?: Readonly<{ value: CanonicalValue; type: Schema }>) => void;
+  readonly allocate: (value: CanonicalValue) => void;
+  readonly scan: (values: readonly CanonicalValue[]) => void;
   readonly action: (instruction: ActionInstruction, input: CanonicalValue) => Promise<CanonicalValue>;
+  readonly actionGroup: (
+    actions: readonly Readonly<{ instruction: ActionInstruction; input: CanonicalValue }>[],
+  ) => Promise<readonly CanonicalValue[]>;
   readonly cancelled: () => boolean;
   readonly trace: (event: string, source: IrTerminator['source']) => void;
   readonly random: () => number;
@@ -210,6 +215,13 @@ export async function interpret(
     if (!block) throw new InterpreterFault('invalid_ir', `unknown block ${current}`);
     for (const instruction of block.instructions) {
       hooks.charge(1);
+      if (instruction.tag === 'compare') {
+        const left = registers.get(instruction.left);
+        const right = registers.get(instruction.right);
+        if (left === undefined || right === undefined)
+          throw new InterpreterFault('invalid_ir', 'undefined comparison register');
+        hooks.scan([left, right]);
+      }
       const value = evaluate(instruction, registers);
       const allocated = allocation(instruction, value);
       if (allocated !== undefined) hooks.charge(4, allocated);

@@ -1831,7 +1831,13 @@ export interface ExecutionUsage {
   readonly allocations: number;
   readonly allocatedBytes: number;
   readonly peakRetainedBytes: number;
+  readonly peakCollectionItems: number;
+  readonly peakValueDepth: number;
+  readonly peakValueNodes: number;
+  readonly peakValueBytes: number;
+  readonly peakCallDepth: number;
   readonly hostCalls: number;
+  readonly peakConcurrentActions: number;
   readonly traceBytes: number;
   readonly outputBytes: number;
 }

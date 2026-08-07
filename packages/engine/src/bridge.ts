@@ -38,10 +38,12 @@ import {
   type SourceLocation,
   type TypeId,
   type Version,
+  STANDARD_COMPILE_LIMITS,
+  STANDARD_EXECUTION_LIMITS,
 } from '@safescript/contracts';
 
 import { createArtifact, verifyArtifact, type CheckedArtifact } from './artifact.js';
-import { compileProgram, compileProgramModules } from './compiler.js';
+import { compileProgram, compileProgramModules, measureCompilerSource } from './compiler.js';
 import { interpret, InterpreterFault } from './interpreter.js';
 import { verifyProgram, type IrTerminator } from './ir.js';
 import { structuredActions } from './structured-ir.js';
@@ -67,7 +69,7 @@ type InternalCheckResult = Exclude<CheckResult, AcceptedCheck> | (AcceptedCheck 
 
 interface ActiveInvocation {
   cancelled: boolean;
-  dispatched: boolean;
+  readonly cancellationListeners: Set<() => void>;
 }
 
 interface MutableUsage {
@@ -75,7 +77,13 @@ interface MutableUsage {
   allocations: number;
   allocatedBytes: number;
   peakRetainedBytes: number;
+  peakCollectionItems: number;
+  peakValueDepth: number;
+  peakValueNodes: number;
+  peakValueBytes: number;
+  peakCallDepth: number;
   hostCalls: number;
+  peakConcurrentActions: number;
   traceBytes: number;
   outputBytes: number;
 }
@@ -161,8 +169,18 @@ function usage(sourceBytes: number, syntaxNodes = 0): CompileUsage {
 }
 
 function compileLimitsValid(limits: CompileLimits, ceiling: CompileLimits): boolean {
-  return (Object.keys(ceiling) as (keyof CompileLimits)[]).every(
-    (key) => Number.isSafeInteger(limits[key]) && limits[key] >= 0 && limits[key] <= ceiling[key],
+  const keys = Object.keys(STANDARD_COMPILE_LIMITS) as (keyof CompileLimits)[];
+  return (
+    Object.keys(limits).every((key) => key in STANDARD_COMPILE_LIMITS) &&
+    keys.every(
+      (key) =>
+        Number.isSafeInteger(limits[key]) &&
+        Number.isSafeInteger(ceiling[key]) &&
+        limits[key] >= 0 &&
+        ceiling[key] >= 0 &&
+        limits[key] <= ceiling[key] &&
+        limits[key] <= STANDARD_COMPILE_LIMITS[key],
+    )
   );
 }
 
@@ -172,7 +190,9 @@ function checkCompile(request: CheckRequest): InternalCheckResult {
   const reject = (code: string, message: string, start = 0, end = 0): RejectedCheck =>
     Object.freeze({
       status: 'rejected',
-      diagnostics: Object.freeze([diagnostic(request, code, message, start, end)]),
+      diagnostics: Object.freeze(
+        request.limits.diagnostics > 0 ? [diagnostic(request, code, message, start, end)] : [],
+      ),
       usage: compileUsage,
     });
   if (
@@ -206,6 +226,15 @@ function checkCompile(request: CheckRequest): InternalCheckResult {
   }));
   if (texts.some((candidate) => candidate.source === undefined))
     return reject('SS_SOURCE_ENCODING', 'source must be canonical UTF-8');
+  const sourceMeasures = texts.map((candidate) => measureCompilerSource(candidate.source as string));
+  if (
+    sourceMeasures.some(
+      (measure) =>
+        measure.typeDepth > request.limits.typeDepth ||
+        measure.derivedTemplateBytes > request.limits.derivedTemplateBytes,
+    )
+  )
+    return reject('SS_COMPILER_LIMIT', 'type-depth or derived-template limit exceeded');
   const compiled =
     request.languageVersion.minor === 1
       ? compileProgramModules(
@@ -266,8 +295,18 @@ function facts(
 }
 
 function limitsValid(limits: ExecutionLimits, ceiling: ExecutionLimits): boolean {
-  return (Object.keys(ceiling) as (keyof ExecutionLimits)[]).every(
-    (key) => Number.isSafeInteger(limits[key]) && limits[key] >= 0 && limits[key] <= ceiling[key],
+  const keys = Object.keys(STANDARD_EXECUTION_LIMITS) as (keyof ExecutionLimits)[];
+  return (
+    Object.keys(limits).every((key) => key in STANDARD_EXECUTION_LIMITS) &&
+    keys.every(
+      (key) =>
+        Number.isSafeInteger(limits[key]) &&
+        Number.isSafeInteger(ceiling[key]) &&
+        limits[key] >= 0 &&
+        ceiling[key] >= 0 &&
+        limits[key] <= ceiling[key] &&
+        limits[key] <= STANDARD_EXECUTION_LIMITS[key],
+    )
   );
 }
 
@@ -287,7 +326,11 @@ function failedOutcome(
   });
 }
 
-function matchingOutcome(value: unknown, requestId: ActionOutcome['requestId']): value is ActionOutcome {
+function matchingOutcome(
+  value: unknown,
+  requestId: ActionOutcome['requestId'],
+  maxBytes: number,
+): value is ActionOutcome {
   if (value === null || typeof value !== 'object') return false;
   const outcome = value as Partial<ActionOutcome>;
   if (
@@ -297,11 +340,19 @@ function matchingOutcome(value: unknown, requestId: ActionOutcome['requestId']):
     !outcome.result
   )
     return false;
-  if (outcome.result.tag === 'completed') return isByteArray(outcome.result.value);
+  if (outcome.result.tag === 'completed')
+    return (
+      Array.isArray(outcome.result.value) &&
+      outcome.result.value.length <= maxBytes &&
+      isByteArray(outcome.result.value)
+    );
   if (outcome.result.tag === 'rejected')
     return (
       typeof outcome.result.value?.code === 'string' &&
-      (outcome.result.value.detail === undefined || typeof outcome.result.value.detail === 'string')
+      outcome.result.value.code.length > 0 &&
+      outcome.result.value.code.length <= 64 &&
+      (outcome.result.value.detail === undefined ||
+        (typeof outcome.result.value.detail === 'string' && outcome.result.value.detail.length <= 160))
     );
   if (outcome.result.tag !== 'failed') return false;
   return (
@@ -314,7 +365,9 @@ function matchingOutcome(value: unknown, requestId: ActionOutcome['requestId']):
       'invalid_result',
       'transport_lost',
       'gateway_fault',
-    ].includes(outcome.result.value.failure?.code)
+    ].includes(outcome.result.value.failure?.code) &&
+    (outcome.result.value.failure?.detail === undefined ||
+      (typeof outcome.result.value.failure.detail === 'string' && outcome.result.value.failure.detail.length <= 160))
   );
 }
 
@@ -324,7 +377,13 @@ function emptyUsage(): MutableUsage {
     allocations: 0,
     allocatedBytes: 0,
     peakRetainedBytes: 0,
+    peakCollectionItems: 0,
+    peakValueDepth: 0,
+    peakValueNodes: 0,
+    peakValueBytes: 0,
+    peakCallDepth: 0,
     hostCalls: 0,
+    peakConcurrentActions: 0,
     traceBytes: 0,
     outputBytes: 0,
   };
@@ -375,6 +434,58 @@ class ExecutionMeter {
       allocatedBytes: nextAllocatedBytes,
       peakRetainedBytes: nextRetainedBytes,
     });
+    if (allocation) this.observe(allocation.value, allocatedBytes);
+  }
+
+  allocate(value: CanonicalValue): void {
+    const metrics = canonicalMetrics(value);
+    this.assertValue(metrics);
+    this.chargeRaw(4 + Math.ceil(metrics.bytes / 16), metrics.bytes);
+    this.observe(value, metrics.bytes, metrics);
+  }
+
+  scan(values: readonly CanonicalValue[]): void {
+    const metrics = values.map(canonicalMetrics);
+    const nodes = metrics.reduce((total, item) => total + item.nodes, 0);
+    const bytes = metrics.reduce((total, item) => total + item.bytes, 0);
+    this.charge(2 * nodes + Math.ceil(bytes / 16));
+    values.forEach((value, index) => {
+      const metric = metrics[index] ?? canonicalMetrics(value);
+      this.observe(value, metric.bytes, metric);
+    });
+  }
+
+  observe(value: CanonicalValue, encodedBytes: number, known = canonicalMetrics(value)): void {
+    this.assertValue({ ...known, bytes: encodedBytes });
+    this.usage.peakValueDepth = Math.max(this.usage.peakValueDepth, known.depth);
+    this.usage.peakValueNodes = Math.max(this.usage.peakValueNodes, known.nodes);
+    this.usage.peakValueBytes = Math.max(this.usage.peakValueBytes, encodedBytes);
+  }
+
+  private assertValue(metrics: Readonly<{ depth: number; nodes: number; bytes: number }>): void {
+    if (metrics.depth > this.limits.maxDepth) throw new ExecutionFault('value_limit', 'maxDepth');
+    if (metrics.nodes > this.limits.maxNodes) throw new ExecutionFault('value_limit', 'maxNodes');
+    if (metrics.bytes > this.limits.maxBytes) throw new ExecutionFault('value_limit', 'maxBytes');
+  }
+
+  private chargeRaw(fuel: number, bytes: number): void {
+    const nextFuel = this.usage.fuel + fuel;
+    const nextAllocations = this.usage.allocations + 1;
+    const nextAllocatedBytes = this.usage.allocatedBytes + bytes;
+    const nextRetainedBytes = Math.max(this.usage.peakRetainedBytes, nextAllocatedBytes);
+    const exceeded = [
+      nextFuel > this.limits.fuel && 'fuel',
+      nextAllocations > this.limits.allocations && 'allocations',
+      nextAllocatedBytes > this.limits.allocatedBytes && 'allocatedBytes',
+      nextRetainedBytes > this.limits.retainedBytes && 'retainedBytes',
+    ].find(Boolean);
+    if (exceeded) throw new ExecutionFault('resource_exhausted', String(exceeded));
+    Object.assign(this.usage, {
+      fuel: nextFuel,
+      allocations: nextAllocations,
+      allocatedBytes: nextAllocatedBytes,
+      peakRetainedBytes: nextRetainedBytes,
+    });
   }
 
   private encodedSize(allocation: Readonly<{ value: CanonicalValue; type: Schema }>): number {
@@ -385,6 +496,42 @@ class ExecutionMeter {
     if (!encoded.ok) throw new ExecutionFault('value_limit', encoded.failure.code);
     return encoded.value.length;
   }
+}
+
+function cborHead(bytes: number): number {
+  return bytes < 24 ? 1 : bytes < 256 ? 2 : bytes < 65_536 ? 3 : bytes < 4_294_967_296 ? 5 : 9;
+}
+
+function canonicalMetrics(root: CanonicalValue): Readonly<{ depth: number; nodes: number; bytes: number }> {
+  let nodes = 0;
+  let bytes = 0;
+  let depth = 0;
+  const pending: { value: CanonicalValue; depth: number }[] = [{ value: root, depth: 0 }];
+  while (pending.length > 0) {
+    const item = pending.pop() as { value: CanonicalValue; depth: number };
+    nodes++;
+    depth = Math.max(depth, item.depth);
+    if (item.value === null || typeof item.value === 'boolean') bytes += 1;
+    else if (typeof item.value === 'number') bytes += 9;
+    else if (typeof item.value === 'bigint') {
+      const magnitude = item.value >= 0n ? item.value : -1n - item.value;
+      bytes +=
+        magnitude < 24n ? 1 : magnitude < 256n ? 2 : magnitude < 65_536n ? 3 : magnitude < 4_294_967_296n ? 5 : 9;
+    } else if (typeof item.value === 'string') {
+      const length = encoder.encode(item.value).length;
+      bytes += cborHead(length) + length;
+    } else if (Array.isArray(item.value)) {
+      bytes += cborHead(item.value.length);
+      for (let index = item.value.length - 1; index >= 0; index--)
+        pending.push({ value: item.value[index] as CanonicalValue, depth: item.depth + 1 });
+    } else {
+      const values = Object.values(item.value);
+      bytes += cborHead(values.length);
+      for (let index = values.length - 1; index >= 0; index--)
+        pending.push({ value: values[index] as CanonicalValue, depth: item.depth + 1 });
+    }
+  }
+  return { depth, nodes, bytes };
 }
 
 class ExecutionTrace {
@@ -441,16 +588,48 @@ class ActionDispatcher {
   ) {}
 
   async handle(instruction: ActionInstruction, value: CanonicalValue): Promise<CanonicalValue> {
+    const results = await this.handleGroup([{ instruction, input: value }]);
+    return results[0] as CanonicalValue;
+  }
+
+  async handleGroup(
+    actions: readonly Readonly<{ instruction: ActionInstruction; input: CanonicalValue }>[],
+  ): Promise<readonly CanonicalValue[]> {
     if (this.active.cancelled) throw new InterpreterFault('cancelled');
-    const operation = this.artifact.program.operations.get(instruction.operationId);
-    if (!operation) throw new ExecutionFault('invalid_ir', 'unknown operation');
-    const input = this.encodeInput(instruction, value);
-    this.assertHostCapacity();
-    this.meter.charge(100 + operation.effectCost + Math.ceil(input.length / 16));
-    this.usage.hostCalls++;
-    const actionRequest = this.createRequest(instruction, operation, input);
-    this.records.push(Object.freeze({ phase: 'requested', request: actionRequest }));
-    return this.dispatch(actionRequest, operation);
+    const prepared = actions.map(({ instruction, input: value }) => {
+      const operation = this.artifact.program.operations.get(instruction.operationId);
+      if (!operation) throw new ExecutionFault('invalid_ir', 'unknown operation');
+      return { instruction, operation, input: this.encodeInput(instruction, value) };
+    });
+    this.assertHostCapacity(prepared.length);
+    // A group is one atomic semantic operation: no request is observable unless
+    // every member's host-call reservation and fuel charge can be committed.
+    this.meter.charge(
+      prepared.reduce((fuel, item) => fuel + 100 + item.operation.effectCost + Math.ceil(item.input.length / 16), 0),
+    );
+    this.usage.hostCalls += prepared.length;
+    this.usage.peakConcurrentActions = Math.max(this.usage.peakConcurrentActions, prepared.length);
+    const pending = prepared.map((item) => ({
+      ...item,
+      request: this.createRequest(item.instruction, item.operation, item.input),
+    }));
+    for (const item of pending) this.records.push(Object.freeze({ phase: 'requested', request: item.request }));
+
+    // Dispatch only after deterministic request creation/recording. Outcomes are
+    // attached in input order, irrespective of host completion order.
+    const received = await Promise.all(pending.map((item) => this.receive(item.request)));
+    const values: CanonicalValue[] = [];
+    let firstFault: unknown;
+    for (const [index, item] of pending.entries()) {
+      try {
+        values.push(this.interpretOutcome(item.request.requestId, item.operation, received[index]));
+      } catch (error) {
+        if (firstFault === undefined) firstFault = error;
+        values.push(null);
+      }
+    }
+    if (firstFault !== undefined) throw firstFault;
+    return Object.freeze(values);
   }
 
   private encodeInput(instruction: ActionInstruction, value: CanonicalValue): CanonicalBytes {
@@ -462,11 +641,11 @@ class ActionDispatcher {
     return frozenBytes(encoded.value);
   }
 
-  private assertHostCapacity(): void {
-    if (this.usage.hostCalls + 1 > this.request.limits.hostCalls || this.request.limits.concurrentActions < 1)
+  private assertHostCapacity(count: number): void {
+    if (this.usage.hostCalls + count > this.request.limits.hostCalls || count > this.request.limits.concurrentActions)
       throw new ExecutionFault(
         'resource_exhausted',
-        this.usage.hostCalls + 1 > this.request.limits.hostCalls ? 'hostCalls' : 'concurrentActions',
+        this.usage.hostCalls + count > this.request.limits.hostCalls ? 'hostCalls' : 'concurrentActions',
       );
   }
 
@@ -507,23 +686,21 @@ class ActionDispatcher {
     });
   }
 
-  private async dispatch(actionRequest: ActionRequest, operation: OperationDefinition): Promise<CanonicalValue> {
-    if (this.active.cancelled) return this.cancel(actionRequest.requestId, 'not_performed');
-    this.active.dispatched = true;
-    let received: unknown;
+  private async receive(actionRequest: ActionRequest): Promise<unknown> {
+    if (this.active.cancelled) return failedOutcome(actionRequest.requestId, 'cancelled', 'not_performed');
+    let cancel!: () => void;
+    const cancellation = new Promise<ActionOutcome>((resolve) => {
+      cancel = () => resolve(failedOutcome(actionRequest.requestId, 'cancelled', 'unknown'));
+      this.active.cancellationListeners.add(cancel);
+    });
+    const dispatched = Promise.resolve()
+      .then(() => this.host.handleAction(actionRequest))
+      .catch(() => failedOutcome(actionRequest.requestId, 'handler_fault', 'unknown'));
     try {
-      received = await this.host.handleAction(actionRequest);
-    } catch {
-      received = failedOutcome(actionRequest.requestId, 'handler_fault', 'unknown');
+      return await Promise.race([dispatched, cancellation]);
+    } finally {
+      this.active.cancellationListeners.delete(cancel);
     }
-    if (this.active.cancelled) return this.cancel(actionRequest.requestId, 'unknown');
-    return this.interpretOutcome(actionRequest.requestId, operation, received);
-  }
-
-  private cancel(requestId: ActionOutcome['requestId'], effectState: 'not_performed' | 'unknown'): never {
-    const outcome = failedOutcome(requestId, 'cancelled', effectState);
-    this.records.push(Object.freeze({ phase: 'resolved', requestId, outcome }));
-    throw new InterpreterFault('cancelled');
   }
 
   private interpretOutcome(
@@ -531,7 +708,7 @@ class ActionDispatcher {
     operation: OperationDefinition,
     received: unknown,
   ): CanonicalValue {
-    if (!matchingOutcome(received, requestId)) {
+    if (!matchingOutcome(received, requestId, this.request.limits.maxBytes)) {
       const outcome = failedOutcome(requestId, 'gateway_fault', 'unknown');
       this.records.push(Object.freeze({ phase: 'resolved', requestId, outcome }));
       throw new ExecutionFault('action_outcome_invalid');
@@ -556,8 +733,10 @@ class ActionDispatcher {
       this.records.push(Object.freeze({ phase: 'resolved', requestId, outcome }));
       throw new ExecutionFault('action_outcome_invalid', 'policy error does not match operation error schema');
     }
+    const result = Object.freeze({ tag: 'error', value: error });
     this.records.push(Object.freeze({ phase: 'resolved', requestId, outcome: received }));
-    return Object.freeze({ tag: 'error', value: error });
+    this.meter.allocate(result);
+    return result;
   }
 
   private completed(
@@ -576,7 +755,9 @@ class ActionDispatcher {
       this.records.push(Object.freeze({ phase: 'resolved', requestId, outcome }));
       throw new ExecutionFault('action_outcome_invalid', decoded.failure.code);
     }
+    this.meter.scan([decoded.value]);
     this.records.push(Object.freeze({ phase: 'resolved', requestId, outcome: received }));
+    this.meter.allocate(decoded.value);
     return decoded.value;
   }
 }
@@ -652,13 +833,21 @@ export class DirectRuntimeBridge implements RuntimeBridge {
 
   execute(request: Parameters<RuntimeBridge['execute']>[0], host: RuntimeBridgeHost): Promise<ExecutionResult> {
     if (this.closed) return Promise.resolve({ status: 'bridge_error', error: bridgeError('execute', 'bridge_closed') });
+    try {
+      ids.invocation(request.invocationId);
+    } catch {
+      return Promise.resolve({
+        status: 'not_started',
+        error: bridgeError('execute', 'invalid_request', 'invalid invocation identifier'),
+      });
+    }
     // Invocation IDs are unique only while active; no durable tombstones or replay coordinator are retained.
     if (this.active.has(request.invocationId))
       return Promise.resolve({
         status: 'not_started',
         error: bridgeError('execute', 'invalid_request', 'duplicate active invocation'),
       });
-    const active: ActiveInvocation = { cancelled: false, dispatched: false };
+    const active: ActiveInvocation = { cancelled: false, cancellationListeners: new Set() };
     this.active.set(request.invocationId, active);
     const execution = this.run(request, host, active).finally(() => {
       this.active.delete(request.invocationId);
@@ -690,6 +879,20 @@ export class DirectRuntimeBridge implements RuntimeBridge {
           typeof slot === 'string' ? slot : 'execution limits exceed slot ceiling',
         ),
       };
+    if (
+      !isByteArray(request.input) ||
+      request.input.length > request.limits.maxBytes ||
+      (request.idempotencySeed !== undefined &&
+        (!isByteArray(request.idempotencySeed) || request.idempotencySeed.length > request.limits.maxBytes)) ||
+      (request.randomSeed !== undefined &&
+        (!isByteArray(request.randomSeed) || request.randomSeed.length > request.limits.maxBytes)) ||
+      !['none', 'summary', 'semantic'].includes(request.trace) ||
+      (request.fixedInstant !== undefined &&
+        !encodeCanonical({ kind: 'instant' }, request.fixedInstant, {
+          limits: valueLimits(request.limits),
+        }).ok)
+    )
+      return { status: 'not_started', error: bridgeError('execute', 'invalid_request', 'invalid bounded bytes') };
     let artifact: CheckedArtifact;
     let preparation: ExecutionPreparation;
     if (request.program.kind === 'source') {
@@ -741,6 +944,7 @@ export class DirectRuntimeBridge implements RuntimeBridge {
     if (!input.ok)
       return { status: 'not_started', error: bridgeError('execute', 'invalid_request', 'slot input is not canonical') };
     const meter = new ExecutionMeter(usageValue, request.limits, request.registry);
+    meter.observe(input.value, request.input.length);
     const trace = new ExecutionTrace(request.trace !== 'none', request.limits.traceBytes, usageValue);
     const dispatcher = new ActionDispatcher(request, host, active, artifact, records, meter, usageValue);
     const random = seededRandom(request.randomSeed);
@@ -753,6 +957,8 @@ export class DirectRuntimeBridge implements RuntimeBridge {
       });
       const value = await interpret(artifact.program, input.value, {
         charge: (fuel, allocation) => meter.charge(fuel, allocation),
+        allocate: (value) => meter.allocate(value),
+        scan: (values) => meter.scan(values),
         cancelled: () => active.cancelled,
         trace: (event, source) => trace.add(event, source),
         random,
@@ -760,6 +966,7 @@ export class DirectRuntimeBridge implements RuntimeBridge {
         enterCall: () => {
           if (callDepth + 1 > request.limits.callDepth) throw new ExecutionFault('resource_exhausted', 'callDepth');
           callDepth++;
+          usageValue.peakCallDepth = Math.max(usageValue.peakCallDepth, callDepth);
           return () => {
             callDepth--;
           };
@@ -767,8 +974,10 @@ export class DirectRuntimeBridge implements RuntimeBridge {
         collection: (items) => {
           if (!Number.isSafeInteger(items) || items < 0 || items > request.limits.collectionItems)
             throw new ExecutionFault('resource_exhausted', 'collectionItems');
+          usageValue.peakCollectionItems = Math.max(usageValue.peakCollectionItems, items);
         },
         action: (instruction, actionValue) => dispatcher.handle(instruction, actionValue),
+        actionGroup: (group) => dispatcher.handleGroup(group),
       });
       const output = encodeCanonical(schemaRef(slot.output), value, {
         registry: request.registry.schemas,
@@ -777,6 +986,7 @@ export class DirectRuntimeBridge implements RuntimeBridge {
       if (!output.ok) throw new ExecutionFault('invalid_output', output.failure.code);
       if (usageValue.outputBytes + output.value.length > request.limits.outputBytes)
         throw new ExecutionFault('resource_exhausted', 'outputBytes');
+      meter.observe(value, output.value.length);
       meter.charge(1 + Math.ceil(output.value.length / 16));
       usageValue.outputBytes += output.value.length;
       return Object.freeze({
@@ -807,6 +1017,7 @@ export class DirectRuntimeBridge implements RuntimeBridge {
     const active = this.active.get(request.invocationId);
     if (!active) return { status: 'not_active' as const };
     active.cancelled = true;
+    for (const cancel of active.cancellationListeners) cancel();
     return { status: 'accepted' as const };
   }
 
@@ -814,7 +1025,10 @@ export class DirectRuntimeBridge implements RuntimeBridge {
     if (this.closed) return { status: 'closed' };
     this.closed = true;
     // Close follows ordinary cancellation semantics so late host results cannot replay or resume an invocation.
-    for (const active of this.active.values()) active.cancelled = true;
+    for (const active of this.active.values()) {
+      active.cancelled = true;
+      for (const cancel of active.cancellationListeners) cancel();
+    }
     await Promise.allSettled([...this.executions]);
     return { status: 'closed' };
   }
