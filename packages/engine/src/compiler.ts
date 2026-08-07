@@ -27,6 +27,7 @@ import {
   type IrTerminator,
   type RegisterId,
 } from './ir.js';
+import { compileStructuredProgram } from './structured-compiler.js';
 
 /**
  * Stable private failure lowered to a public machine-readable diagnostic by the bridge.
@@ -72,6 +73,7 @@ interface MutableBlock {
 interface Binding {
   readonly register: RegisterId;
   readonly type: Schema;
+  readonly mutable?: boolean;
   readonly payload?: RegisterId;
   readonly payloadType?: Schema;
 }
@@ -143,7 +145,7 @@ class Lowerer {
       }),
     );
     return Object.freeze({
-      version: Object.freeze([1, 0] as const),
+      version: Object.freeze([1, this.slot.languageVersion.minor as 0 | 1] as const),
       entry: blocks[0]?.id as BlockId,
       input: Object.freeze({ register: input, type: inputType }),
       resultType,
@@ -202,6 +204,8 @@ class Lowerer {
         this.ifStatement(statement, environment);
       } else if (ts.isVariableStatement(statement)) {
         this.variableStatement(statement, environment);
+      } else if (ts.isExpressionStatement(statement)) {
+        this.expressionStatement(statement, environment);
       } else if (ts.isSwitchStatement(statement)) {
         this.switchStatement(statement, environment);
       } else if (ts.isBlock(statement)) {
@@ -253,11 +257,13 @@ class Lowerer {
   }
 
   private variableStatement(statement: ts.VariableStatement, environment: Map<string, Binding>): void {
+    const isConst = (statement.declarationList.flags & ts.NodeFlags.Const) !== 0;
+    const isLet = (statement.declarationList.flags & ts.NodeFlags.Let) !== 0;
     if (
-      (statement.declarationList.flags & ts.NodeFlags.Const) === 0 ||
+      (!isConst && !(isLet && this.slot.languageVersion.minor >= 1)) ||
       statement.declarationList.declarations.length !== 1
     )
-      this.fail(statement, 'SS_MUTABLE_BINDING', 'only one lexical const declaration is accepted');
+      this.fail(statement, 'SS_MUTABLE_BINDING', 'binding form is outside the selected SafeScript language minor');
     const declaration = statement.declarationList.declarations[0] as ts.VariableDeclaration;
     if (!ts.isIdentifier(declaration.name) || !declaration.initializer)
       this.fail(declaration, 'SS_UNSUPPORTED_BINDING', 'const bindings require one identifier and initializer');
@@ -306,7 +312,41 @@ class Lowerer {
       });
       return;
     }
-    environment.set(declaration.name.text, this.expression(declaration.initializer, undefined, environment));
+    environment.set(declaration.name.text, {
+      ...this.expression(declaration.initializer, undefined, environment),
+      mutable: isLet,
+    });
+  }
+
+  private expressionStatement(statement: ts.ExpressionStatement, environment: Map<string, Binding>): void {
+    const expression = statement.expression;
+    if (!ts.isBinaryExpression(expression) || !ts.isIdentifier(expression.left))
+      this.fail(statement, 'SS_UNSUPPORTED_SYNTAX', 'only assignment to a function-local let binding is accepted');
+    const binding = environment.get(expression.left.text);
+    if (!binding?.mutable)
+      this.fail(expression.left, 'SS_IMMUTABLE_ASSIGNMENT', 'assignment requires a function-local let binding');
+    const compound = new Map<ts.SyntaxKind, Extract<IrInstruction, { tag: 'binary' }>['operator']>([
+      [ts.SyntaxKind.PlusEqualsToken, 'add'],
+      [ts.SyntaxKind.MinusEqualsToken, 'subtract'],
+      [ts.SyntaxKind.AsteriskEqualsToken, 'multiply'],
+      [ts.SyntaxKind.SlashEqualsToken, 'divide'],
+      [ts.SyntaxKind.PercentEqualsToken, 'remainder'],
+      [ts.SyntaxKind.AmpersandEqualsToken, 'bit-and'],
+      [ts.SyntaxKind.BarEqualsToken, 'bit-or'],
+      [ts.SyntaxKind.CaretEqualsToken, 'bit-xor'],
+      [ts.SyntaxKind.LessThanLessThanEqualsToken, 'shift-left'],
+      [ts.SyntaxKind.GreaterThanGreaterThanEqualsToken, 'shift-right'],
+    ]);
+    let value: Binding;
+    if (expression.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      value = this.expression(expression.right, binding.type, environment);
+    } else {
+      const operator = compound.get(expression.operatorToken.kind);
+      if (!operator) this.fail(expression.operatorToken, 'SS_UNSUPPORTED_OPERATOR', 'assignment operator is rejected');
+      const right = this.expression(expression.right, binding.type, environment);
+      value = this.binary(expression, operator, binding, right);
+    }
+    environment.set(expression.left.text, { ...value, mutable: true });
   }
 
   private switchStatement(statement: ts.SwitchStatement, environment: Map<string, Binding>): void {
@@ -432,6 +472,30 @@ class Lowerer {
       tag: 'compare',
       destination,
       type: { kind: 'boolean' },
+      operator,
+      left: left.register,
+      right: right.register,
+      source: this.location(expression),
+    });
+  }
+
+  private binary(
+    expression: ts.BinaryExpression,
+    operator: Extract<IrInstruction, { tag: 'binary' }>['operator'],
+    left: Binding,
+    right: Binding,
+  ): Binding {
+    if (!sameType(left.type, right.type))
+      this.fail(expression, 'SS_TYPE_MISMATCH', 'arithmetic operands must have the same checked type');
+    const resolved = resolveSchema(left.type, this.registry);
+    if (!resolved || (resolved.kind !== 'int64' && resolved.kind !== 'float64'))
+      this.fail(expression, 'SS_TYPE_MISMATCH', 'arithmetic requires compatible numeric values');
+    if (resolved.kind === 'float64' && operator.startsWith('bit-'))
+      this.fail(expression, 'SS_TYPE_MISMATCH', 'bitwise operations require int64 values');
+    return this.emit({
+      tag: 'binary',
+      destination: this.register(operator),
+      type: left.type,
       operator,
       left: left.register,
       right: right.register,
@@ -771,6 +835,49 @@ export function compileProgram(
       imports,
       declarations,
     };
+  if (slot.languageVersion.minor === 1) {
+    const structured = compileStructuredProgram(sourceFile, moduleId, registry, slot);
+    if (!structured.ok)
+      return {
+        ok: false,
+        failure: structured.failure,
+        syntaxNodes: syntax.nodes,
+        syntaxDepth: syntax.depth,
+        imports,
+        declarations,
+      };
+    const inputType = { kind: 'ref' as const, type: slot.input };
+    const resultType = { kind: 'ref' as const, type: slot.output };
+    const input = 'r0:input';
+    return {
+      ok: true,
+      handler: structured.handler,
+      syntaxNodes: syntax.nodes,
+      syntaxDepth: syntax.depth,
+      imports,
+      declarations,
+      program: Object.freeze({
+        version: Object.freeze([1, 1] as const),
+        entry: 'b0:entry',
+        input: Object.freeze({ register: input, type: inputType }),
+        resultType,
+        blocks: Object.freeze([
+          Object.freeze({
+            id: 'b0:entry',
+            parameters: Object.freeze([]),
+            instructions: Object.freeze([]),
+            terminator: Object.freeze({
+              tag: 'structured',
+              input,
+              program: structured.program,
+              source: Object.freeze({ module: moduleId, start: 0, end: sourceFile.getEnd() }),
+            }),
+          }),
+        ]),
+        summary: structured.program.summary,
+      }),
+    };
+  }
   const functions = sourceFile.statements.filter(ts.isFunctionDeclaration);
   const invalidTopLevel = sourceFile.statements.find(
     (statement) => !ts.isImportDeclaration(statement) && !ts.isFunctionDeclaration(statement),

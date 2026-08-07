@@ -15,6 +15,7 @@ import {
   type SlotDefinition,
   type SourceLocation,
 } from '@safescript/contracts';
+import { structuredActions, verifyStructuredProgram, type StructuredProgram } from './structured-ir.js';
 
 /**
  * Private single-assignment register identity within one IR program.
@@ -52,6 +53,25 @@ export type IrInstruction =
       destination: RegisterId;
       type: Readonly<{ kind: 'boolean' }>;
       operator: 'equal' | 'not-equal' | 'less' | 'less-equal' | 'greater' | 'greater-equal';
+      left: RegisterId;
+      right: RegisterId;
+      source: SourceLocation;
+    }>
+  | Readonly<{
+      tag: 'binary';
+      destination: RegisterId;
+      type: Schema;
+      operator:
+        | 'add'
+        | 'subtract'
+        | 'multiply'
+        | 'divide'
+        | 'remainder'
+        | 'bit-and'
+        | 'bit-or'
+        | 'bit-xor'
+        | 'shift-left'
+        | 'shift-right';
       left: RegisterId;
       right: RegisterId;
       source: SourceLocation;
@@ -104,7 +124,10 @@ export type IrTerminator =
       resume: BlockId;
       source: SourceLocation;
     }>
+  | Readonly<{ tag: 'structured'; input: RegisterId; program: StructuredProgram; source: SourceLocation }>
   | Readonly<{ tag: 'return'; value: RegisterId; source: SourceLocation }>;
+
+export type ActionInstruction = Extract<IrTerminator, { tag: 'action' }>;
 
 /**
  * Basic block with typed parameters, straight-line instructions, and exactly one terminator.
@@ -122,7 +145,7 @@ export interface IrBlock {
  * @internal
  */
 export interface IrProgram {
-  readonly version: readonly [1, 0];
+  readonly version: readonly [1, 0 | 1];
   readonly entry: BlockId;
   readonly input: Readonly<{ register: RegisterId; type: Schema }>;
   readonly resultType: Schema;
@@ -283,6 +306,8 @@ function registersUsed(instruction: IrInstruction | IrTerminator): readonly Regi
       return [instruction.from];
     case 'compare':
       return [instruction.left, instruction.right];
+    case 'binary':
+      return [instruction.left, instruction.right];
     case 'construct-record':
       return instruction.fields.map(([, register]) => register);
     case 'construct-variant':
@@ -296,6 +321,8 @@ function registersUsed(instruction: IrInstruction | IrTerminator): readonly Regi
     case 'switch':
       return [instruction.value];
     case 'action':
+      return [instruction.input];
+    case 'structured':
       return [instruction.input];
     case 'return':
       return [instruction.value];
@@ -321,6 +348,23 @@ function instructionShape(value: unknown): value is IrInstruction {
         typeof value.left === 'string' &&
         typeof value.right === 'string' &&
         ['equal', 'not-equal', 'less', 'less-equal', 'greater', 'greater-equal'].includes(String(value.operator))
+      );
+    case 'binary':
+      return (
+        typeof value.left === 'string' &&
+        typeof value.right === 'string' &&
+        [
+          'add',
+          'subtract',
+          'multiply',
+          'divide',
+          'remainder',
+          'bit-and',
+          'bit-or',
+          'bit-xor',
+          'shift-left',
+          'shift-right',
+        ].includes(String(value.operator))
       );
     case 'construct-record':
       return (
@@ -374,6 +418,8 @@ function terminatorShape(value: unknown): value is IrTerminator {
         isObject(value.resultType) &&
         typeof value.resume === 'string'
       );
+    case 'structured':
+      return typeof value.input === 'string' && isObject(value.program);
     case 'return':
       return typeof value.value === 'string';
     default:
@@ -386,7 +432,7 @@ function programShape(value: unknown): value is IrProgram {
     isObject(value) &&
     Array.isArray(value.version) &&
     value.version[0] === 1 &&
-    value.version[1] === 0 &&
+    (value.version[1] === 0 || value.version[1] === 1) &&
     value.version.length === 2 &&
     typeof value.entry === 'string' &&
     isObject(value.input) &&
@@ -422,6 +468,8 @@ function successors(terminator: IrTerminator): readonly BlockId[] {
       return terminator.cases.map((item) => item.target);
     case 'action':
       return [terminator.resume];
+    case 'structured':
+      return [];
     case 'return':
       return [];
   }
@@ -539,6 +587,19 @@ export function verifyProgram(
             resolved?.kind !== 'float64')
         )
           return undefined;
+      } else if (instruction.tag === 'binary') {
+        const left = typeOf(instruction.left);
+        const right = typeOf(instruction.right);
+        const resolved = left && resolveSchema(left, registry);
+        if (
+          !left ||
+          !right ||
+          !sameType(left, right) ||
+          !sameType(left, instruction.type) ||
+          (resolved?.kind !== 'int64' && resolved?.kind !== 'float64') ||
+          (resolved.kind === 'float64' && instruction.operator.startsWith('bit-'))
+        )
+          return undefined;
       } else if (instruction.tag === 'constant') {
         let constant: CanonicalValue;
         try {
@@ -632,6 +693,14 @@ export function verifyProgram(
       }
       effects.add(action.effectId);
       capabilities.add(action.capabilityId);
+    }
+    if (block.terminator.tag === 'structured') {
+      if (value.version[1] !== 1 || !verifyStructuredProgram(block.terminator.program, registry, slot))
+        return undefined;
+      for (const action of structuredActions(block.terminator.program)) {
+        effects.add(action.effectId);
+        capabilities.add(action.capabilityId);
+      }
     }
     if (block.terminator.tag === 'return' && !sameType(typeOf(block.terminator.value) as Schema, value.resultType))
       return undefined;

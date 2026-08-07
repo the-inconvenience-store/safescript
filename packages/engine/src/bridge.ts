@@ -43,9 +43,9 @@ import { createArtifact, verifyArtifact, type CheckedArtifact } from './artifact
 import { compileProgram } from './compiler.js';
 import { interpret, InterpreterFault } from './interpreter.js';
 import { verifyProgram, type IrTerminator } from './ir.js';
+import { structuredActions } from './structured-ir.js';
 
 const ABI_VERSION = Object.freeze({ major: 1, minor: 0 });
-const IR_VERSION = Object.freeze({ major: 1, minor: 0 });
 const COMPILER = Object.freeze({
   version: Object.freeze({ major: 0, minor: 1, patch: 0 }),
   build: 'typed-ir-walking-skeleton',
@@ -174,7 +174,11 @@ function checkCompile(request: CheckRequest): InternalCheckResult {
       diagnostics: Object.freeze([diagnostic(request, code, message, start, end)]),
       usage: compileUsage,
     });
-  if (!sameVersion(request.abiVersion, ABI_VERSION) || !sameVersion(request.languageVersion, { major: 1, minor: 0 }))
+  if (
+    !sameVersion(request.abiVersion, ABI_VERSION) ||
+    request.languageVersion.major !== 1 ||
+    ![0, 1].includes(request.languageVersion.minor)
+  )
     return Object.freeze({ status: 'bridge_error', error: bridgeError('check', 'unsupported_version') });
   const slot = validateRegistry(request.registry, request.slotId);
   if (typeof slot === 'string') return reject('SS_CONTRACT_INVALID', slot);
@@ -213,7 +217,7 @@ function checkCompile(request: CheckRequest): InternalCheckResult {
     provenance: Object.freeze({
       compiler: COMPILER,
       language: request.languageVersion,
-      ir: IR_VERSION,
+      ir: Object.freeze({ major: 1, minor: compiled.program.version[1] }),
       abi: ABI_VERSION,
     }),
     usage: compileUsage,
@@ -372,7 +376,16 @@ class ExecutionTrace {
 
 function actionInstructions(artifact: CheckedArtifact): Extract<IrTerminator, { tag: 'action' }>[] {
   return artifact.program.program.blocks.flatMap((block) =>
-    block.terminator.tag === 'action' ? [block.terminator] : [],
+    block.terminator.tag === 'action'
+      ? [block.terminator]
+      : block.terminator.tag === 'structured'
+        ? structuredActions(block.terminator.program).map((action) => ({
+            ...action,
+            tag: 'action' as const,
+            input: '',
+            resume: '',
+          }))
+        : [],
   );
 }
 

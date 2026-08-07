@@ -519,6 +519,313 @@ describe('direct RuntimeBridge walking skeleton', () => {
 });
 
 describe('compiler validation through the RuntimeBridge interface', () => {
+  it('gates local reassignment to language 1.1 and executes its updated value', async () => {
+    const reassignmentSource = source
+      .replace('export async function onDealUpdated(', 'export async function onDealUpdated(')
+      .replace('  if (\n', '  let threshold = 1_000_000\n  threshold += 1_000_000\n\n  if (\n')
+      .replace('event.after.amount.minorUnits < 2_000_000', 'event.after.amount.minorUnits < threshold');
+    const language11Registry: ContractRegistry = {
+      ...registry,
+      digest: fingerprint(40),
+      slots: registry.slots.map((candidate) => ({
+        ...candidate,
+        languageVersion: { major: 1, minor: 1 },
+      })),
+    };
+    const language11Request = {
+      ...checkWithSource(reassignmentSource),
+      languageVersion: { major: 1, minor: 1 },
+      registry: language11Registry,
+    } as const;
+    const bridge = createDirectRuntimeBridge();
+
+    const legacy = await bridge.check(checkWithSource(reassignmentSource));
+    expect(legacy.status).toBe('rejected');
+    if (legacy.status === 'rejected') expect(legacy.diagnostics[0]?.code).toBe('SS_MUTABLE_BINDING');
+
+    const checked = await bridge.check(language11Request);
+    expect(checked.status).toBe('accepted');
+    let calls = 0;
+    const completed = await bridge.execute(
+      {
+        ...executeRequest({ kind: 'source', source: language11Request }, event('open', 1_500_000n)),
+        registry: language11Registry,
+      },
+      {
+        handleAction: async () => {
+          calls++;
+          throw new Error('the reassigned threshold should suppress this action');
+        },
+      },
+    );
+    expect(completed.status).toBe('completed');
+    expect(calls).toBe(0);
+  });
+
+  it('executes bounded for-of loops through named pure helper calls', async () => {
+    const helperSource = source
+      .replace(
+        'export async function onDealUpdated(',
+        `function sum(values: readonly number[]): number {
+  let total = 0
+  for (const value of values) {
+    total += value
+  }
+  return total
+}
+
+export async function onDealUpdated(`,
+      )
+      .replace('  if (\n', '  const threshold = sum([500_000, 1_500_000])\n\n  if (\n')
+      .replace('event.after.amount.minorUnits < 2_000_000', 'event.after.amount.minorUnits < threshold');
+    const language11Registry: ContractRegistry = {
+      ...registry,
+      digest: fingerprint(41),
+      slots: registry.slots.map((candidate) => ({
+        ...candidate,
+        languageVersion: { major: 1, minor: 1 },
+      })),
+    };
+    const language11Request = {
+      ...checkWithSource(helperSource),
+      languageVersion: { major: 1, minor: 1 },
+      registry: language11Registry,
+    } as const;
+    const bridge = createDirectRuntimeBridge();
+
+    const checked = await bridge.check(language11Request);
+    expect(checked.status).toBe('accepted');
+    let calls = 0;
+    const completed = await bridge.execute(
+      {
+        ...executeRequest({ kind: 'source', source: language11Request }, event('open', 1_999_999n)),
+        registry: language11Registry,
+      },
+      {
+        handleAction: async () => {
+          calls++;
+          throw new Error('the helper-derived threshold should suppress this action');
+        },
+      },
+    );
+    expect(completed.status).toBe('completed');
+    expect(calls).toBe(0);
+  });
+
+  it('executes every loop form with charged break and continue control flow', async () => {
+    const loopSource = source
+      .replace(
+        'export async function onDealUpdated(',
+        `function threshold(): number {
+  let total = 0
+  for (let index = 0; index < 2; index++) {
+    total += 250_000
+  }
+  let step = 0
+  while (step < 2) {
+    step++
+    if (step === 1) continue
+    total += 500_000
+  }
+  do {
+    total += 500_000
+    break
+  } while (true)
+  const fields = { first: 500_000, second: 0 }
+  for (const key in fields) {
+    total += fields[key]
+  }
+  return total
+}
+
+export async function onDealUpdated(`,
+      )
+      .replace('  if (\n', '  const required = threshold()\n\n  if (\n')
+      .replace('event.after.amount.minorUnits < 2_000_000', 'event.after.amount.minorUnits < required');
+    const language11Registry: ContractRegistry = {
+      ...registry,
+      digest: fingerprint(42),
+      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+    };
+    const request = {
+      ...checkWithSource(loopSource),
+      languageVersion: { major: 1, minor: 1 },
+      registry: language11Registry,
+    } as const;
+    const bridge = createDirectRuntimeBridge();
+
+    expect((await bridge.check(request)).status).toBe('accepted');
+    let calls = 0;
+    const completed = await bridge.execute(
+      {
+        ...executeRequest({ kind: 'source', source: request }, event('open', 1_999_999n)),
+        registry: language11Registry,
+      },
+      {
+        handleAction: async () => {
+          calls++;
+          throw new Error('the loop-derived threshold should suppress this action');
+        },
+      },
+    );
+    expect(completed.status).toBe('completed');
+    expect(calls).toBe(0);
+  });
+
+  it('executes recursive higher-order functions and captured arrow callbacks', async () => {
+    const functionSource = source
+      .replace(
+        'export async function onDealUpdated(',
+        `function recursive(value: number): number {
+  if (value === 0) return 0
+  return 250_000 + recursive(value - 1)
+}
+
+function addOffset(offset: number): (value: number) => number {
+  return (value) => value + offset
+}
+
+export async function onDealUpdated(`,
+      )
+      .replace(
+        '  if (\n',
+        `  const adjusted = [250_000, 500_000]
+    .map(addOffset(250_000))
+    .filter((value) => value >= 500_000)
+    .reduce((total, value) => total + value, 0)
+  const required = adjusted + recursive(3)
+
+  if (
+`,
+      )
+      .replace('event.after.amount.minorUnits < 2_000_000', 'event.after.amount.minorUnits < required');
+    const language11Registry: ContractRegistry = {
+      ...registry,
+      digest: fingerprint(43),
+      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+    };
+    const request = {
+      ...checkWithSource(functionSource),
+      languageVersion: { major: 1, minor: 1 },
+      registry: language11Registry,
+    } as const;
+    const bridge = createDirectRuntimeBridge();
+
+    expect((await bridge.check(request)).status).toBe('accepted');
+    let calls = 0;
+    const completed = await bridge.execute(
+      {
+        ...executeRequest({ kind: 'source', source: request }, event('open', 1_999_999n)),
+        registry: language11Registry,
+      },
+      {
+        handleAction: async () => {
+          calls++;
+          throw new Error('the higher-order threshold should suppress this action');
+        },
+      },
+    );
+    expect(completed.status).toBe('completed');
+    expect(calls).toBe(0);
+  });
+
+  it.each([
+    ['unsafe typing', 'function unsafe(value: any): any { return value }'],
+    ['value mutation', 'function mutate(value: { x: number }): number { value.x = 1; return value.x }'],
+    ['exceptions', 'function fail(): number { try { throw 1 } catch { return 1 } }'],
+    ['generated code', 'function generated(): number { return eval("1") }'],
+    ['regular expressions', 'function regex(): boolean { return /x/.test("x") }'],
+    ['floating actions', 'function floating(ctx: Context): void { ctx.tasks.create({}) }'],
+    ['action racing', 'function racing(value: Promise<void>): Promise<void> { return Promise.race([value]) }'],
+  ])('rejects language 1.1 %s before IR', async (_name, unsafeHelper) => {
+    const unsafeSource = source.replace(
+      'export async function onDealUpdated(',
+      `${unsafeHelper}\n\nexport async function onDealUpdated(`,
+    );
+    const unsafeRegistry: ContractRegistry = {
+      ...registry,
+      digest: fingerprint(44),
+      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+    };
+    const result = await createDirectRuntimeBridge().check({
+      ...checkWithSource(unsafeSource),
+      languageVersion: { major: 1, minor: 1 },
+      registry: unsafeRegistry,
+    });
+    expect(result.status).toBe('rejected');
+    if (result.status === 'rejected') expect(result.diagnostics[0]?.code).toStartWith('SS_');
+  });
+
+  it('erases finite aliases, interfaces, recursive types, tuples, and monomorphic generics', async () => {
+    const typedSource = source
+      .replace(
+        'export async function onDealUpdated(',
+        `interface Linked<T> { readonly value: T; readonly next?: Linked<T> }
+type Pair<T> = readonly [T, T]
+type Tagged = ({ readonly tag: "amount" } & { readonly value: number }) | { readonly tag: "none" }
+
+function sum<const T extends number>(values: Pair<T>): number {
+  return values[0] + values[1]
+}
+
+export async function onDealUpdated(`,
+      )
+      .replace('  if (\n', '  const required = sum([1_000_000, 1_000_000] as const)\n\n  if (\n')
+      .replace('event.after.amount.minorUnits < 2_000_000', 'event.after.amount.minorUnits < required');
+    const typedRegistry: ContractRegistry = {
+      ...registry,
+      digest: fingerprint(45),
+      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+    };
+    const request = {
+      ...checkWithSource(typedSource),
+      languageVersion: { major: 1, minor: 1 },
+      registry: typedRegistry,
+    } as const;
+    const bridge = createDirectRuntimeBridge();
+    expect((await bridge.check(request)).status).toBe('accepted');
+    const completed = await bridge.execute(
+      { ...executeRequest({ kind: 'source', source: request }, event('open', 1_999_999n)), registry: typedRegistry },
+      unreachableHost,
+    );
+    expect(completed.status).toBe('completed');
+  });
+
+  it('executes deterministic Object, Unicode string, and Math intrinsics', async () => {
+    const intrinsicSource = source
+      .replace(
+        '  if (\n',
+        `  const amounts = Object.values({ first: 500_000, second: 500_000 })
+  const subtotal = amounts.reduce((total, value) => total + value, 0)
+  const label = "  safe  ".trim().toUpperCase()
+  const required = label === "SAFE" ? subtotal + Math.abs(-1_000_000) : 0
+
+  if (
+`,
+      )
+      .replace('event.after.amount.minorUnits < 2_000_000', 'event.after.amount.minorUnits < required');
+    const intrinsicRegistry: ContractRegistry = {
+      ...registry,
+      digest: fingerprint(46),
+      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+    };
+    const request = {
+      ...checkWithSource(intrinsicSource),
+      languageVersion: { major: 1, minor: 1 },
+      registry: intrinsicRegistry,
+    } as const;
+    const bridge = createDirectRuntimeBridge();
+    expect((await bridge.check(request)).status).toBe('accepted');
+    const completed = await bridge.execute(
+      {
+        ...executeRequest({ kind: 'source', source: request }, event('open', 1_999_999n)),
+        registry: intrinsicRegistry,
+      },
+      unreachableHost,
+    );
+    expect(completed.status).toBe('completed');
+  });
+
   it.each([
     ['SS_SYNTAX', source.replace('export async function', 'export async function )')],
     ['SS_AMBIENT_AUTHORITY', 'import { Ok } from "node:fs"\n' + source],

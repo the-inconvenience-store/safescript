@@ -4,7 +4,14 @@
  */
 import type { CanonicalValue, Schema } from '@safescript/contracts';
 
-import { constantValue, type IrInstruction, type IrTerminator, type VerifiedProgram } from './ir.js';
+import {
+  constantValue,
+  type ActionInstruction,
+  type IrInstruction,
+  type IrTerminator,
+  type VerifiedProgram,
+} from './ir.js';
+import { interpretStructured } from './structured-interpreter.js';
 
 /**
  * Host hooks that keep limits, actions, cancellation, and traces outside pure IR evaluation.
@@ -12,10 +19,7 @@ import { constantValue, type IrInstruction, type IrTerminator, type VerifiedProg
  */
 export interface InterpreterHooks {
   readonly charge: (fuel: number, allocation?: Readonly<{ value: CanonicalValue; type: Schema }>) => void;
-  readonly action: (
-    instruction: Extract<IrTerminator, { tag: 'action' }>,
-    input: CanonicalValue,
-  ) => Promise<CanonicalValue>;
+  readonly action: (instruction: ActionInstruction, input: CanonicalValue) => Promise<CanonicalValue>;
   readonly cancelled: () => boolean;
   readonly trace: (event: string, source: IrTerminator['source']) => void;
 }
@@ -72,6 +76,67 @@ function compare(
   throw new InterpreterFault('invalid_ir', 'ordered comparison requires matching numbers');
 }
 
+const INT64_MIN = -(1n << 63n);
+const INT64_MAX = (1n << 63n) - 1n;
+
+function binary(
+  operator: Extract<IrInstruction, { tag: 'binary' }>['operator'],
+  left: CanonicalValue,
+  right: CanonicalValue,
+): CanonicalValue {
+  if (typeof left === 'bigint' && typeof right === 'bigint') {
+    if ((operator === 'divide' || operator === 'remainder') && right === 0n)
+      throw new InterpreterFault('invalid_arithmetic', 'division by zero');
+    const shift = Number(right);
+    if (
+      (operator === 'shift-left' || operator === 'shift-right') &&
+      (!Number.isSafeInteger(shift) || shift < 0 || shift > 63)
+    )
+      throw new InterpreterFault('invalid_arithmetic', 'shift count is outside 0..63');
+    const result =
+      operator === 'add'
+        ? left + right
+        : operator === 'subtract'
+          ? left - right
+          : operator === 'multiply'
+            ? left * right
+            : operator === 'divide'
+              ? left / right
+              : operator === 'remainder'
+                ? left % right
+                : operator === 'bit-and'
+                  ? left & right
+                  : operator === 'bit-or'
+                    ? left | right
+                    : operator === 'bit-xor'
+                      ? left ^ right
+                      : operator === 'shift-left'
+                        ? left << BigInt(shift)
+                        : left >> BigInt(shift);
+    if (result < INT64_MIN || result > INT64_MAX) throw new InterpreterFault('integer_overflow');
+    return result;
+  }
+  if (typeof left === 'number' && typeof right === 'number') {
+    if ((operator === 'divide' || operator === 'remainder') && right === 0)
+      throw new InterpreterFault('invalid_arithmetic', 'division by zero');
+    if (operator.startsWith('bit-') || operator.startsWith('shift-'))
+      throw new InterpreterFault('invalid_ir', 'bitwise float operation');
+    const result =
+      operator === 'add'
+        ? left + right
+        : operator === 'subtract'
+          ? left - right
+          : operator === 'multiply'
+            ? left * right
+            : operator === 'divide'
+              ? left / right
+              : left % right;
+    if (!Number.isFinite(result)) throw new InterpreterFault('non_finite_number');
+    return result;
+  }
+  throw new InterpreterFault('invalid_ir', 'numeric operands required');
+}
+
 function evaluate(instruction: IrInstruction, registers: Map<string, CanonicalValue>): CanonicalValue {
   const get = (register: string): CanonicalValue => {
     if (!registers.has(register)) throw new InterpreterFault('invalid_ir', `undefined register ${register}`);
@@ -88,6 +153,8 @@ function evaluate(instruction: IrInstruction, registers: Map<string, CanonicalVa
     }
     case 'compare':
       return compare(instruction.operator, get(instruction.left), get(instruction.right));
+    case 'binary':
+      return binary(instruction.operator, get(instruction.left), get(instruction.right));
     case 'construct-record':
       return Object.freeze(
         Object.fromEntries(instruction.fields.map(([name, register]) => [name, get(register)])),
@@ -174,6 +241,8 @@ export async function interpret(
         enter(terminator.resume, [result]);
         break;
       }
+      case 'structured':
+        return interpretStructured(terminator.program, get(terminator.input), hooks);
       case 'return':
         return get(terminator.value);
     }

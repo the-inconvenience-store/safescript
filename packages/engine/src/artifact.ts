@@ -25,7 +25,7 @@ interface ArtifactRecord {
   readonly magic: 'SafeScript checked artifact';
   readonly abi: readonly [1, 0];
   readonly language: readonly [number, number];
-  readonly ir: readonly [1, 0];
+  readonly ir: readonly [1, 0 | 1];
   readonly compiler: string;
   readonly contractId: string;
   readonly contractVersion: readonly [number, number, number, string?];
@@ -94,7 +94,7 @@ function isRecord(value: unknown): value is ArtifactRecord {
     record.language.length === 2 &&
     Array.isArray(record.ir) &&
     record.ir[0] === 1 &&
-    record.ir[1] === 0 &&
+    (record.ir[1] === 0 || record.ir[1] === 1) &&
     typeof record.compiler === 'string' &&
     typeof record.contractId === 'string' &&
     Array.isArray(record.contractVersion) &&
@@ -131,7 +131,7 @@ export function createArtifact(
     magic: 'SafeScript checked artifact',
     abi: [1, 0],
     language: [request.languageVersion.major, request.languageVersion.minor],
-    ir: [1, 0],
+    ir: program.program.version,
     compiler,
     contractId: request.registry.id,
     contractVersion:
@@ -188,7 +188,8 @@ export function verifyArtifact(
       stringify(value) !== text ||
       value.compiler !== compiler ||
       value.language[0] !== 1 ||
-      value.language[1] !== 0 ||
+      value.language[1] !== slot.languageVersion.minor ||
+      value.ir[1] !== value.program.version[1] ||
       value.contractId !== registry.id ||
       value.contractDigest !== registry.digest ||
       stringify(value.contractVersion) !== stringify(contractVersion) ||
