@@ -9,6 +9,8 @@ import {
   hash,
   ids,
   resultSchema,
+  type ActionOutcome,
+  type ActionRequest,
   type ContractRegistry,
   type ExecuteRequest,
   type Schema,
@@ -124,6 +126,67 @@ function executeRequest(program: ExecuteRequest['program'], input = event(), lim
 }
 
 describe('direct RuntimeBridge walking skeleton', () => {
+  it('derives behavior from checked source instead of fixture constants', async () => {
+    const alternateSource = source.replace('2_000_000', '1_000_000').replace('Onboard ', 'Review ');
+    const alternateCheck = {
+      ...checkRequest,
+      source: {
+        entry: moduleId,
+        modules: [{ id: moduleId, source: [...new TextEncoder().encode(alternateSource)] }],
+      },
+    };
+    const bridge = createDirectRuntimeBridge();
+    const checked = await bridge.check(alternateCheck);
+    expect(checked.status).toBe('accepted');
+
+    let calls = 0;
+    const completed = await bridge.execute(executeRequest({ kind: 'source', source: alternateCheck }, event('open', 1_500_000n)), {
+      handleAction: async (request) => {
+        calls++;
+        const input = decodeCanonical(ref(typeIds.taskInput), Uint8Array.from(request.input), { registry: registry.schemas });
+        expect(input).toEqual({ ok: true, value: { relatedDealId: 'deal-1', title: 'Review Acme', workspaceId: 'workspace-1' } });
+        return {
+          abiVersion: { major: 1, minor: 0 },
+          requestId: request.requestId,
+          result: { tag: 'completed', value: encoded(resultSchema(ref(typeIds.task), ref(typeIds.taskError)), { tag: 'ok', value: { id: 'task-1' } }) },
+        };
+      },
+    });
+    expect(completed.status).toBe('completed');
+    expect(calls).toBe(1);
+  });
+
+  it('resolves host actions from the registry instead of a tasks.create special case', async () => {
+    const notificationEffect = ids.effect('effect:notifications.send');
+    const notificationCapability = ids.capability('capability:notifications.write');
+    const notificationOperationId = ids.operation('operation:notifications.send');
+    const notificationOperation = { ...registry.operations[0] as ContractRegistry['operations'][number], id: notificationOperationId, effect: notificationEffect, capability: notificationCapability };
+    const notificationSlot = { ...registry.slots[0] as ContractRegistry['slots'][number], effects: [notificationEffect], capabilities: [notificationCapability] };
+    const notificationRegistry: ContractRegistry = {
+      ...registry,
+      digest: fingerprint(30),
+      effects: [{ id: notificationEffect, fingerprint: fingerprint(31) }],
+      capabilities: [{ id: notificationCapability, fingerprint: fingerprint(32) }],
+      operations: [notificationOperation],
+      slots: [notificationSlot],
+      definitions: [
+        ...definitions.map(({ id, fingerprint: value }) => ({ id, fingerprint: value })),
+        { id: notificationEffect, fingerprint: fingerprint(31) },
+        { id: notificationCapability, fingerprint: fingerprint(32) },
+        { id: notificationOperationId, fingerprint: notificationOperation.fingerprint },
+        { id: slot, fingerprint: notificationSlot.fingerprint },
+      ],
+    };
+    const notificationSource = source.replace('ctx.tasks.create', 'ctx.notifications.send');
+    const checked = await createDirectRuntimeBridge().check({
+      ...checkRequest,
+      registry: notificationRegistry,
+      source: { entry: moduleId, modules: [{ id: moduleId, source: [...new TextEncoder().encode(notificationSource)] }] },
+    });
+    expect(checked.status).toBe('accepted');
+    if (checked.status === 'accepted') expect(checked.summary).toEqual({ effects: [notificationEffect], capabilities: [notificationCapability] });
+  });
+
   it('checks, executes one typed action, and verifies artifact mode', async () => {
     const bridge = createDirectRuntimeBridge();
     const checked = await bridge.check(checkRequest);
@@ -162,10 +225,45 @@ describe('direct RuntimeBridge walking skeleton', () => {
     if (checked.status !== 'accepted') throw new Error('fixture rejected');
     const corrupt = [...checked.artifact]; corrupt[0] = 0;
     expect((await bridge.execute(executeRequest({ kind: 'artifact', bytes: corrupt }), { handleAction: async () => { throw new Error('unreachable'); } })).status).toBe('not_started');
+    const artifactText = decodeCanonical({ kind: 'string' }, Uint8Array.from(checked.artifact));
+    if (!artifactText.ok || typeof artifactText.value !== 'string') throw new Error('artifact envelope is not canonical');
+    const invalidCfg = encodeCanonical({ kind: 'string' }, artifactText.value.replace('b1:if-true', 'b999:missing'));
+    if (!invalidCfg.ok) throw new Error('could not encode tampered artifact');
+    expect((await bridge.execute(executeRequest({ kind: 'artifact', bytes: [...invalidCfg.value] }), { handleAction: async () => { throw new Error('unreachable'); } })).status).toBe('not_started');
     let calls = 0;
     const exhausted = await bridge.execute(executeRequest({ kind: 'artifact', bytes: checked.artifact }, event(), { ...STANDARD_EXECUTION_LIMITS, fuel: 16 }), { handleAction: async () => { calls++; throw new Error('unreachable'); } });
     expect(exhausted.status).toBe('failed');
     expect(calls).toBe(0);
+  });
+
+  it('fails malformed action output and cancels a dispatched action without replay', async () => {
+    const bridge = createDirectRuntimeBridge();
+    let malformedCalls = 0;
+    const malformed = await bridge.execute(executeRequest({ kind: 'source', source: checkRequest }), {
+      handleAction: async (request) => {
+        malformedCalls++;
+        return { abiVersion: { major: 1, minor: 0 }, requestId: request.requestId, result: { tag: 'completed', value: [0] } };
+      },
+    });
+    expect(malformed.status).toBe('failed');
+    expect(malformedCalls).toBe(1);
+    if (malformed.status === 'failed') {
+      expect(malformed.facts.actions.map((record) => record.phase)).toEqual(['requested', 'resolved']);
+      expect(malformed.facts.actions[1]).toMatchObject({ phase: 'resolved', outcome: { result: { tag: 'failed', value: { effectState: 'unknown', failure: { code: 'invalid_result' } } } } });
+    }
+
+    let release: (() => void) | undefined;
+    let dispatched: ActionRequest | undefined;
+    const invocationId = ids.invocation(`invocation:${crypto.randomUUID().replaceAll('-', '')}`);
+    const pending = bridge.execute({ ...executeRequest({ kind: 'source', source: checkRequest }), invocationId }, {
+      handleAction: (request) => new Promise<ActionOutcome>((resolve) => { dispatched = request; release = () => resolve({ abiVersion: { major: 1, minor: 0 }, requestId: request.requestId, result: { tag: 'failed', value: { effectState: 'unknown', failure: { code: 'cancelled' } } } }); }),
+    });
+    while (!dispatched) await Promise.resolve();
+    expect(await bridge.cancel({ abiVersion: { major: 1, minor: 0 }, invocationId })).toEqual({ status: 'accepted' });
+    release?.();
+    const cancelled = await pending;
+    expect(cancelled.status).toBe('cancelled');
+    if (cancelled.status === 'cancelled') expect(cancelled.facts.actions.map((record) => record.phase)).toEqual(['requested', 'resolved']);
   });
 });
 
