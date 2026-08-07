@@ -1,18 +1,21 @@
 import {
+  checkCompatibility,
   decodeCanonical,
   encodeCanonical,
+  ids,
   resultSchema,
   type ActionOutcome,
   type ActionRequest,
   type EffectState,
   type HostFailure,
+  type InvocationId,
   type OperationId,
   type PolicyError,
   type RuntimeBridgeHost,
 } from '@safescript/contracts';
 
 import type { Operations, Slot, Slots } from './contract.js';
-import { ABI_VERSION, freeze, stable } from './shared.js';
+import { ABI_VERSION, freeze } from './shared.js';
 import type { AbortSignal, ActionContext, AuthorisationDecision, CreateSafeScriptOptions } from './types.js';
 
 export type OperationEntry<O extends Operations> = {
@@ -25,8 +28,9 @@ export function createGateway<C, O extends Operations, S extends Slots, E extend
   context: C,
   slot: Slot<unknown, unknown>,
   signal: AbortSignal,
+  invocationId: InvocationId,
 ): RuntimeBridgeHost {
-  const handled = new Set<string>();
+  let sequence = 0;
   return {
     async handleAction(request: ActionRequest): Promise<ActionOutcome> {
       const entry = operationsById.get(request.operationId);
@@ -36,23 +40,57 @@ export function createGateway<C, O extends Operations, S extends Slots, E extend
           requestId: request.requestId,
           result: { tag: 'failed', value: { effectState, failure: { code } } },
         });
-      if (
-        !entry ||
-        request.abiVersion.major !== ABI_VERSION.major ||
-        request.abiVersion.minor > ABI_VERSION.minor ||
-        request.contractId !== options.contract.id ||
-        stable(request.requiredContractVersion) !== stable(options.contract.version) ||
-        request.slotId !== slot.id ||
-        request.effectId !== entry.operation.effect ||
-        request.capabilityId !== entry.operation.capability ||
-        !slot.effects.includes(request.effectId) ||
-        !slot.capabilities.includes(request.capabilityId) ||
-        (entry.operation.idempotency === 'required') !== (request.idempotencyKey !== undefined) ||
-        handled.has(request.requestId)
-      ) {
+      const validEnvelope = (() => {
+        try {
+          const compatible =
+            checkCompatibility(
+              {
+                language: ABI_VERSION,
+                ir: ABI_VERSION,
+                abi: ABI_VERSION,
+                contractId: options.contract.id,
+                contract: options.contract.version,
+              },
+              {
+                language: ABI_VERSION,
+                ir: ABI_VERSION,
+                abi: request.abiVersion,
+                contractId: request.contractId,
+                contract: request.requiredContractVersion,
+              },
+            ).length === 0;
+          ids.parseRequest(request.requestId);
+          ids.actionSite(request.actionSiteId);
+          ids.module(request.source.module);
+          const requiresKey = entry?.operation.idempotency === 'required';
+          return Boolean(
+            entry &&
+            compatible &&
+            request.invocationId === invocationId &&
+            request.requestId === ids.request(invocationId, sequence) &&
+            /^[0-9a-f]{64}$/.test(request.irDigest) &&
+            request.slotId === slot.id &&
+            request.effectId === entry.operation.effect &&
+            request.capabilityId === entry.operation.capability &&
+            slot.effects.includes(request.effectId) &&
+            slot.capabilities.includes(request.capabilityId) &&
+            requiresKey === (request.idempotencyKey !== undefined) &&
+            (!requiresKey || /^[0-9a-f]{64}$/.test(request.idempotencyKey ?? '')) &&
+            Number.isSafeInteger(request.source.start) &&
+            request.source.start >= 0 &&
+            Number.isSafeInteger(request.source.end) &&
+            request.source.end >= request.source.start &&
+            Array.isArray(request.input) &&
+            request.input.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255),
+          );
+        } catch {
+          return false;
+        }
+      })();
+      if (!validEnvelope || !entry) {
         return fail('not_performed', 'gateway_fault');
       }
-      handled.add(request.requestId);
+      sequence++;
       const decoded = decodeCanonical({ kind: 'ref', type: entry.operation.input.id }, Uint8Array.from(request.input), {
         registry: options.contract.registry.schemas,
       });
@@ -78,6 +116,7 @@ export function createGateway<C, O extends Operations, S extends Slots, E extend
         signal,
       });
       let decision: AuthorisationDecision<E>;
+      if (signal.aborted) return fail('not_performed', 'cancelled');
       try {
         decision = await options.authorise(actionContext);
       } catch {
@@ -93,6 +132,7 @@ export function createGateway<C, O extends Operations, S extends Slots, E extend
           : fail('not_performed', 'gateway_fault');
       }
       if (decision.status !== 'allowed') return fail('not_performed', 'gateway_fault');
+      if (signal.aborted) return fail('not_performed', 'cancelled');
       try {
         const outcome = await options.handlers[entry.key]?.(decoded.value as never, actionContext);
         if (outcome && 'status' in outcome && outcome.status === 'failed') {

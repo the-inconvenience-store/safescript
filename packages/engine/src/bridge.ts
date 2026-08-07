@@ -3,6 +3,7 @@ import {
   deriveIdempotencyKey,
   encodeCanonical,
   ids,
+  policyErrorValue,
   resultSchema,
   type ActionOutcome,
   type ActionRecord,
@@ -17,11 +18,11 @@ import {
   type ContractRegistry,
   type ExecutionFacts,
   type ExecutionLimits,
+  type ExecutionPreparation,
   type ExecutionResult,
   type ExecutionUsage,
   type InspectRequest,
   type InspectResult,
-  type PolicyError,
   type RuntimeBridge,
   type RuntimeBridgeHost,
   type Schema,
@@ -213,12 +214,14 @@ function executionUsage(usageValue: MutableUsage): ExecutionUsage {
 }
 
 function facts(
+  preparation: ExecutionPreparation,
   records: ActionRecord[],
   usageValue: MutableUsage,
   trace: CanonicalBytes[] = [],
   truncated = false,
 ): ExecutionFacts {
   return Object.freeze({
+    preparation,
     actions: Object.freeze([...records]),
     trace: Object.freeze({ records: Object.freeze([...trace]), truncated }),
     usage: executionUsage(usageValue),
@@ -233,42 +236,6 @@ function limitsValid(limits: ExecutionLimits, ceiling: ExecutionLimits): boolean
 
 function schemaRef(type: TypeId): Schema {
   return { kind: 'ref', type };
-}
-
-function policyValue(
-  schema: Schema,
-  registry: ContractRegistry,
-  error: PolicyError,
-  seen = new Set<TypeId>(),
-): CanonicalValue | undefined {
-  if (schema.kind === 'ref') {
-    if (seen.has(schema.type)) return undefined;
-    const target = findType(registry, schema.type);
-    return target ? policyValue(target, registry, error, new Set(seen).add(schema.type)) : undefined;
-  }
-  if (schema.kind === 'brand') return policyValue(schema.base, registry, error, seen);
-  if (schema.kind === 'unit') return null;
-  if (schema.kind === 'string') return error.detail ?? error.code;
-  if (schema.kind === 'variant') {
-    const variant = schema.variants.find((candidate) => /policy/i.test(candidate.tag));
-    if (!variant) return undefined;
-    const value = policyValue(variant.schema, registry, error, seen);
-    return value === undefined ? undefined : { tag: variant.tag, value };
-  }
-  if (schema.kind === 'record') {
-    const value: Record<string, CanonicalValue> = {};
-    for (const field of schema.fields) {
-      if (field.schema.kind === 'string' || (field.schema.kind === 'brand' && field.schema.base.kind === 'string'))
-        value[field.name] = /detail|message|reason/i.test(field.name) ? (error.detail ?? error.code) : error.code;
-      else {
-        const child = policyValue(field.schema, registry, error, seen);
-        if (child === undefined) return undefined;
-        value[field.name] = child;
-      }
-    }
-    return value;
-  }
-  return undefined;
 }
 
 function failedOutcome(
@@ -435,6 +402,7 @@ export class DirectRuntimeBridge implements RuntimeBridge {
         ),
       };
     let artifact: CheckedArtifact;
+    let preparation: ExecutionPreparation;
     if (request.program.kind === 'source') {
       const compilation = checkCompile(request.program.source);
       if (compilation.status === 'rejected')
@@ -449,6 +417,14 @@ export class DirectRuntimeBridge implements RuntimeBridge {
           error: bridgeError('execute', 'invalid_request', 'source compile inputs do not match execution'),
         };
       artifact = compilation.compiled.artifact;
+      preparation = Object.freeze({
+        kind: 'source',
+        artifact: compilation.artifact,
+        summary: compilation.summary,
+        provenance: compilation.provenance,
+        usage: compilation.usage,
+        diagnostics: compilation.diagnostics,
+      });
     } else {
       const verified = verifyArtifact(request.program.bytes, request.registry, slot, COMPILER_NAME);
       if (!verified)
@@ -457,6 +433,7 @@ export class DirectRuntimeBridge implements RuntimeBridge {
           error: bridgeError('execute', 'invalid_request', 'artifact verification failed'),
         };
       artifact = verified;
+      preparation = Object.freeze({ kind: 'artifact', irDigest: artifact.digest });
     }
     const actions = actionInstructions(artifact);
     if (
@@ -608,7 +585,7 @@ export class DirectRuntimeBridge implements RuntimeBridge {
             throw new ExecutionFault(received.result.value.failure.code, received.result.value.effectState);
           }
           if (received.result.tag === 'rejected') {
-            const error = policyValue(schemaRef(operation.error), request.registry, received.result.value);
+            const error = policyErrorValue(schemaRef(operation.error), request.registry.schemas, received.result.value);
             if (error === undefined) {
               const outcome = failedOutcome(requestId, 'invalid_result', 'not_performed');
               records.push(Object.freeze({ phase: 'resolved', requestId, outcome }));
@@ -654,14 +631,14 @@ export class DirectRuntimeBridge implements RuntimeBridge {
       return Object.freeze({
         status: 'completed',
         output: frozenBytes(output.value),
-        facts: facts(records, usageValue, trace, traceTruncated),
+        facts: facts(preparation, records, usageValue, trace, traceTruncated),
       });
     } catch (error) {
       const fault =
         error instanceof ExecutionFault || error instanceof InterpreterFault
           ? error
           : new ExecutionFault('interpreter_fault');
-      const terminalFacts = facts(records, usageValue, trace, traceTruncated);
+      const terminalFacts = facts(preparation, records, usageValue, trace, traceTruncated);
       return fault.code === 'cancelled'
         ? { status: 'cancelled', error: { code: 'cancelled' }, facts: terminalFacts }
         : {

@@ -6,6 +6,7 @@ import {
   encodeCanonical,
   hash,
   ids,
+  supportsPolicyError,
   type CanonicalBytes,
   type CapabilityDefinition,
   type CapabilityId,
@@ -27,6 +28,7 @@ import {
   type Version,
 } from '@safescript/contracts';
 
+import { generateDeclarations } from './declarations.js';
 import { completeLimits, encodeUtf8, freeze, stable } from './shared.js';
 
 export class ContractDefinitionError extends TypeError {
@@ -99,47 +101,6 @@ function fingerprint(domain: 'type' | 'contract', value: unknown): Sha256Digest 
   return hash(domain, encodeUtf8(stable(value)));
 }
 
-function schemaTypeName(id: TypeId): string {
-  return String(id)
-    .slice(5)
-    .split(/[.-]/)
-    .map((part) => part[0]?.toUpperCase() + part.slice(1))
-    .join('');
-}
-
-function typeScriptType(schema: Schema): string {
-  switch (schema.kind) {
-    case 'unit':
-      return 'null';
-    case 'boolean':
-      return 'boolean';
-    case 'int64':
-      return 'bigint';
-    case 'float64':
-      return 'number';
-    case 'string':
-      return 'string';
-    case 'bytes':
-      return 'readonly number[]';
-    case 'instant':
-      return 'Readonly<{ epochSeconds: bigint; nanoseconds: number }>';
-    case 'list':
-      return `readonly (${typeScriptType(schema.item)})[]`;
-    case 'tuple':
-      return `readonly [${schema.items.map(typeScriptType).join(', ')}]`;
-    case 'record':
-      return `Readonly<{ ${schema.fields.map((field) => `${field.name}: ${typeScriptType(field.schema)}`).join('; ')} }>`;
-    case 'variant':
-      return schema.variants
-        .map((variant) => `Readonly<{ tag: ${JSON.stringify(variant.tag)}; value: ${typeScriptType(variant.schema)} }>`)
-        .join(' | ');
-    case 'brand':
-      return `${typeScriptType(schema.base)} & { readonly __brand: ${JSON.stringify(String(schema.type))} }`;
-    case 'ref':
-      return schemaTypeName(schema.type);
-  }
-}
-
 export function defineContract<const O extends Operations, const S extends Slots>(
   definition: ContractDefinition<O, S>,
 ): Contract<O, S> {
@@ -194,6 +155,9 @@ export function defineContract<const O extends Operations, const S extends Slots
         }
         if (typeof operation.resourceScope !== 'function') {
           throw new TypeError(`missing resource scope for ${operation.id}`);
+        }
+        if (!supportsPolicyError(operation.error.schema, schemas)) {
+          throw new TypeError(`operation error must include policy for ${operation.id}`);
         }
         effects.set(operation.effect, { id: operation.effect, fingerprint: fingerprint('contract', operation.effect) });
         capabilities.set(operation.capability, {
@@ -295,9 +259,7 @@ export function defineContract<const O extends Operations, const S extends Slots
         }),
       ]),
     );
-    const declarations = typeDefinitions
-      .map((type) => `export type ${schemaTypeName(type.id)} = ${typeScriptType(type.schema)};`)
-      .join('\n');
+    const declarations = generateDeclarations(typeDefinitions, operations);
     return freeze({
       id: definition.id,
       version: definition.version,

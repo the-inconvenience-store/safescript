@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import ts from 'typescript';
 
 import {
   STANDARD_COMPILE_LIMITS,
@@ -34,7 +35,18 @@ const inputType: ContractType<{ readonly value: bigint }> = {
   schema: { kind: 'record', fields: [{ name: 'value', schema: { kind: 'int64' } }] },
 };
 const outputType: ContractType<string> = { id: ids.type('type:test.output'), schema: { kind: 'string' } };
-const errorType: ContractType<string> = { id: ids.type('type:test.error'), schema: { kind: 'string' } };
+type TestError =
+  Readonly<{ tag: 'policy'; value: Readonly<{ code: string }> }> | Readonly<{ tag: 'domain'; value: string }>;
+const errorType: ContractType<TestError> = {
+  id: ids.type('type:test.error'),
+  schema: {
+    kind: 'variant',
+    variants: [
+      { tag: 'policy', schema: { kind: 'record', fields: [{ name: 'code', schema: { kind: 'string' } }] } },
+      { tag: 'domain', schema: { kind: 'string' } },
+    ],
+  },
+};
 const effect = ids.effect('effect:test.read');
 const capability = ids.capability('capability:test.read');
 const operationId = ids.operation('operation:test.read');
@@ -72,6 +84,7 @@ const contract = defineContract({
 });
 
 const facts: ExecutionFacts = Object.freeze({
+  preparation: Object.freeze({ kind: 'artifact', irDigest: hash('ir', Uint8Array.of(1)) as unknown as IrDigest }),
   actions: Object.freeze([]),
   trace: Object.freeze({ records: Object.freeze([]), truncated: false }),
   usage: Object.freeze({
@@ -135,6 +148,14 @@ describe('defineContract', () => {
     expect(Object.isFrozen(contract.registry)).toBe(true);
     expect(contract.registry.digest).toBe(contract.fingerprint);
     expect(contract.declarations).toContain('export type TestInput');
+    expect(contract.declarations).toContain('readonly test: Readonly<{ readonly read:');
+    expect(contract.declarations).toContain('Effect<"effect:test.read", Result<TestOutput, TestError>>');
+    expect(
+      ts.transpileModule(contract.declarations, {
+        compilerOptions: { target: ts.ScriptTarget.ESNext },
+        reportDiagnostics: true,
+      }).diagnostics,
+    ).toEqual([]);
     const codec = contract.codecs[inputType.id];
     expect(codec?.decode(codec.encode({ value: 7n }))).toEqual({ value: 7n });
     expect(() =>
@@ -142,6 +163,45 @@ describe('defineContract', () => {
         ...contract,
         operations: {},
         slots: { ...contract.slots, bad: { ...contract.slots.main, effects: [ids.effect('effect:test.missing')] } },
+      }),
+    ).toThrow(ContractDefinitionError);
+  });
+
+  it('rejects declarations with colliding generated type names and errors without a policy member', () => {
+    expect(() =>
+      defineContract({
+        id: ids.contract('contract:test.colliding'),
+        version: { major: 1, minor: 0, patch: 0 },
+        types: [
+          { id: ids.type('type:a-b'), schema: { kind: 'string' } },
+          { id: ids.type('type:a.b'), schema: { kind: 'string' } },
+        ],
+        operations: {},
+        slots: {},
+      }),
+    ).toThrow(ContractDefinitionError);
+    expect(() =>
+      defineContract({
+        id: ids.contract('contract:test.operation-conflict'),
+        version: { major: 1, minor: 0, patch: 0 },
+        operations: {
+          root: { ...contract.operations.read, id: ids.operation('operation:test') },
+          nested: { ...contract.operations.read, id: ids.operation('operation:test.read') },
+        },
+        slots: {},
+      }),
+    ).toThrow(ContractDefinitionError);
+    expect(() =>
+      defineContract({
+        id: ids.contract('contract:test.no-policy'),
+        version: { major: 1, minor: 0, patch: 0 },
+        operations: {
+          read: {
+            ...contract.operations.read,
+            error: { id: ids.type('type:test.plain-error'), schema: { kind: 'string' } },
+          },
+        },
+        slots: contract.slots,
       }),
     ).toThrow(ContractDefinitionError);
   });
@@ -159,7 +219,7 @@ describe('createSafeScript', () => {
     ).toThrow(SdkConfigurationError);
     const direct = createSafeScript({
       contract,
-      handlers: { read: () => ({ tag: 'error', value: 'unused' }) as const },
+      handlers: { read: () => ({ tag: 'error', value: { tag: 'domain', value: 'unused' } }) as const },
       authorise: () => ({ status: 'allowed' }),
     });
     expect(await direct.close()).toEqual({ status: 'closed' });
@@ -206,6 +266,7 @@ describe('createSafeScript', () => {
     expect(result.status).toBe('completed');
     expect(result.status === 'completed' && result.output).toBe('done');
     expect(result.status === 'completed' && result.facts.invocationId).toBe(invocationId);
+    expect(result.status === 'completed' && result.facts.preparation).toEqual(facts.preparation);
     expect(order).toEqual(['authorise:3', 'handler:3']);
     expect(bridge.actions[0]?.result.tag).toBe('completed');
   });
@@ -264,5 +325,102 @@ describe('createSafeScript', () => {
     expect(STANDARD_EXECUTION_LIMITS.fuel).toBeGreaterThan(
       contract.registry.slots[0]?.executionLimits.fuel ?? Infinity,
     );
+  });
+
+  it('returns current policy rejection without dispatching the operation handler', async () => {
+    const bridge = new FakeBridge();
+    let handlers = 0;
+    bridge.executeResult = async (request, host) => {
+      bridge.actions.push(await host.handleAction(action(request)));
+      const output = encodeCanonical({ kind: 'string' }, 'done');
+      if (!output.ok) throw new Error('fixture encoding failed');
+      return { status: 'completed', output: [...output.value], facts };
+    };
+    const safe = createSafeScript({
+      contract,
+      bridge,
+      handlers: {
+        read: () => {
+          handlers++;
+          return { tag: 'ok', value: 'unreachable' } as const;
+        },
+      },
+      authorise: () => ({ status: 'rejected', error: { code: 'denied' } }) as const,
+      createInvocationId: () => invocationId,
+    });
+    await safe.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      context: {},
+    });
+    expect(bridge.actions[0]?.result).toEqual({ tag: 'rejected', value: { code: 'denied' } });
+    expect(handlers).toBe(0);
+  });
+
+  it('rejects uncorrelated bridge actions and accepts compatible contract requirements', async () => {
+    const bridge = new FakeBridge();
+    let authorisations = 0;
+    let handlers = 0;
+    bridge.executeResult = async (request, host) => {
+      bridge.actions.push(await host.handleAction(action(request)));
+      const output = encodeCanonical({ kind: 'string' }, 'done');
+      if (!output.ok) throw new Error('fixture encoding failed');
+      return { status: 'completed', output: [...output.value], facts };
+    };
+    const safe = createSafeScript({
+      contract,
+      bridge,
+      handlers: {
+        read: () => {
+          handlers++;
+          return { tag: 'ok', value: 'handled' } as const;
+        },
+      },
+      authorise: () => {
+        authorisations++;
+        return { status: 'allowed' };
+      },
+      createInvocationId: () => invocationId,
+    });
+    const otherInvocation = ids.invocation('invocation:ffffffffffffffffffffffffffffffff');
+    const mutations: readonly ((request: ActionRequest) => ActionRequest)[] = [
+      (request) => ({
+        ...request,
+        invocationId: otherInvocation,
+        requestId: ids.request(otherInvocation, 0),
+      }),
+      (request) => ({ ...request, requestId: ids.request(request.invocationId, 1) }),
+      (request) => ({
+        ...request,
+        idempotencyKey: 'invalid' as NonNullable<ActionRequest['idempotencyKey']>,
+      }),
+      (request) => ({ ...request, requiredContractVersion: { major: 2, minor: 0, patch: 0 } }),
+    ];
+    for (const mutate of mutations) {
+      bridge.executeResult = async (request, host) => {
+        bridge.actions.push(await host.handleAction(mutate(action(request))));
+        const output = encodeCanonical({ kind: 'string' }, 'done');
+        if (!output.ok) throw new Error('fixture encoding failed');
+        return { status: 'completed', output: [...output.value], facts };
+      };
+      await safe.execute({ slot: 'main', program: { kind: 'artifact', bytes: [] }, input: { value: 1n }, context: {} });
+    }
+    expect(bridge.actions.map((outcome) => outcome.result.tag)).toEqual(['failed', 'failed', 'failed', 'failed']);
+    expect([authorisations, handlers]).toEqual([0, 0]);
+
+    bridge.executeResult = async (request, host) => {
+      const compatible = {
+        ...action(request),
+        requiredContractVersion: { major: 1, minor: 0, patch: 0, prerelease: 'beta' },
+      } as const;
+      bridge.actions.push(await host.handleAction(compatible), await host.handleAction(compatible));
+      const output = encodeCanonical({ kind: 'string' }, 'done');
+      if (!output.ok) throw new Error('fixture encoding failed');
+      return { status: 'completed', output: [...output.value], facts };
+    };
+    await safe.execute({ slot: 'main', program: { kind: 'artifact', bytes: [] }, input: { value: 1n }, context: {} });
+    expect(bridge.actions.slice(-2).map((outcome) => outcome.result.tag)).toEqual(['completed', 'failed']);
+    expect([authorisations, handlers]).toEqual([1, 1]);
   });
 });

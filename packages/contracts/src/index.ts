@@ -1431,6 +1431,64 @@ export interface PolicyError {
   readonly code: string;
   readonly detail?: string;
 }
+
+function resolvePolicySchema(schema: Schema, registry: SchemaRegistry, seen = new Set<TypeId>()): Schema | undefined {
+  if (schema.kind !== 'ref') return schema;
+  if (seen.has(schema.type)) return undefined;
+  const target = registry.types.find((type) => type.id === schema.type)?.schema;
+  return target ? resolvePolicySchema(target, registry, new Set(seen).add(schema.type)) : undefined;
+}
+
+export function policyErrorValue(
+  schema: Schema,
+  registry: SchemaRegistry,
+  error: PolicyError,
+  seen = new Set<TypeId>(),
+): CanonicalValue | undefined {
+  if (schema.kind === 'ref') {
+    if (seen.has(schema.type)) return undefined;
+    const target = registry.types.find((type) => type.id === schema.type)?.schema;
+    return target ? policyErrorValue(target, registry, error, new Set(seen).add(schema.type)) : undefined;
+  }
+  if (schema.kind === 'brand') return policyErrorValue(schema.base, registry, error, seen);
+  if (schema.kind === 'unit') return null;
+  if (schema.kind === 'string') return error.detail ?? error.code;
+  if (schema.kind === 'variant') {
+    const variant = schema.variants.find((candidate) => /policy/i.test(candidate.tag));
+    if (!variant) return undefined;
+    const value = policyErrorValue(variant.schema, registry, error, seen);
+    return value === undefined ? undefined : { tag: variant.tag, value };
+  }
+  if (schema.kind === 'record') {
+    const value: Record<string, CanonicalValue> = {};
+    for (const field of schema.fields) {
+      const fieldSchema = resolvePolicySchema(field.schema, registry);
+      if (fieldSchema?.kind === 'string' || (fieldSchema?.kind === 'brand' && fieldSchema.base.kind === 'string')) {
+        value[field.name] = /detail|message|reason/i.test(field.name) ? (error.detail ?? error.code) : error.code;
+      } else {
+        const child = policyErrorValue(field.schema, registry, error, seen);
+        if (child === undefined) return undefined;
+        value[field.name] = child;
+      }
+    }
+    return value;
+  }
+  return undefined;
+}
+
+export function supportsPolicyError(schema: Schema, registry: SchemaRegistry): boolean {
+  const error = resolvePolicySchema(schema, registry);
+  if (error?.kind !== 'variant') return false;
+  const policy = error.variants.find((variant) => variant.tag === 'policy')?.schema;
+  const payload = policy && resolvePolicySchema(policy, registry);
+  if (payload?.kind !== 'record') return false;
+  const code = payload.fields.find((field) => field.name === 'code')?.schema;
+  const resolvedCode = code && resolvePolicySchema(code, registry);
+  return Boolean(
+    (resolvedCode?.kind === 'string' || (resolvedCode?.kind === 'brand' && resolvedCode.base.kind === 'string')) &&
+    policyErrorValue(schema, registry, { code: 'policy', detail: 'detail' }) !== undefined,
+  );
+}
 export type HostFailureCode =
   'cancelled' | 'timeout' | 'unavailable' | 'handler_fault' | 'invalid_result' | 'transport_lost' | 'gateway_fault';
 export interface HostFailure {
@@ -1674,7 +1732,18 @@ export interface TraceResult {
   readonly records: readonly CanonicalBytes[];
   readonly truncated: boolean;
 }
+export type ExecutionPreparation =
+  | Readonly<{
+      kind: 'source';
+      artifact: CanonicalBytes;
+      summary: ProgramSummary;
+      provenance: CompilerProvenance;
+      usage: CompileUsage;
+      diagnostics: readonly Diagnostic[];
+    }>
+  | Readonly<{ kind: 'artifact'; irDigest: IrDigest }>;
 export interface ExecutionFacts {
+  readonly preparation: ExecutionPreparation;
   readonly actions: readonly ActionRecord[];
   readonly trace: TraceResult;
   readonly usage: ExecutionUsage;

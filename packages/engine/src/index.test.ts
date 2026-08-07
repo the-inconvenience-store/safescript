@@ -274,6 +274,17 @@ describe('direct RuntimeBridge walking skeleton', () => {
     );
     expect(completed.status).toBe('completed');
     expect(calls).toBe(1);
+    if (completed.status === 'completed') {
+      expect(completed.facts.preparation.kind).toBe('source');
+      if (completed.facts.preparation.kind === 'source') {
+        expect(completed.facts.preparation.summary).toEqual({
+          effects: [effect],
+          capabilities: [capability],
+        });
+        expect(completed.facts.preparation.diagnostics).toEqual([]);
+        expect(completed.facts.preparation.artifact.length).toBeGreaterThan(0);
+      }
+    }
   });
 
   it('resolves host actions from the registry instead of a tasks.create special case', async () => {
@@ -350,6 +361,12 @@ describe('direct RuntimeBridge walking skeleton', () => {
     expect(calls).toBe(1);
     if (completed.status === 'completed')
       expect(completed.facts.actions.map((record) => record.phase)).toEqual(['requested', 'resolved']);
+    if (completed.status === 'completed') {
+      expect(completed.facts.preparation.kind).toBe('artifact');
+      if (completed.facts.preparation.kind === 'artifact') {
+        expect(completed.facts.preparation.irDigest).toMatch(/^[0-9a-f]{64}$/);
+      }
+    }
   });
 
   it('takes no-action paths and maps policy rejection into the typed result', async () => {
@@ -372,7 +389,7 @@ describe('direct RuntimeBridge walking skeleton', () => {
       handleAction: async (request) => ({
         abiVersion: { major: 1, minor: 0 },
         requestId: request.requestId,
-        result: { tag: 'rejected', value: { code: 'denied' } },
+        result: { tag: 'rejected', value: { code: 'denied', detail: 'safe detail' } },
       }),
     });
     expect(rejected.status).toBe('completed');

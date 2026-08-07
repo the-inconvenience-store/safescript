@@ -243,7 +243,7 @@ export function createSafeScript<C, O extends Operations, S extends Slots, E ext
           return await executeBridge(
             slot,
             request,
-            createGateway(options, operationsById, request.context, slot, controller.signal),
+            createGateway(options, operationsById, request.context, slot, controller.signal, invocationId),
             invocationId,
           );
         } finally {
