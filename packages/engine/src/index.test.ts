@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
+  MAX_DIAGNOSTIC_MESSAGE_LENGTH,
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
   decodeCanonical,
@@ -427,15 +428,13 @@ describe('direct RuntimeBridge walking skeleton', () => {
     if (checked.status !== 'accepted') throw new Error('fixture rejected');
     const corrupt = [...checked.artifact];
     corrupt[0] = 0;
-    expect(
-      (
-        await bridge.execute(executeRequest({ kind: 'artifact', bytes: corrupt }), {
-          handleAction: async () => {
-            throw new Error('unreachable');
-          },
-        })
-      ).status,
-    ).toBe('not_started');
+    const corruptResult = await bridge.execute(executeRequest({ kind: 'artifact', bytes: corrupt }), {
+      handleAction: async () => {
+        throw new Error('unreachable');
+      },
+    });
+    expect(corruptResult.status).toBe('not_started');
+    if (corruptResult.status === 'not_started') expect(corruptResult.error?.code).toBe('artifact_verification_failed');
     const artifactText = decodeCanonical({ kind: 'string' }, Uint8Array.from(checked.artifact));
     if (!artifactText.ok || typeof artifactText.value !== 'string')
       throw new Error('artifact envelope is not canonical');
@@ -1169,10 +1168,30 @@ export async function onDealUpdated(`,
     ['SS_SWITCH_EXHAUSTIVE', source.replace('    case "error":\n      return Err(result.value)', '')],
     ['SS_UNKNOWN_FIELD', source.replace('event.before.stage', 'event.before.missing')],
     ['SS_UNSUPPORTED_OPERATOR', source.replace('event.before.stage === "won"', 'event.before.stage + "won"')],
-  ])('rejects %s deterministically', async (code, invalidSource) => {
-    const result = await createDirectRuntimeBridge().check(checkWithSource(invalidSource));
+  ] as const)('rejects %s deterministically', async (code, invalidSource) => {
+    const bridge = createDirectRuntimeBridge();
+    const result = await bridge.check(checkWithSource(invalidSource));
+    const repeated = await bridge.check(checkWithSource(invalidSource));
     expect(result.status).toBe('rejected');
-    if (result.status === 'rejected') expect(result.diagnostics[0]?.code).toBe(code);
+    expect(repeated).toEqual(result);
+    if (result.status === 'rejected') {
+      expect(result.diagnostics[0]?.code).toBe(code);
+      expect(result.diagnostics[0]?.message.length ?? 0).toBeLessThanOrEqual(MAX_DIAGNOSTIC_MESSAGE_LENGTH);
+    }
+  });
+
+  it('bounds non-normative diagnostic text independently of stable code and provenance', async () => {
+    const importedName = `Missing${'X'.repeat(MAX_DIAGNOSTIC_MESSAGE_LENGTH * 2)}`;
+    const result = await createDirectRuntimeBridge().check(
+      checkWithSource(`import { ${importedName} } from "safescript:prelude"\n${source}`),
+    );
+    expect(result.status).toBe('rejected');
+    if (result.status === 'rejected') {
+      expect(result.diagnostics[0]?.code).toBe('SS_IMPORT_NAME');
+      expect(result.diagnostics[0]?.message.length ?? 0).toBeLessThanOrEqual(MAX_DIAGNOSTIC_MESSAGE_LENGTH);
+      expect(result.diagnostics[0]?.message).not.toContain(importedName);
+      expect(result.diagnostics[0]?.location?.module).toBe(moduleId);
+    }
   });
 
   it('rejects invalid request envelopes and compile ceilings before parsing', async () => {
@@ -1396,7 +1415,7 @@ describe('execution validation, limits, and host outcomes', () => {
       }),
       'unavailable',
     ],
-  ])('maps %s to a stable execution fault', async (_name, handleAction, code) => {
+  ] as const)('maps %s to a stable execution fault', async (_name, handleAction, code) => {
     const result = await createDirectRuntimeBridge().execute(executeRequest({ kind: 'source', source: checkRequest }), {
       handleAction,
     });

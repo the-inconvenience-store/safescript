@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
+  COMPILER_DIAGNOSTIC_CODES,
+  DIAGNOSTIC_CATALOG,
+  DIAGNOSTIC_CATALOG_VERSION,
+  EXECUTION_ERROR_CODES,
+  HOST_FAILURE_CODES,
   JSON_VALUE_REGISTRY,
   JSON_VALUE_TYPE,
+  MAX_FAILURE_DETAIL_LENGTH,
+  MAX_FAILURE_PATH_SEGMENTS,
   canonicalJson,
   canonicalize,
   checkCompatibility,
@@ -215,5 +222,71 @@ describe('identities and compatibility', () => {
     );
     expect(failures.map((failure) => failure.dimension)).toEqual(['language', 'ir']);
     expect(Object.isFrozen(failures)).toBe(true);
+  });
+});
+
+describe('stable failure catalog', () => {
+  it('has one deterministic owner and meaning for every closed public code', () => {
+    const expectedCodes = new Set<string>([
+      ...COMPILER_DIAGNOSTIC_CODES,
+      ...EXECUTION_ERROR_CODES,
+      ...HOST_FAILURE_CODES,
+      'adapter_failure',
+      'artifact_verification_failed',
+      'bridge_closed',
+      'fingerprint_mismatch',
+      'graph_limit_exceeded',
+      'incompatible_version',
+      'invalid_contract_digest',
+      'invalid_definition_id',
+      'invalid_request',
+      'invalid_schema',
+      'invalid_value',
+      'limit_exceeded',
+      'malformed_cbor',
+      'missing_definition',
+      'noncanonical_cbor',
+      'schema_mismatch',
+      'trailing_bytes',
+      'unknown_type',
+      'unsupported_version',
+    ]);
+    const codes: string[] = DIAGNOSTIC_CATALOG.map((entry) => entry.code);
+    const meanings = DIAGNOSTIC_CATALOG.map((entry) => entry.meaning);
+    expect(codes).toEqual([...codes].sort((left, right) => left.localeCompare(right)));
+    expect(new Set(codes).size).toBe(codes.length);
+    expect(new Set(meanings).size).toBe(meanings.length);
+    expect(new Set(codes)).toEqual(expectedCodes);
+    expect(COMPILER_DIAGNOSTIC_CODES.every((code) => code.startsWith('SS_'))).toBe(true);
+    expect([...COMPILER_DIAGNOSTIC_CODES]).toEqual(
+      [...COMPILER_DIAGNOSTIC_CODES].sort((left, right) => left.localeCompare(right)),
+    );
+    expect(DIAGNOSTIC_CATALOG_VERSION).toEqual({ major: 1, minor: 0, patch: 0 });
+    for (const entry of DIAGNOSTIC_CATALOG) {
+      expect(Object.isFrozen(entry)).toBe(true);
+      expect(Object.isFrozen(entry.fields)).toBe(true);
+      expect(entry.owner).not.toContain('pass');
+      expect(entry.meaning.length).toBeLessThanOrEqual(MAX_FAILURE_DETAIL_LENGTH);
+      expect(new Set(entry.fields).size).toBe(entry.fields.length);
+      expect(entry.deprecatedSince === undefined || entry.replacement !== undefined).toBe(true);
+    }
+  });
+
+  it('bounds validation paths and safe detail without exposing the rejected value', () => {
+    let schema: Schema = { kind: 'int64' };
+    let value: unknown = 'SUPER_SECRET_VALUE';
+    for (let index = 0; index < MAX_FAILURE_PATH_SEGMENTS + 16; index++) {
+      schema = { kind: 'record', fields: [{ name: `field${index}`, schema }] };
+      value = { [`field${index}`]: value };
+    }
+    const result = encodeCanonical(schema, value, {
+      limits: { maxBytes: 1024 * 1024, maxDepth: 1024, maxNodes: 1024 },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.failure.path.length).toBe(MAX_FAILURE_PATH_SEGMENTS);
+      expect(result.failure.detail?.length ?? 0).toBeLessThanOrEqual(MAX_FAILURE_DETAIL_LENGTH);
+      expect(JSON.stringify(result.failure)).not.toContain('SUPER_SECRET_VALUE');
+    }
   });
 });

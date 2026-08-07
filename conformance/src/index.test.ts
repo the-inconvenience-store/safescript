@@ -197,7 +197,7 @@ describe('runtime bridge conformance corpus', () => {
       'SS_VALUE_MUTATION',
     ],
     ['regular expression', 'function unsafe(): boolean { return /x/.test("x") }\n', 'SS_REGEX_REJECTED'],
-  ])('rejects the %s language class before execution', async (_name, prefix, expectedCode) => {
+  ] as const)('rejects the %s language class before execution', async (_name, prefix, expectedCode) => {
     const reference = walkingSkeletonReference;
     const source = reference.source.replace(
       `${reference.source.split('\n')[0]}\n`,

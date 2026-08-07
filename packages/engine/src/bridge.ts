@@ -21,8 +21,10 @@ import {
   type CloseResult,
   type CompileLimits,
   type CompileUsage,
+  type CompilerDiagnosticCode,
   type ContractRegistry,
   type ExecutionFacts,
+  type ExecutionErrorCode,
   type ExecutionLimits,
   type ExecutionPreparation,
   type ExecutionResult,
@@ -41,6 +43,8 @@ import {
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
   STANDARD_SEMANTIC_GRAPH_LIMITS,
+  MAX_DIAGNOSTIC_MESSAGE_LENGTH,
+  MAX_FAILURE_DETAIL_LENGTH,
 } from '@safescript/contracts';
 
 import { createArtifact, verifyArtifact, type CheckedArtifact } from './artifact.js';
@@ -98,7 +102,7 @@ interface ValueLimits {
 
 class ExecutionFault extends Error {
   constructor(
-    readonly code: string,
+    readonly code: ExecutionErrorCode,
     readonly detail?: string,
   ) {
     super(detail ?? code);
@@ -115,7 +119,11 @@ function sameVersion(left: Version, right: Version): boolean {
 }
 
 function bridgeError(phase: BridgeError['phase'], code: BridgeError['code'], detail?: string): BridgeError {
-  return Object.freeze({ code, phase, ...(detail === undefined ? {} : { detail: detail.slice(0, 160) }) });
+  return Object.freeze({
+    code,
+    phase,
+    ...(detail === undefined ? {} : { detail: detail.slice(0, MAX_FAILURE_DETAIL_LENGTH) }),
+  });
 }
 
 function frozenBytes(bytes: Uint8Array | readonly number[]): CanonicalBytes {
@@ -136,11 +144,11 @@ function decodeSource(bytes: CanonicalBytes): string | undefined {
   }
 }
 
-function diagnostic(request: CheckRequest, code: string, message: string, start = 0, end = 0) {
+function diagnostic(request: CheckRequest, code: CompilerDiagnosticCode, message: string, start = 0, end = 0) {
   return Object.freeze({
     code,
     severity: 'error' as const,
-    message,
+    message: message.slice(0, MAX_DIAGNOSTIC_MESSAGE_LENGTH),
     location: Object.freeze({ module: request.source.entry, start, end }),
   });
 }
@@ -189,7 +197,7 @@ function compileLimitsValid(limits: CompileLimits, ceiling: CompileLimits): bool
 function checkCompile(request: CheckRequest): InternalCheckResult {
   const sourceBytes = request.source.modules.reduce((total, module) => total + module.source.length, 0);
   let compileUsage = usage(sourceBytes);
-  const reject = (code: string, message: string, start = 0, end = 0): RejectedCheck =>
+  const reject = (code: CompilerDiagnosticCode, message: string, start = 0, end = 0): RejectedCheck =>
     Object.freeze({
       status: 'rejected',
       diagnostics: Object.freeze(
@@ -668,7 +676,7 @@ class ActionDispatcher {
             actionInput: input,
           })
         : undefined;
-    if (key && !key.ok) throw new ExecutionFault('invalid_request', key.failure.code);
+    if (key && !key.ok) throw new ExecutionFault('idempotency_key_invalid', key.failure.code);
     this.sequence++;
     return Object.freeze({
       abiVersion: ABI_VERSION,
@@ -925,7 +933,7 @@ export class DirectRuntimeBridge implements RuntimeBridge {
       if (!verified)
         return {
           status: 'not_started',
-          error: bridgeError('execute', 'invalid_request', 'artifact verification failed'),
+          error: bridgeError('execute', 'artifact_verification_failed'),
         };
       artifact = verified;
       preparation = Object.freeze({ kind: 'artifact', irDigest: artifact.digest });
@@ -1007,7 +1015,10 @@ export class DirectRuntimeBridge implements RuntimeBridge {
         ? { status: 'cancelled', error: { code: 'cancelled' }, facts: terminalFacts }
         : {
             status: 'failed',
-            error: { code: fault.code, ...(fault.detail === undefined ? {} : { detail: fault.detail }) },
+            error: {
+              code: fault.code,
+              ...(fault.detail === undefined ? {} : { detail: fault.detail.slice(0, MAX_FAILURE_DETAIL_LENGTH) }),
+            },
             facts: terminalFacts,
           };
     }

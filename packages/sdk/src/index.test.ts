@@ -683,7 +683,7 @@ describe('createSafeScript', () => {
   it.each([
     ['failed', { status: 'failed' as const, error: { code: 'resource_exhausted' }, facts }],
     ['cancelled', { status: 'cancelled' as const, error: { code: 'cancelled' as const }, facts }],
-  ])('preserves invocation facts for %s bridge executions', async (_name, execution) => {
+  ] as const)('preserves invocation facts for %s bridge executions', async (_name, execution) => {
     const bridge = new FakeBridge();
     bridge.executeResult = async () => execution;
     const safe = createSafeScript({
@@ -918,7 +918,7 @@ describe('createSafeScript', () => {
       status: 'not_started',
       diagnostics: [
         {
-          code: 'SS_TEST',
+          code: 'SS_SYNTAX',
           severity: 'error',
           message: 'actual',
           location: { module: ids.module('module:main'), start: 0, end: 1 },

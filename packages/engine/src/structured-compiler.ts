@@ -3,6 +3,7 @@ import * as ts from 'typescript';
 import {
   derivedActionSiteId,
   resultSchema,
+  type CompilerDiagnosticCode,
   type ContractRegistry,
   type ModuleId,
   type OperationDefinition,
@@ -18,7 +19,7 @@ import type {
 } from './structured-ir.js';
 
 export interface StructuredCompileFailure {
-  readonly code: string;
+  readonly code: CompilerDiagnosticCode;
   readonly message: string;
   readonly start: number;
   readonly end: number;
@@ -109,7 +110,7 @@ class Lowerer {
   location(node: ts.Node): SourceLocation {
     return Object.freeze({ module: this.moduleId, start: node.getStart(this.file), end: node.getEnd() });
   }
-  fail(node: ts.Node, code: string, message: string): never {
+  fail(node: ts.Node, code: CompilerDiagnosticCode, message: string): never {
     const source = this.location(node);
     throw new Failure({ code, message, start: source.start, end: source.end });
   }
@@ -493,7 +494,7 @@ function modifiers(node: ts.Node, kind: ts.SyntaxKind): boolean {
 
 function safetyFailure(sourceFile: ts.SourceFile): StructuredCompileFailure | undefined {
   let failure: StructuredCompileFailure | undefined;
-  const reject = (node: ts.Node, code: string, message: string): void => {
+  const reject = (node: ts.Node, code: CompilerDiagnosticCode, message: string): void => {
     if (!failure) failure = { code, message, start: node.getStart(sourceFile), end: node.getEnd() };
   };
   const rootIdentifier = (expression: ts.Expression): string | undefined => {

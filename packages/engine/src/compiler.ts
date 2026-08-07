@@ -8,6 +8,7 @@ import {
   derivedActionSiteId,
   resultSchema,
   type ContractRegistry,
+  type CompilerDiagnosticCode,
   type ModuleId,
   type OperationDefinition,
   type Schema,
@@ -34,7 +35,7 @@ import { compileStructuredProgram } from './structured-compiler.js';
  * @internal
  */
 export interface CompileFailure {
-  readonly code: string;
+  readonly code: CompilerDiagnosticCode;
   readonly message: string;
   readonly start: number;
   readonly end: number;
@@ -184,7 +185,7 @@ class Lowerer {
     return Object.freeze({ module: this.moduleId, start: node.getStart(this.sourceFile), end: node.getEnd() });
   }
 
-  private fail(node: ts.Node, code: string, message: string): never {
+  private fail(node: ts.Node, code: CompilerDiagnosticCode, message: string): never {
     const location = this.location(node);
     throw new CompilerFailure({ code, message, start: location.start, end: location.end });
   }

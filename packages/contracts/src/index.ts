@@ -546,6 +546,14 @@ export const STANDARD_EXECUTION_LIMITS: ExecutionLimits = Object.freeze({
 
 /** Stable field/index path locating a canonical-value validation failure. */
 export type ValuePath = readonly (string | number)[];
+/** Maximum number of path segments retained in a public validation failure. */
+export const MAX_FAILURE_PATH_SEGMENTS = 64;
+/** Maximum UTF-16 code units retained in a public safe-detail field. */
+export const MAX_FAILURE_DETAIL_LENGTH = 160;
+/** Maximum UTF-16 code units retained in non-normative diagnostic message text. */
+export const MAX_DIAGNOSTIC_MESSAGE_LENGTH = 320;
+/** Maximum related source locations retained on one diagnostic. */
+export const MAX_DIAGNOSTIC_RELATED_LOCATIONS = 16;
 /** Closed machine-readable failure codes returned by canonical contract operations. */
 export type ContractFailureCode =
   | 'invalid_schema'
@@ -575,9 +583,9 @@ class CodecFault {
 function fail(code: ContractFailureCode, path: ValuePath, detail?: string, byteOffset?: number): never {
   const failure: ContractFailure = {
     code,
-    path: Object.freeze([...path]),
+    path: Object.freeze(path.slice(0, MAX_FAILURE_PATH_SEGMENTS)),
     ...(byteOffset === undefined ? {} : { byteOffset }),
-    ...(detail === undefined ? {} : { detail: detail.slice(0, 160) }),
+    ...(detail === undefined ? {} : { detail: detail.slice(0, MAX_FAILURE_DETAIL_LENGTH) }),
   };
   throw new CodecFault(Object.freeze(failure));
 }
@@ -1557,10 +1565,63 @@ export interface SourceLocation {
   readonly end: number;
 }
 
+/** Closed V1 compiler diagnostics. Codes describe source semantics, never private checking or lowering passes. */
+export const COMPILER_DIAGNOSTIC_CODES = Object.freeze([
+  'SS_AMBIENT_AUTHORITY',
+  'SS_CLASS_REJECTED',
+  'SS_COMPILER_LIMIT',
+  'SS_CONTEXT_REQUIRED',
+  'SS_CONTRACT_INVALID',
+  'SS_DUPLICATE_BINDING',
+  'SS_DYNAMIC_IMPORT',
+  'SS_EXCEPTION_REJECTED',
+  'SS_FLOATING_ACTION',
+  'SS_GENERATED_CODE',
+  'SS_GENERATOR_REJECTED',
+  'SS_HANDLER_SHAPE',
+  'SS_IMMUTABLE_ASSIGNMENT',
+  'SS_IMPORT_FORM',
+  'SS_IMPORT_NAME',
+  'SS_INTERNAL_IR_INVALID',
+  'SS_INVALID_ACTION',
+  'SS_LOCALE_REJECTED',
+  'SS_MISSING_RETURN',
+  'SS_MODULE_SET_INVALID',
+  'SS_MODULE_SHAPE',
+  'SS_MUTABLE_BINDING',
+  'SS_NULL_REJECTED',
+  'SS_NUMERIC_LITERAL',
+  'SS_PROMISE_RACE',
+  'SS_RECORD_SHAPE',
+  'SS_REGEX_REJECTED',
+  'SS_RESULT_CONSTRUCTION',
+  'SS_RETURN_TYPE',
+  'SS_SLOT_LANGUAGE_MISMATCH',
+  'SS_SOURCE_ENCODING',
+  'SS_SWITCH_EXHAUSTIVE',
+  'SS_SWITCH_TYPE',
+  'SS_SYNTAX',
+  'SS_TEMPLATE_TYPE',
+  'SS_TYPE_MISMATCH',
+  'SS_UNKNOWN_FIELD',
+  'SS_UNKNOWN_IDENTIFIER',
+  'SS_UNREACHABLE_CODE',
+  'SS_UNSAFE_ASSERTION',
+  'SS_UNSAFE_TYPE',
+  'SS_UNSUPPORTED_BINDING',
+  'SS_UNSUPPORTED_EXPRESSION',
+  'SS_UNSUPPORTED_FUNCTION',
+  'SS_UNSUPPORTED_OPERATOR',
+  'SS_UNSUPPORTED_SYNTAX',
+  'SS_VALUE_MUTATION',
+] as const);
+export type CompilerDiagnosticCode = (typeof COMPILER_DIAGNOSTIC_CODES)[number];
+
 /** Stable compiler diagnostic safe for editors, agents, and bridge transports. */
 export interface Diagnostic {
-  readonly code: string;
+  readonly code: CompilerDiagnosticCode;
   readonly severity: 'error' | 'warning' | 'info';
+  /** Human-facing, bounded, non-normative text. Consumers branch on `code` and structured fields instead. */
   readonly message: string;
   readonly location?: SourceLocation;
   readonly related?: readonly SourceLocation[];
@@ -1568,13 +1629,18 @@ export interface Diagnostic {
 
 /** Adapter or request-envelope failure outside source and execution semantics. */
 export interface BridgeError {
-  readonly code: 'bridge_closed' | 'invalid_request' | 'unsupported_version' | 'adapter_failure' | 'unavailable';
+  readonly code: BridgeErrorCode;
   readonly phase: 'check' | 'inspect' | 'execute' | 'cancel' | 'close' | 'action';
   readonly detail?: string;
 }
 
+/** Closed request, bridge-lifecycle, and artefact-preparation failures. */
+export type BridgeErrorCode =
+  'adapter_failure' | 'artifact_verification_failed' | 'bridge_closed' | 'invalid_request' | 'unsupported_version';
+
 /** Current host-policy rejection that extension code may handle as a declared error. */
 export interface PolicyError {
+  /** Contract-defined program-visible code; intentionally not part of the SafeScript-owned diagnostic catalog. */
   readonly code: string;
   readonly detail?: string;
 }
@@ -1643,8 +1709,16 @@ export function supportsPolicyError(schema: Schema, registry: SchemaRegistry): b
   );
 }
 /** Closed infrastructure and host-adapter failures that terminate execution. */
-export type HostFailureCode =
-  'cancelled' | 'timeout' | 'unavailable' | 'handler_fault' | 'invalid_result' | 'transport_lost' | 'gateway_fault';
+export const HOST_FAILURE_CODES = Object.freeze([
+  'cancelled',
+  'gateway_fault',
+  'handler_fault',
+  'invalid_result',
+  'timeout',
+  'transport_lost',
+  'unavailable',
+] as const);
+export type HostFailureCode = (typeof HOST_FAILURE_CODES)[number];
 /** Bounded host failure safe to return without exposing exceptions or stack traces. */
 export interface HostFailure {
   readonly code: HostFailureCode;
@@ -2094,10 +2168,400 @@ export interface ExecutionFacts {
   readonly usage: ExecutionUsage;
 }
 /** Structured runtime failure safe to return without leaking an implementation exception. */
+export const EXECUTION_ERROR_CODES = Object.freeze([
+  'action_outcome_invalid',
+  'cancelled',
+  'fixed_instant_required',
+  'gateway_fault',
+  'handler_fault',
+  'idempotency_key_invalid',
+  'integer_overflow',
+  'interpreter_fault',
+  'invalid_arithmetic',
+  'invalid_input',
+  'invalid_ir',
+  'invalid_output',
+  'invalid_result',
+  'non_finite_number',
+  'random_seed_required',
+  'resource_exhausted',
+  'timeout',
+  'transport_lost',
+  'unavailable',
+  'value_limit',
+] as const);
+export type ExecutionErrorCode = (typeof EXECUTION_ERROR_CODES)[number];
 export interface ExecutionError {
-  readonly code: string;
+  readonly code: ExecutionErrorCode;
   readonly detail?: string;
+  readonly source?: SourceProvenance;
 }
+
+/** Public failure domains remain distinct even though their codes share one compatibility catalog. */
+export type FailureDomain =
+  | 'diagnostic'
+  | 'validation'
+  | 'version'
+  | 'artifact'
+  | 'inspection'
+  | 'execution'
+  | 'action'
+  | 'cancellation'
+  | 'bridge';
+/** Component responsible for assigning and preserving one stable failure meaning. */
+export type FailureOwner =
+  | 'compiler'
+  | 'contract_codec'
+  | 'version_compatibility'
+  | 'contract_registry'
+  | 'artifact_verifier'
+  | 'semantic_graph'
+  | 'interpreter'
+  | 'resource_meter'
+  | 'action_gateway'
+  | 'cancellation'
+  | 'runtime_bridge';
+/** Closed structured fields which a catalogued failure may expose. */
+export type FailureField =
+  | 'actual'
+  | 'byteOffset'
+  | 'detail'
+  | 'dimension'
+  | 'effectState'
+  | 'id'
+  | 'limit'
+  | 'location'
+  | 'maximum'
+  | 'path'
+  | 'phase'
+  | 'related'
+  | 'source';
+
+export type SafeScriptFailureCode =
+  | CompilerDiagnosticCode
+  | ContractFailureCode
+  | CompatibilityFailure['code']
+  | DefinitionCompatibilityFailure['code']
+  | SemanticGraphError['code']
+  | ExecutionErrorCode
+  | BridgeErrorCode;
+
+/** One stable, serialisable catalog entry. `meaning` is normative; rendered messages are not. */
+export interface FailureCatalogEntry {
+  readonly code: SafeScriptFailureCode;
+  readonly domain: FailureDomain;
+  readonly owner: FailureOwner;
+  readonly meaning: string;
+  readonly fields: readonly FailureField[];
+  readonly sourceProvenance: 'required' | 'optional' | 'not_applicable';
+  readonly deprecatedSince?: SemVer;
+  readonly replacement?: SafeScriptFailureCode;
+}
+
+/**
+ * Semantic version of the stable failure catalog.
+ *
+ * @remarks Adding a new code is compatible and increments the minor version. Changing a code's meaning or fields is
+ * breaking and requires a major version. Removal first requires a deprecated entry and replacement path; message text
+ * is deliberately outside this contract.
+ */
+export const DIAGNOSTIC_CATALOG_VERSION: SemVer = Object.freeze({ major: 1, minor: 0, patch: 0 });
+
+const COMPILER_DIAGNOSTIC_MEANINGS = Object.freeze([
+  'ambient authority access',
+  'class syntax',
+  'compiler resource limit exhaustion',
+  'missing contextual type',
+  'invalid host contract',
+  'duplicate lexical binding',
+  'dynamic import',
+  'exception control flow',
+  'unconsumed asynchronous action',
+  'generated code execution',
+  'generator syntax',
+  'invalid exported handler shape',
+  'assignment to immutable binding',
+  'unsupported static import form',
+  'unknown imported name',
+  'compiler produced unverifiable IR',
+  'invalid host action use',
+  'locale-dependent operation',
+  'missing return',
+  'invalid source module set',
+  'invalid module-level program shape',
+  'unsupported mutable binding',
+  'null or undefined use',
+  'invalid numeric literal',
+  'nondeterministic promise competition',
+  'invalid record construction',
+  'regular expression use',
+  'invalid Result construction',
+  'invalid return type',
+  'slot and source language mismatch',
+  'invalid source encoding',
+  'non-exhaustive switch',
+  'invalid switch discriminant',
+  'TypeScript parse failure',
+  'unsupported template interpolation',
+  'SafeScript type mismatch',
+  'unknown record field',
+  'unknown identifier',
+  'unreachable source',
+  'unsafe type assertion',
+  'unsafe TypeScript type',
+  'unsupported binding form',
+  'unsupported expression form',
+  'unsupported function form',
+  'unsupported operator',
+  'unsupported statement or declaration syntax',
+  'mutation of immutable canonical value',
+] as const);
+
+function catalogEntry(
+  code: SafeScriptFailureCode,
+  domain: FailureDomain,
+  owner: FailureOwner,
+  meaning: string,
+  fields: readonly FailureField[],
+  sourceProvenance: FailureCatalogEntry['sourceProvenance'],
+): FailureCatalogEntry {
+  return Object.freeze({ code, domain, owner, meaning, fields: Object.freeze([...fields]), sourceProvenance });
+}
+
+const compilerCatalog = COMPILER_DIAGNOSTIC_CODES.map((code, index) =>
+  catalogEntry(
+    code,
+    'diagnostic',
+    'compiler',
+    COMPILER_DIAGNOSTIC_MEANINGS[index] as string,
+    ['location', 'related'],
+    'required',
+  ),
+);
+
+/**
+ * Complete V1 SafeScript-owned failure catalog, sorted by stable code.
+ *
+ * @remarks Policy and domain `Result` error codes remain contract-owned and are intentionally absent. Entries never
+ * name compiler passes, private IR nodes, exception types, transports, or adapter implementation details.
+ */
+export const DIAGNOSTIC_CATALOG: readonly FailureCatalogEntry[] = Object.freeze(
+  [
+    ...compilerCatalog,
+    ...(
+      [
+        'invalid_schema',
+        'invalid_value',
+        'limit_exceeded',
+        'malformed_cbor',
+        'noncanonical_cbor',
+        'schema_mismatch',
+        'trailing_bytes',
+        'unknown_type',
+      ] as const
+    ).map((code) =>
+      catalogEntry(
+        code,
+        'validation',
+        'contract_codec',
+        code.replaceAll('_', ' '),
+        ['path', 'byteOffset', 'detail'],
+        'not_applicable',
+      ),
+    ),
+    catalogEntry(
+      'incompatible_version',
+      'version',
+      'version_compatibility',
+      'unsupported version requirement',
+      ['dimension'],
+      'not_applicable',
+    ),
+    catalogEntry(
+      'invalid_contract_digest',
+      'artifact',
+      'contract_registry',
+      'invalid contract registry digest',
+      [],
+      'not_applicable',
+    ),
+    catalogEntry(
+      'invalid_definition_id',
+      'artifact',
+      'contract_registry',
+      'invalid contract definition identifier',
+      ['id'],
+      'not_applicable',
+    ),
+    catalogEntry(
+      'missing_definition',
+      'artifact',
+      'contract_registry',
+      'required contract definition missing',
+      ['id'],
+      'not_applicable',
+    ),
+    catalogEntry(
+      'fingerprint_mismatch',
+      'artifact',
+      'contract_registry',
+      'contract definition fingerprint mismatch',
+      ['id'],
+      'not_applicable',
+    ),
+    catalogEntry(
+      'artifact_verification_failed',
+      'artifact',
+      'artifact_verifier',
+      'checked artifact verification failed',
+      ['phase', 'detail'],
+      'not_applicable',
+    ),
+    catalogEntry(
+      'graph_limit_exceeded',
+      'inspection',
+      'semantic_graph',
+      'semantic graph export limit exceeded',
+      ['limit', 'maximum', 'actual'],
+      'not_applicable',
+    ),
+    catalogEntry(
+      'action_outcome_invalid',
+      'action',
+      'action_gateway',
+      'host action outcome is malformed or mismatched',
+      ['detail', 'source'],
+      'optional',
+    ),
+    catalogEntry(
+      'gateway_fault',
+      'action',
+      'action_gateway',
+      'action gateway failed closed',
+      ['detail', 'effectState', 'source'],
+      'optional',
+    ),
+    catalogEntry(
+      'handler_fault',
+      'action',
+      'action_gateway',
+      'host action handler failed',
+      ['detail', 'effectState', 'source'],
+      'optional',
+    ),
+    catalogEntry(
+      'idempotency_key_invalid',
+      'action',
+      'action_gateway',
+      'action idempotency key derivation failed',
+      ['detail', 'source'],
+      'optional',
+    ),
+    catalogEntry(
+      'invalid_result',
+      'action',
+      'action_gateway',
+      'host action result failed validation',
+      ['detail', 'effectState', 'source'],
+      'optional',
+    ),
+    catalogEntry(
+      'timeout',
+      'action',
+      'action_gateway',
+      'host action deadline expired',
+      ['detail', 'effectState', 'source'],
+      'optional',
+    ),
+    catalogEntry(
+      'transport_lost',
+      'action',
+      'action_gateway',
+      'host action transport was lost',
+      ['detail', 'effectState', 'source'],
+      'optional',
+    ),
+    catalogEntry(
+      'unavailable',
+      'action',
+      'action_gateway',
+      'host action dependency is unavailable',
+      ['detail', 'effectState', 'source'],
+      'optional',
+    ),
+    catalogEntry(
+      'cancelled',
+      'cancellation',
+      'cancellation',
+      'invocation cancellation reached execution',
+      ['source'],
+      'optional',
+    ),
+    catalogEntry(
+      'resource_exhausted',
+      'execution',
+      'resource_meter',
+      'semantic execution resource limit exhausted',
+      ['detail', 'source'],
+      'optional',
+    ),
+    catalogEntry(
+      'value_limit',
+      'execution',
+      'resource_meter',
+      'canonical value limit exhausted',
+      ['detail', 'source'],
+      'optional',
+    ),
+    ...(
+      [
+        'fixed_instant_required',
+        'integer_overflow',
+        'interpreter_fault',
+        'invalid_arithmetic',
+        'invalid_input',
+        'invalid_ir',
+        'invalid_output',
+        'non_finite_number',
+        'random_seed_required',
+      ] as const
+    ).map((code) =>
+      catalogEntry(code, 'execution', 'interpreter', code.replaceAll('_', ' '), ['detail', 'source'], 'optional'),
+    ),
+    catalogEntry(
+      'adapter_failure',
+      'bridge',
+      'runtime_bridge',
+      'runtime bridge adapter failed',
+      ['phase', 'detail'],
+      'not_applicable',
+    ),
+    catalogEntry(
+      'bridge_closed',
+      'bridge',
+      'runtime_bridge',
+      'runtime bridge is closed',
+      ['phase', 'detail'],
+      'not_applicable',
+    ),
+    catalogEntry(
+      'invalid_request',
+      'bridge',
+      'runtime_bridge',
+      'runtime bridge request is invalid',
+      ['phase', 'detail'],
+      'not_applicable',
+    ),
+    catalogEntry(
+      'unsupported_version',
+      'bridge',
+      'runtime_bridge',
+      'runtime bridge version is unsupported',
+      ['phase', 'detail'],
+      'not_applicable',
+    ),
+  ].sort((left, right) => left.code.localeCompare(right.code)),
+);
 /** Closed execution lifecycle result. Only `completed` contains a program output. */
 export type ExecutionResult =
   | Readonly<{ status: 'not_started'; diagnostics?: readonly Diagnostic[]; error?: BridgeError; usage?: CompileUsage }>

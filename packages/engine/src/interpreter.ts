@@ -2,7 +2,7 @@
  * Bounded interpreter for verified SafeScript IR.
  * @packageDocumentation
  */
-import type { CanonicalValue, Schema } from '@safescript/contracts';
+import type { CanonicalValue, ExecutionErrorCode, Schema } from '@safescript/contracts';
 
 import {
   constantValue,
@@ -39,7 +39,7 @@ export interface InterpreterHooks {
  */
 export class InterpreterFault extends Error {
   constructor(
-    readonly code: string,
+    readonly code: ExecutionErrorCode,
     readonly detail?: string,
   ) {
     super(detail ?? code);
