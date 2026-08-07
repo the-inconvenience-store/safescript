@@ -43,6 +43,7 @@
       "name": "@safescript/sdk",
       "version": "0.0.0",
       "dependencies": {
+        "@safescript/contracts": "*",
         "@safescript/engine": "*",
       },
     },
