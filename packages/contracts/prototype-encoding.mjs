@@ -117,7 +117,7 @@ function encodeValue(schema, value, depth = 0) {
     case "variant": {
       const index = schema.variants.findIndex(([tag]) => tag === value?.tag);
       if (index < 0) throw new Error("unknown variant");
-      return [...head(4, 2), ...head(0, index), ...encodeValue(schema.variants[index][1], value.value, depth + 1)];
+      return [...head(4, 2), ...encodeValue({ kind: "string" }, value.tag, depth + 1), ...encodeValue(schema.variants[index][1], value.value, depth + 1)];
     }
     default:
       throw new Error(`unsupported schema ${schema.kind}`);
@@ -220,9 +220,10 @@ class Decoder {
       }
       case "variant": {
         if (this.itemHead(4) !== 2n) throw new Error("variant must contain tag and value");
-        const index = this.value({ kind: "int64" }, depth + 1);
-        if (index < 0n || index >= schema.variants.length) throw new Error("unknown variant tag");
-        const [tag, payload] = schema.variants[Number(index)];
+        const encodedTag = this.value({ kind: "string" }, depth + 1);
+        const entry = schema.variants.find(([tag]) => tag === encodedTag);
+        if (!entry) throw new Error("unknown variant tag");
+        const [tag, payload] = entry;
         return { tag, value: this.value(payload, depth + 1) };
       }
       default:
