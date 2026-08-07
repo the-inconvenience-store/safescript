@@ -205,6 +205,122 @@ describe('defineContract', () => {
       }),
     ).toThrow(ContractDefinitionError);
   });
+
+  it.each([
+    ['invalid semantic version', () => defineContract({ ...contract, version: { major: -1, minor: 0, patch: 0 } })],
+    [
+      'invalid prerelease',
+      () => defineContract({ ...contract, version: { major: 1, minor: 0, patch: 0, prerelease: 'bad!' } }),
+    ],
+    [
+      'conflicting schemas',
+      () =>
+        defineContract({
+          ...contract,
+          types: [{ id: inputType.id, schema: { kind: 'string' } }],
+        }),
+    ],
+    [
+      'invalid effect cost',
+      () =>
+        defineContract({
+          ...contract,
+          operations: { read: { ...contract.operations.read, effectCost: -1 } },
+        }),
+    ],
+    [
+      'invalid idempotency',
+      () =>
+        defineContract({
+          ...contract,
+          operations: { read: { ...contract.operations.read, idempotency: 'sometimes' as 'none' } },
+        }),
+    ],
+    [
+      'missing resource scope',
+      () =>
+        defineContract({
+          ...contract,
+          operations: { read: { ...contract.operations.read, resourceScope: undefined as never } },
+        }),
+    ],
+    [
+      'duplicate operation id',
+      () =>
+        defineContract({
+          ...contract,
+          operations: { read: contract.operations.read, again: contract.operations.read },
+        }),
+    ],
+    [
+      'invalid language version',
+      () =>
+        defineContract({
+          ...contract,
+          slots: { main: { ...contract.slots.main, languageVersion: { major: -1, minor: 0 } } },
+        }),
+    ],
+    [
+      'unknown capability',
+      () =>
+        defineContract({
+          ...contract,
+          slots: { main: { ...contract.slots.main, capabilities: [ids.capability('capability:test.missing')] } },
+        }),
+    ],
+    [
+      'duplicate permissions',
+      () =>
+        defineContract({
+          ...contract,
+          slots: { main: { ...contract.slots.main, effects: [effect, effect] } },
+        }),
+    ],
+    [
+      'duplicate slot id',
+      () =>
+        defineContract({
+          ...contract,
+          slots: { main: contract.slots.main, again: contract.slots.main },
+        }),
+    ],
+  ])('rejects %s', (_name, define) => {
+    expect(define).toThrow(ContractDefinitionError);
+  });
+
+  it('rejects non-canonical codec inputs and bytes', () => {
+    const codec = contract.codecs[inputType.id];
+    expect(() => codec?.encode({ value: 'not-an-int' })).toThrow(TypeError);
+    expect(() => codec?.decode(Uint8Array.of(0xff))).toThrow(TypeError);
+  });
+
+  it('generates declarations for every supported schema form', () => {
+    const stringId = ids.type('type:forms.string');
+    const forms = defineContract({
+      id: ids.contract('contract:test.forms'),
+      version: { major: 1, minor: 0, patch: 0 },
+      types: [
+        { id: ids.type('type:forms.unit'), schema: { kind: 'unit' } },
+        { id: ids.type('type:forms.boolean'), schema: { kind: 'boolean' } },
+        { id: ids.type('type:forms.float'), schema: { kind: 'float64' } },
+        { id: ids.type('type:forms.bytes'), schema: { kind: 'bytes' } },
+        { id: ids.type('type:forms.instant'), schema: { kind: 'instant' } },
+        { id: ids.type('type:forms.list'), schema: { kind: 'list', item: { kind: 'boolean' } } },
+        { id: ids.type('type:forms.tuple'), schema: { kind: 'tuple', items: [{ kind: 'int64' }] } },
+        { id: stringId, schema: { kind: 'string' } },
+        { id: ids.type('type:forms.brand'), schema: { kind: 'brand', type: stringId, base: { kind: 'string' } } },
+        { id: ids.type('type:forms.alias'), schema: { kind: 'ref', type: stringId } },
+      ],
+      operations: {},
+      slots: {},
+    });
+    expect(forms.declarations).toContain('readonly number[]');
+    expect(forms.declarations).toContain('epochSeconds: bigint');
+    expect(forms.declarations).toContain('readonly (boolean)[]');
+    expect(forms.declarations).toContain('readonly [bigint]');
+    expect(forms.declarations).toContain('__brand');
+    expect(forms.declarations).toContain('FormsString');
+  });
 });
 
 describe('createSafeScript', () => {
@@ -422,5 +538,499 @@ describe('createSafeScript', () => {
     await safe.execute({ slot: 'main', program: { kind: 'artifact', bytes: [] }, input: { value: 1n }, context: {} });
     expect(bridge.actions.slice(-2).map((outcome) => outcome.result.tag)).toEqual(['completed', 'failed']);
     expect([authorisations, handlers]).toEqual([1, 1]);
+  });
+
+  it('validates authorisation and default limit configuration', () => {
+    expect(() =>
+      createSafeScript({
+        contract,
+        bridge: new FakeBridge(),
+        handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
+        authorise: undefined as never,
+      }),
+    ).toThrow(SdkConfigurationError);
+    expect(() =>
+      createSafeScript({
+        contract,
+        bridge: new FakeBridge(),
+        handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
+        authorise: () => ({ status: 'allowed' }),
+        defaultCompileLimits: { sourceBytes: STANDARD_COMPILE_LIMITS.sourceBytes + 1 },
+      }),
+    ).toThrow(SdkConfigurationError);
+  });
+
+  it('validates slots and maps bridge throws for check and inspect', async () => {
+    const bridge = new FakeBridge();
+    bridge.check = async () => {
+      throw new Error('transport');
+    };
+    bridge.inspect = async () => {
+      throw new Error('transport');
+    };
+    const safe = createSafeScript({
+      contract,
+      bridge,
+      handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
+      authorise: () => ({ status: 'allowed' }),
+    });
+    const source = {
+      entryModule: ids.module('module:main'),
+      modules: [{ id: ids.module('module:main'), source: 'export {}' }],
+    };
+    expect((await safe.check({ slot: 'missing' as 'main', source })).status).toBe('bridge_error');
+    expect((await safe.inspect({ slot: 'missing' as 'main', source, views: [] })).status).toBe('bridge_error');
+    expect((await safe.check({ slot: 'main', source })).status).toBe('bridge_error');
+    expect((await safe.inspect({ slot: 'main', source, views: [] })).status).toBe('bridge_error');
+  });
+
+  it('fails invalid execution assembly without calling the bridge', async () => {
+    const bridge = new FakeBridge();
+    let calls = 0;
+    bridge.executeResult = async () => {
+      calls++;
+      throw new Error('must not execute');
+    };
+    const safe = createSafeScript({
+      contract,
+      bridge,
+      handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
+      authorise: () => ({ status: 'allowed' }),
+      createInvocationId: () => 'invocation:invalid' as typeof invocationId,
+    });
+    expect(
+      (
+        await safe.execute({
+          slot: 'missing' as 'main',
+          program: { kind: 'artifact', bytes: [] },
+          input: { value: 1n },
+          context: {},
+        })
+      ).status,
+    ).toBe('bridge_error');
+    expect(
+      (
+        await safe.execute({
+          slot: 'main',
+          program: { kind: 'artifact', bytes: [] },
+          input: { value: 1n },
+          context: {},
+        })
+      ).status,
+    ).toBe('bridge_error');
+    const explicit = createSafeScript({
+      contract,
+      bridge,
+      handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
+      authorise: () => ({ status: 'allowed' }),
+      createInvocationId: () => invocationId,
+    });
+    expect(
+      (
+        await explicit.execute({
+          slot: 'main',
+          program: { kind: 'artifact', bytes: [] },
+          input: { value: 'bad' as unknown as bigint },
+          context: {},
+        })
+      ).status,
+    ).toBe('bridge_error');
+    expect(
+      (
+        await explicit.execute({
+          slot: 'main',
+          program: { kind: 'artifact', bytes: [] },
+          input: { value: 1n },
+          context: {},
+          limits: { fuel: 1001 },
+        })
+      ).status,
+    ).toBe('bridge_error');
+    expect(calls).toBe(0);
+  });
+
+  it.each([
+    ['failed', { status: 'failed' as const, error: { code: 'resource_exhausted' }, facts }],
+    ['cancelled', { status: 'cancelled' as const, error: { code: 'cancelled' as const }, facts }],
+  ])('preserves invocation facts for %s bridge executions', async (_name, execution) => {
+    const bridge = new FakeBridge();
+    bridge.executeResult = async () => execution;
+    const safe = createSafeScript({
+      contract,
+      bridge,
+      handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
+      authorise: () => ({ status: 'allowed' }),
+      createInvocationId: () => invocationId,
+    });
+    const result = await safe.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      context: {},
+    });
+    expect(result.status).toBe(execution.status);
+    if (result.status === 'failed' || result.status === 'cancelled')
+      expect(result.facts.invocationId).toBe(invocationId);
+  });
+
+  it('maps malformed output and bridge rejection to stable results', async () => {
+    const bridge = new FakeBridge();
+    const safe = createSafeScript({
+      contract,
+      bridge,
+      handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
+      authorise: () => ({ status: 'allowed' }),
+      createInvocationId: () => invocationId,
+    });
+    bridge.executeResult = async () => ({ status: 'completed', output: [0xff], facts });
+    expect(
+      (
+        await safe.execute({
+          slot: 'main',
+          program: { kind: 'artifact', bytes: [] },
+          input: { value: 1n },
+          context: {},
+        })
+      ).status,
+    ).toBe('bridge_error');
+    bridge.executeResult = async () => ({
+      status: 'not_started',
+      error: { phase: 'execute', code: 'invalid_request' },
+    });
+    expect(
+      (
+        await safe.execute({
+          slot: 'main',
+          program: { kind: 'artifact', bytes: [] },
+          input: { value: 1n },
+          context: {},
+        })
+      ).status,
+    ).toBe('not_started');
+    bridge.executeResult = async () => {
+      throw new Error('transport');
+    };
+    expect(
+      (
+        await safe.execute({
+          slot: 'main',
+          program: { kind: 'artifact', bytes: [] },
+          input: { value: 1n },
+          context: {},
+        })
+      ).status,
+    ).toBe('bridge_error');
+  });
+
+  it('maps gateway scope, authorisation, and handler failures without leaking throws', async () => {
+    const bridge = new FakeBridge();
+    bridge.executeResult = async (request, host) => {
+      bridge.actions.push(await host.handleAction(action(request)));
+      return { status: 'completed', output: [100, 111, 110, 101], facts };
+    };
+    const throwingScopeContract = defineContract({
+      ...contract,
+      operations: {
+        read: {
+          ...contract.operations.read,
+          resourceScope: () => {
+            throw new Error('scope');
+          },
+        },
+      },
+    });
+    const scopeSafe = createSafeScript({
+      contract: throwingScopeContract,
+      bridge,
+      handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
+      authorise: () => ({ status: 'allowed' }),
+      createInvocationId: () => invocationId,
+    });
+    await scopeSafe.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      context: {},
+    });
+    expect(bridge.actions.at(-1)?.result).toMatchObject({
+      tag: 'failed',
+      value: { failure: { code: 'gateway_fault' } },
+    });
+
+    const authoritySafe = createSafeScript({
+      contract,
+      bridge,
+      handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
+      authorise: () => {
+        throw new Error('authority');
+      },
+      createInvocationId: () => invocationId,
+    });
+    await authoritySafe.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      context: {},
+    });
+    expect(bridge.actions.at(-1)?.result).toMatchObject({
+      tag: 'failed',
+      value: { failure: { code: 'gateway_fault' } },
+    });
+
+    const invalidHandler = createSafeScript({
+      contract,
+      bridge,
+      handlers: { read: () => ({}) as never },
+      authorise: () => ({ status: 'allowed' }),
+      createInvocationId: () => invocationId,
+    });
+    await invalidHandler.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      context: {},
+    });
+    expect(bridge.actions.at(-1)?.result).toMatchObject({
+      tag: 'failed',
+      value: { failure: { code: 'invalid_result' } },
+    });
+  });
+
+  it('preserves valid declared handler failures and rejects malformed ones', async () => {
+    const bridge = new FakeBridge();
+    bridge.executeResult = async (request, host) => {
+      bridge.actions.push(await host.handleAction(action(request)));
+      const output = encodeCanonical({ kind: 'string' }, 'done');
+      if (!output.ok) throw new Error('fixture encoding failed');
+      return { status: 'completed', output: [...output.value], facts };
+    };
+    const declared = createSafeScript({
+      contract,
+      bridge,
+      handlers: {
+        read: () =>
+          ({
+            status: 'failed',
+            effectState: 'not_performed',
+            failure: { code: 'unavailable', detail: 'bounded' },
+          }) as const,
+      },
+      authorise: () => ({ status: 'allowed' }),
+      createInvocationId: () => invocationId,
+    });
+    await declared.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      context: {},
+    });
+    expect(bridge.actions.at(-1)?.result).toEqual({
+      tag: 'failed',
+      value: { effectState: 'not_performed', failure: { code: 'unavailable', detail: 'bounded' } },
+    });
+    const malformed = createSafeScript({
+      contract,
+      bridge,
+      handlers: {
+        read: () => ({ status: 'failed', effectState: 'performed', failure: {} }) as never,
+      },
+      authorise: () => ({ status: 'allowed' }),
+      createInvocationId: () => invocationId,
+    });
+    await malformed.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      context: {},
+    });
+    expect(bridge.actions.at(-1)?.result).toMatchObject({
+      tag: 'failed',
+      value: { effectState: 'unknown', failure: { code: 'invalid_result' } },
+    });
+  });
+
+  it('reports deterministic expectation and unused-script mismatches', async () => {
+    const bridge = new FakeBridge();
+    const safe = createSafeScript({
+      contract,
+      bridge,
+      handlers: { read: () => ({ tag: 'ok', value: 'production' }) as const },
+      authorise: () => ({ status: 'allowed' }),
+    });
+    const report = await safe.test({
+      name: 'mismatches',
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      actions: [{ operation: 'read', input: { value: 1n }, outcome: { tag: 'ok', value: 'unused' } }],
+      expect: {
+        status: 'failed',
+        output: 'wrong',
+        effects: [effect],
+        actions: [],
+        resources: { fuel: 999 },
+      },
+    });
+    expect(report.passed).toBe(false);
+    expect(report.mismatches.map((item) => item.path)).toEqual([
+      'actions.length',
+      'status',
+      'output',
+      'effects',
+      'resources.fuel',
+    ]);
+  });
+
+  it('compares expected diagnostics for not-started deterministic executions', async () => {
+    const bridge = new FakeBridge();
+    bridge.executeResult = async () => ({
+      status: 'not_started',
+      diagnostics: [
+        {
+          code: 'SS_TEST',
+          severity: 'error',
+          message: 'actual',
+          location: { module: ids.module('module:main'), start: 0, end: 1 },
+        },
+      ],
+      usage: { sourceBytes: 1, syntaxNodes: 1, typeWork: 1 },
+    });
+    const safe = createSafeScript({
+      contract,
+      bridge,
+      handlers: { read: () => ({ tag: 'ok', value: 'production' }) as const },
+      authorise: () => ({ status: 'allowed' }),
+    });
+    const report = await safe.test({
+      name: 'diagnostics',
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      expect: { diagnostics: [] },
+    });
+    expect(report.mismatches.map((item) => item.path)).toEqual(['diagnostics']);
+  });
+
+  it.each([
+    ['missing script', [], (request: BridgeExecuteRequest) => action(request), 'actions[0]'],
+    [
+      'wrong operation',
+      [{ operation: 'missing' as 'read', input: { value: 1n }, outcome: { tag: 'ok' as const, value: 'x' } }],
+      (request: BridgeExecuteRequest) => action(request),
+      'actions[0].operation',
+    ],
+    [
+      'wrong input',
+      [{ operation: 'read' as const, input: { value: 2n }, outcome: { tag: 'ok' as const, value: 'x' } }],
+      (request: BridgeExecuteRequest) => action(request),
+      'actions[0].input',
+    ],
+  ])('reports scripted-host %s mismatches', async (_name, actions, makeAction, path) => {
+    const bridge = new FakeBridge();
+    bridge.executeResult = async (request, host) => {
+      await host.handleAction(makeAction(request));
+      const output = encodeCanonical({ kind: 'string' }, 'done');
+      if (!output.ok) throw new Error('fixture encoding failed');
+      return { status: 'completed', output: [...output.value], facts };
+    };
+    const safe = createSafeScript({
+      contract,
+      bridge,
+      handlers: { read: () => ({ tag: 'ok', value: 'production' }) as const },
+      authorise: () => ({ status: 'allowed' }),
+    });
+    const report = await safe.test({
+      name: String(_name),
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      actions,
+    });
+    expect(report.mismatches.some((item) => item.path === path)).toBe(true);
+  });
+
+  it('detects duplicate scripted requests and maps scripted rejected and failed outcomes', async () => {
+    const bridge = new FakeBridge();
+    const observed: ActionOutcome[] = [];
+    bridge.executeResult = async (request, host) => {
+      const first = action(request);
+      observed.push(await host.handleAction(first), await host.handleAction(first));
+      const output = encodeCanonical({ kind: 'string' }, 'done');
+      if (!output.ok) throw new Error('fixture encoding failed');
+      return { status: 'completed', output: [...output.value], facts };
+    };
+    const safe = createSafeScript({
+      contract,
+      bridge,
+      handlers: { read: () => ({ tag: 'ok', value: 'production' }) as const },
+      authorise: () => ({ status: 'allowed' }),
+    });
+    const duplicate = await safe.test({
+      name: 'duplicate',
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      actions: [
+        { operation: 'read', input: { value: 1n }, outcome: { tag: 'ok', value: 'first' } },
+        { operation: 'read', input: { value: 1n }, outcome: { tag: 'ok', value: 'second' } },
+      ],
+    });
+    expect(duplicate.mismatches.some((item) => item.path === 'actions[1].requestId')).toBe(true);
+
+    bridge.executeResult = async (request, host) => {
+      observed.push(await host.handleAction(action(request)));
+      const output = encodeCanonical({ kind: 'string' }, 'done');
+      if (!output.ok) throw new Error('fixture encoding failed');
+      return { status: 'completed', output: [...output.value], facts };
+    };
+    await safe.test({
+      name: 'rejected',
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      actions: [
+        {
+          operation: 'read',
+          input: { value: 1n },
+          authorisation: { status: 'rejected', error: { code: 'denied' } },
+          outcome: { tag: 'ok', value: 'unused' },
+        },
+      ],
+    });
+    await safe.test({
+      name: 'failed',
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      actions: [
+        {
+          operation: 'read',
+          input: { value: 1n },
+          outcome: { status: 'failed', effectState: 'unknown', failure: { code: 'unavailable' } },
+        },
+      ],
+    });
+    expect(observed.slice(-2).map((item) => item.result.tag)).toEqual(['rejected', 'failed']);
+  });
+
+  it('closes and cancels idempotently even when the bridge throws', async () => {
+    const bridge = new FakeBridge();
+    bridge.cancel = async () => {
+      throw new Error('cancel');
+    };
+    bridge.close = async () => {
+      throw new Error('close');
+    };
+    const safe = createSafeScript({
+      contract,
+      bridge,
+      handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
+      authorise: () => ({ status: 'allowed' }),
+    });
+    expect((await safe.cancel(invocationId)).status).toBe('bridge_error');
+    const first = safe.close();
+    expect(safe.close()).toBe(first);
+    expect((await first).status).toBe('bridge_error');
+    expect((await safe.cancel(invocationId)).status).toBe('bridge_error');
   });
 });

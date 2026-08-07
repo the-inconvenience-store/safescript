@@ -30,6 +30,192 @@ export type OperationEntry<O extends Operations> = {
   [K in keyof O]: Readonly<{ key: K; operation: O[K] }>;
 }[keyof O];
 
+class InvocationGateway<C, O extends Operations, S extends Slots, E extends PolicyError> {
+  private sequence = 0;
+
+  constructor(
+    private readonly options: CreateSafeScriptOptions<C, O, S, E>,
+    private readonly operationsById: ReadonlyMap<OperationId, OperationEntry<O>>,
+    private readonly context: C,
+    private readonly slot: Slot<unknown, unknown>,
+    private readonly signal: AbortSignal,
+    private readonly invocationId: InvocationId,
+  ) {}
+
+  async handle(request: ActionRequest): Promise<ActionOutcome> {
+    const entry = this.operationsById.get(request.operationId);
+    if (!entry || !this.validEnvelope(request, entry)) return this.fail(request, 'not_performed', 'gateway_fault');
+    this.sequence++;
+    const decoded = this.decodeInput(request, entry);
+    if (!decoded.ok) return this.fail(request, 'not_performed', 'gateway_fault');
+    const scope = this.resourceScope(entry, decoded.value);
+    if (!scope) return this.fail(request, 'not_performed', 'gateway_fault');
+    const context = this.actionContext(request, scope);
+    if (this.signal.aborted) return this.fail(request, 'not_performed', 'cancelled');
+    const decision = await this.authorise(request, context);
+    if ('result' in decision) return decision;
+    if (decision.status === 'rejected') return this.rejection(request, decision);
+    if (decision.status !== 'allowed') return this.fail(request, 'not_performed', 'gateway_fault');
+    if (this.signal.aborted) return this.fail(request, 'not_performed', 'cancelled');
+    return this.invoke(request, entry, decoded.value, context);
+  }
+
+  private validEnvelope(request: ActionRequest, entry: OperationEntry<O>): boolean {
+    try {
+      const compatible =
+        checkCompatibility(
+          {
+            language: ABI_VERSION,
+            ir: ABI_VERSION,
+            abi: ABI_VERSION,
+            contractId: this.options.contract.id,
+            contract: this.options.contract.version,
+          },
+          {
+            language: ABI_VERSION,
+            ir: ABI_VERSION,
+            abi: request.abiVersion,
+            contractId: request.contractId,
+            contract: request.requiredContractVersion,
+          },
+        ).length === 0;
+      ids.parseRequest(request.requestId);
+      ids.actionSite(request.actionSiteId);
+      ids.module(request.source.module);
+      const requiresKey = entry.operation.idempotency === 'required';
+      return Boolean(
+        compatible &&
+        request.invocationId === this.invocationId &&
+        request.requestId === ids.request(this.invocationId, this.sequence) &&
+        /^[0-9a-f]{64}$/.test(request.irDigest) &&
+        request.slotId === this.slot.id &&
+        request.effectId === entry.operation.effect &&
+        request.capabilityId === entry.operation.capability &&
+        this.slot.effects.includes(request.effectId) &&
+        this.slot.capabilities.includes(request.capabilityId) &&
+        requiresKey === (request.idempotencyKey !== undefined) &&
+        (!requiresKey || /^[0-9a-f]{64}$/.test(request.idempotencyKey ?? '')) &&
+        Number.isSafeInteger(request.source.start) &&
+        request.source.start >= 0 &&
+        Number.isSafeInteger(request.source.end) &&
+        request.source.end >= request.source.start &&
+        Array.isArray(request.input) &&
+        request.input.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255),
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private decodeInput(
+    request: ActionRequest,
+    entry: OperationEntry<O>,
+  ): Readonly<{ ok: true; value: unknown }> | Readonly<{ ok: false }> {
+    const decoded = decodeCanonical({ kind: 'ref', type: entry.operation.input.id }, Uint8Array.from(request.input), {
+      registry: this.options.contract.registry.schemas,
+    });
+    return decoded.ok ? { ok: true, value: decoded.value } : { ok: false };
+  }
+
+  private resourceScope(entry: OperationEntry<O>, input: unknown): Readonly<Record<string, string>> | undefined {
+    try {
+      const resourceScope = entry.operation.resourceScope as unknown as (
+        value: unknown,
+      ) => Readonly<Record<string, string>>;
+      const scope = freeze({ ...resourceScope(input) });
+      return Object.values(scope).every((value) => typeof value === 'string') ? scope : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private actionContext(request: ActionRequest, scope: Readonly<Record<string, string>>): ActionContext<C> {
+    return freeze({
+      invocationId: request.invocationId,
+      context: this.context,
+      request,
+      resourceScope: scope,
+      ...(request.idempotencyKey === undefined ? {} : { idempotencyKey: request.idempotencyKey }),
+      signal: this.signal,
+    });
+  }
+
+  private async authorise(
+    request: ActionRequest,
+    context: ActionContext<C>,
+  ): Promise<AuthorisationDecision<E> | ActionOutcome> {
+    try {
+      return await this.options.authorise(context);
+    } catch {
+      return this.fail(request, 'not_performed', 'gateway_fault');
+    }
+  }
+
+  private rejection(
+    request: ActionRequest,
+    decision: Extract<AuthorisationDecision<E>, { status: 'rejected' }>,
+  ): ActionOutcome {
+    return typeof decision.error?.code === 'string'
+      ? freeze({
+          abiVersion: ABI_VERSION,
+          requestId: request.requestId,
+          result: { tag: 'rejected', value: decision.error },
+        })
+      : this.fail(request, 'not_performed', 'gateway_fault');
+  }
+
+  private async invoke(
+    request: ActionRequest,
+    entry: OperationEntry<O>,
+    input: unknown,
+    context: ActionContext<C>,
+  ): Promise<ActionOutcome> {
+    try {
+      const outcome = await this.options.handlers[entry.key]?.(input as never, context);
+      if (outcome && 'status' in outcome && outcome.status === 'failed') return this.handlerFailure(request, outcome);
+      const encoded = encodeCanonical(
+        resultSchema({ kind: 'ref', type: entry.operation.output.id }, { kind: 'ref', type: entry.operation.error.id }),
+        outcome,
+        { registry: this.options.contract.registry.schemas },
+      );
+      return encoded.ok
+        ? freeze({
+            abiVersion: ABI_VERSION,
+            requestId: request.requestId,
+            result: { tag: 'completed', value: [...encoded.value] },
+          })
+        : this.fail(request, 'unknown', 'invalid_result');
+    } catch {
+      return this.fail(request, 'unknown', 'handler_fault');
+    }
+  }
+
+  private handlerFailure(
+    request: ActionRequest,
+    outcome: Readonly<{ effectState: unknown; failure: unknown }>,
+  ): ActionOutcome {
+    const failure = outcome.failure as Partial<HostFailure> | null;
+    if (
+      (outcome.effectState !== 'not_performed' && outcome.effectState !== 'unknown') ||
+      typeof failure?.code !== 'string'
+    )
+      return this.fail(request, 'unknown', 'invalid_result');
+    return freeze({
+      abiVersion: ABI_VERSION,
+      requestId: request.requestId,
+      result: { tag: 'failed', value: { effectState: outcome.effectState, failure: outcome.failure as HostFailure } },
+    });
+  }
+
+  private fail(request: ActionRequest, effectState: EffectState, code: HostFailure['code']): ActionOutcome {
+    return freeze({
+      abiVersion: ABI_VERSION,
+      requestId: request.requestId,
+      result: { tag: 'failed', value: { effectState, failure: { code } } },
+    });
+  }
+}
+
 /**
  * Creates the single live action adapter for one invocation.
  *
@@ -45,142 +231,8 @@ export function createGateway<C, O extends Operations, S extends Slots, E extend
   signal: AbortSignal,
   invocationId: InvocationId,
 ): RuntimeBridgeHost {
-  let sequence = 0;
+  const gateway = new InvocationGateway(options, operationsById, context, slot, signal, invocationId);
   return {
-    async handleAction(request: ActionRequest): Promise<ActionOutcome> {
-      const entry = operationsById.get(request.operationId);
-      const fail = (effectState: EffectState, code: HostFailure['code']): ActionOutcome =>
-        freeze({
-          abiVersion: ABI_VERSION,
-          requestId: request.requestId,
-          result: { tag: 'failed', value: { effectState, failure: { code } } },
-        });
-      // Treat the bridge as a protocol peer, even in-process. Future process adapters must not weaken this seam.
-      const validEnvelope = (() => {
-        try {
-          const compatible =
-            checkCompatibility(
-              {
-                language: ABI_VERSION,
-                ir: ABI_VERSION,
-                abi: ABI_VERSION,
-                contractId: options.contract.id,
-                contract: options.contract.version,
-              },
-              {
-                language: ABI_VERSION,
-                ir: ABI_VERSION,
-                abi: request.abiVersion,
-                contractId: request.contractId,
-                contract: request.requiredContractVersion,
-              },
-            ).length === 0;
-          ids.parseRequest(request.requestId);
-          ids.actionSite(request.actionSiteId);
-          ids.module(request.source.module);
-          const requiresKey = entry?.operation.idempotency === 'required';
-          return Boolean(
-            entry &&
-            compatible &&
-            request.invocationId === invocationId &&
-            request.requestId === ids.request(invocationId, sequence) &&
-            /^[0-9a-f]{64}$/.test(request.irDigest) &&
-            request.slotId === slot.id &&
-            request.effectId === entry.operation.effect &&
-            request.capabilityId === entry.operation.capability &&
-            slot.effects.includes(request.effectId) &&
-            slot.capabilities.includes(request.capabilityId) &&
-            requiresKey === (request.idempotencyKey !== undefined) &&
-            (!requiresKey || /^[0-9a-f]{64}$/.test(request.idempotencyKey ?? '')) &&
-            Number.isSafeInteger(request.source.start) &&
-            request.source.start >= 0 &&
-            Number.isSafeInteger(request.source.end) &&
-            request.source.end >= request.source.start &&
-            Array.isArray(request.input) &&
-            request.input.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255),
-          );
-        } catch {
-          return false;
-        }
-      })();
-      if (!validEnvelope || !entry) {
-        return fail('not_performed', 'gateway_fault');
-      }
-      // A valid request attempt consumes its sequence even when policy rejects it or the handler later fails.
-      sequence++;
-      const decoded = decodeCanonical({ kind: 'ref', type: entry.operation.input.id }, Uint8Array.from(request.input), {
-        registry: options.contract.registry.schemas,
-      });
-      if (!decoded.ok) return fail('not_performed', 'gateway_fault');
-      let scope: Readonly<Record<string, string>>;
-      try {
-        const resourceScope = entry.operation.resourceScope as unknown as (
-          input: unknown,
-        ) => Readonly<Record<string, string>>;
-        scope = freeze({ ...resourceScope(decoded.value) });
-        if (Object.values(scope).some((value) => typeof value !== 'string')) {
-          return fail('not_performed', 'gateway_fault');
-        }
-      } catch {
-        return fail('not_performed', 'gateway_fault');
-      }
-      const actionContext: ActionContext<C> = freeze({
-        invocationId: request.invocationId,
-        context,
-        request,
-        resourceScope: scope,
-        ...(request.idempotencyKey === undefined ? {} : { idempotencyKey: request.idempotencyKey }),
-        signal,
-      });
-      // Cancellation before dispatch proves that the external operation was not performed.
-      let decision: AuthorisationDecision<E>;
-      if (signal.aborted) return fail('not_performed', 'cancelled');
-      try {
-        decision = await options.authorise(actionContext);
-      } catch {
-        return fail('not_performed', 'gateway_fault');
-      }
-      if (decision.status === 'rejected') {
-        return typeof decision.error?.code === 'string'
-          ? freeze({
-              abiVersion: ABI_VERSION,
-              requestId: request.requestId,
-              result: { tag: 'rejected', value: decision.error },
-            })
-          : fail('not_performed', 'gateway_fault');
-      }
-      if (decision.status !== 'allowed') return fail('not_performed', 'gateway_fault');
-      if (signal.aborted) return fail('not_performed', 'cancelled');
-      try {
-        const outcome = await options.handlers[entry.key]?.(decoded.value as never, actionContext);
-        if (outcome && 'status' in outcome && outcome.status === 'failed') {
-          return (outcome.effectState === 'not_performed' || outcome.effectState === 'unknown') &&
-            typeof outcome.failure?.code === 'string'
-            ? freeze({
-                abiVersion: ABI_VERSION,
-                requestId: request.requestId,
-                result: { tag: 'failed', value: { effectState: outcome.effectState, failure: outcome.failure } },
-              })
-            : fail('unknown', 'invalid_result');
-        }
-        const encoded = encodeCanonical(
-          resultSchema(
-            { kind: 'ref', type: entry.operation.output.id },
-            { kind: 'ref', type: entry.operation.error.id },
-          ),
-          outcome,
-          { registry: options.contract.registry.schemas },
-        );
-        return encoded.ok
-          ? freeze({
-              abiVersion: ABI_VERSION,
-              requestId: request.requestId,
-              result: { tag: 'completed', value: [...encoded.value] },
-            })
-          : fail('unknown', 'invalid_result');
-      } catch {
-        return fail('unknown', 'handler_fault');
-      }
-    },
+    handleAction: (request) => gateway.handle(request),
   };
 }

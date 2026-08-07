@@ -23,6 +23,7 @@ import {
   type OperationDefinition,
   type OperationId,
   type Schema,
+  type SchemaRegistry,
   type SemVer,
   type Sha256Digest,
   type SlotDefinition,
@@ -119,6 +120,173 @@ function fingerprint(domain: 'type' | 'contract', value: unknown): Sha256Digest 
   return hash(domain, encodeUtf8(stable(value)));
 }
 
+function validateVersion(version: SemVer): void {
+  if (
+    !Number.isSafeInteger(version.major) ||
+    version.major < 0 ||
+    !Number.isSafeInteger(version.minor) ||
+    version.minor < 0 ||
+    !Number.isSafeInteger(version.patch) ||
+    version.patch < 0 ||
+    (version.prerelease !== undefined && !/^[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*$/.test(version.prerelease))
+  )
+    throw new TypeError('invalid contract version');
+}
+
+function referencedTypes<O extends Operations, S extends Slots>(
+  definition: ContractDefinition<O, S>,
+): ReadonlyMap<TypeId, ContractType<unknown>> {
+  const referenced = [
+    ...(definition.types ?? []),
+    ...Object.values(definition.operations).flatMap((operation) => [
+      operation.input,
+      operation.output,
+      operation.error,
+    ]),
+    ...Object.values(definition.slots).flatMap((slot) => [slot.input, slot.output]),
+  ];
+  const unique = new Map<TypeId, ContractType<unknown>>();
+  for (const type of referenced) {
+    ids.type(type.id);
+    const existing = unique.get(type.id);
+    if (existing && stable(existing.schema) !== stable(type.schema))
+      throw new TypeError(`conflicting schema ${type.id}`);
+    unique.set(type.id, type);
+  }
+  return unique;
+}
+
+function defineTypes(types: ReadonlyMap<TypeId, ContractType<unknown>>): readonly TypeDefinition[] {
+  return [...types.values()]
+    .sort((left, right) => String(left.id).localeCompare(String(right.id)))
+    .map((type) => ({ id: type.id, schema: type.schema, fingerprint: fingerprint('type', type.schema) }));
+}
+
+interface DerivedOperations {
+  readonly operations: readonly OperationDefinition[];
+  readonly effects: ReadonlyMap<EffectId, EffectDefinition>;
+  readonly capabilities: ReadonlyMap<CapabilityId, CapabilityDefinition>;
+}
+
+function defineOperations<O extends Operations>(source: O, schemas: SchemaRegistry): DerivedOperations {
+  const effects = new Map<EffectId, EffectDefinition>();
+  const capabilities = new Map<CapabilityId, CapabilityDefinition>();
+  const operations = Object.values(source)
+    .map((operation): OperationDefinition => {
+      ids.operation(operation.id);
+      ids.effect(operation.effect);
+      ids.capability(operation.capability);
+      if (!Number.isSafeInteger(operation.effectCost) || operation.effectCost < 0)
+        throw new TypeError(`invalid effect cost for ${operation.id}`);
+      if (operation.idempotency !== 'none' && operation.idempotency !== 'required')
+        throw new TypeError(`invalid idempotency for ${operation.id}`);
+      if (typeof operation.resourceScope !== 'function')
+        throw new TypeError(`missing resource scope for ${operation.id}`);
+      if (!supportsPolicyError(operation.error.schema, schemas))
+        throw new TypeError(`operation error must include policy for ${operation.id}`);
+      effects.set(operation.effect, { id: operation.effect, fingerprint: fingerprint('contract', operation.effect) });
+      capabilities.set(operation.capability, {
+        id: operation.capability,
+        fingerprint: fingerprint('contract', operation.capability),
+      });
+      const record = {
+        id: operation.id,
+        input: operation.input.id,
+        output: operation.output.id,
+        error: operation.error.id,
+        effect: operation.effect,
+        capability: operation.capability,
+        effectCost: operation.effectCost,
+        idempotency: operation.idempotency,
+      };
+      return { ...record, fingerprint: fingerprint('contract', record) };
+    })
+    .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+  if (new Set(operations.map((operation) => operation.id)).size !== operations.length)
+    throw new TypeError('duplicate operation id');
+  return { operations, effects, capabilities };
+}
+
+function validateSlotPermissions(
+  slot: Slot<unknown, unknown>,
+  effects: ReadonlyMap<EffectId, EffectDefinition>,
+  capabilities: ReadonlyMap<CapabilityId, CapabilityDefinition>,
+): void {
+  for (const effect of slot.effects) {
+    ids.effect(effect);
+    if (!effects.has(effect)) throw new TypeError(`unknown effect ${effect}`);
+  }
+  for (const capability of slot.capabilities) {
+    ids.capability(capability);
+    if (!capabilities.has(capability)) throw new TypeError(`unknown capability ${capability}`);
+  }
+  if (
+    new Set(slot.effects).size !== slot.effects.length ||
+    new Set(slot.capabilities).size !== slot.capabilities.length
+  )
+    throw new TypeError(`duplicate slot permission ${slot.id}`);
+}
+
+function defineSlots<S extends Slots>(
+  source: S,
+  effects: ReadonlyMap<EffectId, EffectDefinition>,
+  capabilities: ReadonlyMap<CapabilityId, CapabilityDefinition>,
+): readonly SlotDefinition[] {
+  const slots = Object.values(source)
+    .map((slot): SlotDefinition => {
+      ids.slot(slot.id);
+      if (
+        !Number.isSafeInteger(slot.languageVersion.major) ||
+        slot.languageVersion.major < 0 ||
+        !Number.isSafeInteger(slot.languageVersion.minor) ||
+        slot.languageVersion.minor < 0
+      )
+        throw new TypeError(`invalid language version for ${slot.id}`);
+      validateSlotPermissions(slot, effects, capabilities);
+      const record = {
+        id: slot.id,
+        input: slot.input.id,
+        output: slot.output.id,
+        languageVersion: slot.languageVersion,
+        effects: Object.freeze([...slot.effects]),
+        capabilities: Object.freeze([...slot.capabilities]),
+        compileLimits: completeLimits(STANDARD_COMPILE_LIMITS, slot.compileLimits),
+        executionLimits: completeLimits(STANDARD_EXECUTION_LIMITS, slot.executionLimits),
+      };
+      return { ...record, fingerprint: fingerprint('contract', record) };
+    })
+    .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+  if (new Set(slots.map((slot) => slot.id)).size !== slots.length) throw new TypeError('duplicate slot id');
+  return slots;
+}
+
+function sortedDefinitions<T extends { readonly id: string }>(values: Iterable<T>): readonly T[] {
+  return [...values].sort((left, right) => String(left.id).localeCompare(String(right.id)));
+}
+
+function defineCodecs(
+  types: ReadonlyMap<TypeId, ContractType<unknown>>,
+  schemas: SchemaRegistry,
+): Readonly<Record<string, Codec<unknown>>> {
+  return Object.fromEntries(
+    [...types.values()].map((type) => [
+      type.id,
+      freeze({
+        encode(value: unknown): CanonicalBytes {
+          const result = encodeCanonical({ kind: 'ref', type: type.id }, value, { registry: schemas });
+          if (!result.ok) throw new TypeError(`${result.failure.code} at ${result.failure.path.join('.')}`);
+          return Object.freeze([...result.value]);
+        },
+        decode(bytes: Uint8Array | CanonicalBytes): unknown {
+          const result = decodeCanonical({ kind: 'ref', type: type.id }, Uint8Array.from(bytes), { registry: schemas });
+          if (!result.ok) throw new TypeError(`${result.failure.code} at ${result.failure.path.join('.')}`);
+          return result.value;
+        },
+      }),
+    ]),
+  );
+}
+
 /**
  * Validates one host definition and derives every compiler, runtime, editor, and codec artifact from it.
  *
@@ -132,125 +300,15 @@ export function defineContract<const O extends Operations, const S extends Slots
 ): Contract<O, S> {
   try {
     ids.contract(definition.id);
-    if (
-      !Number.isSafeInteger(definition.version.major) ||
-      definition.version.major < 0 ||
-      !Number.isSafeInteger(definition.version.minor) ||
-      definition.version.minor < 0 ||
-      !Number.isSafeInteger(definition.version.patch) ||
-      definition.version.patch < 0 ||
-      (definition.version.prerelease !== undefined &&
-        !/^[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*$/.test(definition.version.prerelease))
-    ) {
-      throw new TypeError('invalid contract version');
-    }
-    const referenced = [
-      ...(definition.types ?? []),
-      ...Object.values(definition.operations).flatMap((operation) => [
-        operation.input,
-        operation.output,
-        operation.error,
-      ]),
-      ...Object.values(definition.slots).flatMap((slot) => [slot.input, slot.output]),
-    ];
-    const uniqueTypes = new Map<TypeId, ContractType<unknown>>();
-    for (const type of referenced) {
-      ids.type(type.id);
-      const existing = uniqueTypes.get(type.id);
-      if (existing && stable(existing.schema) !== stable(type.schema)) {
-        throw new TypeError(`conflicting schema ${type.id}`);
-      }
-      uniqueTypes.set(type.id, type);
-    }
-    const typeDefinitions: TypeDefinition[] = [...uniqueTypes.values()]
-      .sort((a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0))
-      .map((type) => ({ id: type.id, schema: type.schema, fingerprint: fingerprint('type', type.schema) }));
+    validateVersion(definition.version);
+    const uniqueTypes = referencedTypes(definition);
+    const typeDefinitions = defineTypes(uniqueTypes);
     const schemas = defineSchemaRegistry(typeDefinitions);
-    const effects = new Map<EffectId, EffectDefinition>();
-    const capabilities = new Map<CapabilityId, CapabilityDefinition>();
-    const operations: OperationDefinition[] = Object.values(definition.operations)
-      .map((operation) => {
-        ids.operation(operation.id);
-        ids.effect(operation.effect);
-        ids.capability(operation.capability);
-        if (!Number.isSafeInteger(operation.effectCost) || operation.effectCost < 0) {
-          throw new TypeError(`invalid effect cost for ${operation.id}`);
-        }
-        if (operation.idempotency !== 'none' && operation.idempotency !== 'required') {
-          throw new TypeError(`invalid idempotency for ${operation.id}`);
-        }
-        if (typeof operation.resourceScope !== 'function') {
-          throw new TypeError(`missing resource scope for ${operation.id}`);
-        }
-        if (!supportsPolicyError(operation.error.schema, schemas)) {
-          throw new TypeError(`operation error must include policy for ${operation.id}`);
-        }
-        effects.set(operation.effect, { id: operation.effect, fingerprint: fingerprint('contract', operation.effect) });
-        capabilities.set(operation.capability, {
-          id: operation.capability,
-          fingerprint: fingerprint('contract', operation.capability),
-        });
-        const record = {
-          id: operation.id,
-          input: operation.input.id,
-          output: operation.output.id,
-          error: operation.error.id,
-          effect: operation.effect,
-          capability: operation.capability,
-          effectCost: operation.effectCost,
-          idempotency: operation.idempotency,
-        };
-        return { ...record, fingerprint: fingerprint('contract', record) };
-      })
-      .sort((a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0));
-    if (new Set(operations.map((operation) => operation.id)).size !== operations.length) {
-      throw new TypeError('duplicate operation id');
-    }
-    const slots: SlotDefinition[] = Object.values(definition.slots)
-      .map((slot) => {
-        ids.slot(slot.id);
-        if (
-          !Number.isSafeInteger(slot.languageVersion.major) ||
-          slot.languageVersion.major < 0 ||
-          !Number.isSafeInteger(slot.languageVersion.minor) ||
-          slot.languageVersion.minor < 0
-        ) {
-          throw new TypeError(`invalid language version for ${slot.id}`);
-        }
-        for (const effect of slot.effects) {
-          ids.effect(effect);
-          if (!effects.has(effect)) throw new TypeError(`unknown effect ${effect}`);
-        }
-        for (const capability of slot.capabilities) {
-          ids.capability(capability);
-          if (!capabilities.has(capability)) throw new TypeError(`unknown capability ${capability}`);
-        }
-        if (
-          new Set(slot.effects).size !== slot.effects.length ||
-          new Set(slot.capabilities).size !== slot.capabilities.length
-        ) {
-          throw new TypeError(`duplicate slot permission ${slot.id}`);
-        }
-        const record = {
-          id: slot.id,
-          input: slot.input.id,
-          output: slot.output.id,
-          languageVersion: slot.languageVersion,
-          effects: Object.freeze([...slot.effects]),
-          capabilities: Object.freeze([...slot.capabilities]),
-          compileLimits: completeLimits(STANDARD_COMPILE_LIMITS, slot.compileLimits),
-          executionLimits: completeLimits(STANDARD_EXECUTION_LIMITS, slot.executionLimits),
-        };
-        return { ...record, fingerprint: fingerprint('contract', record) };
-      })
-      .sort((a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0));
-    if (new Set(slots.map((slot) => slot.id)).size !== slots.length) throw new TypeError('duplicate slot id');
-    const sortedEffects = [...effects.values()].sort((a, b) =>
-      String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0,
-    );
-    const sortedCapabilities = [...capabilities.values()].sort((a, b) =>
-      String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0,
-    );
+    const derived = defineOperations(definition.operations, schemas);
+    const operations = derived.operations;
+    const slots = defineSlots(definition.slots, derived.effects, derived.capabilities);
+    const sortedEffects = sortedDefinitions(derived.effects.values());
+    const sortedCapabilities = sortedDefinitions(derived.capabilities.values());
     const definitions = [...typeDefinitions, ...sortedEffects, ...sortedCapabilities, ...operations, ...slots].map(
       ({ id, fingerprint: value }) => ({ id, fingerprint: value }),
     );
@@ -266,25 +324,7 @@ export function defineContract<const O extends Operations, const S extends Slots
       slots,
       definitions,
     });
-    const codecs = Object.fromEntries(
-      [...uniqueTypes.values()].map((type) => [
-        type.id,
-        freeze({
-          encode(value: unknown): CanonicalBytes {
-            const result = encodeCanonical({ kind: 'ref', type: type.id }, value, { registry: schemas });
-            if (!result.ok) throw new TypeError(`${result.failure.code} at ${result.failure.path.join('.')}`);
-            return Object.freeze([...result.value]);
-          },
-          decode(bytes: Uint8Array | CanonicalBytes): unknown {
-            const result = decodeCanonical({ kind: 'ref', type: type.id }, Uint8Array.from(bytes), {
-              registry: schemas,
-            });
-            if (!result.ok) throw new TypeError(`${result.failure.code} at ${result.failure.path.join('.')}`);
-            return result.value;
-          },
-        }),
-      ]),
-    );
+    const codecs = defineCodecs(uniqueTypes, schemas);
     const declarations = generateDeclarations(typeDefinitions, operations);
     return freeze({
       id: definition.id,
