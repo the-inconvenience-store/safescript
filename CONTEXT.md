@@ -27,3 +27,15 @@ _Avoid_: Source offset, sidecar ID
 **Contract requirement**:
 The exact fingerprinted contract definitions that a checked program depends on and that must remain compatible when it executes.
 _Avoid_: Full contract snapshot
+
+**Typed IR**:
+The versioned, verified SafeScript control-flow form produced from accepted source. It uses typed single-assignment values and explicit basic blocks and contains no host handles or ambient authority.
+_Avoid_: Generated JavaScript, bytecode plugin
+
+**Semantic charge**:
+Deterministic resource usage assigned by the SafeScript IR and ABI specification to language operations and the canonical values they inspect or produce. It does not measure JavaScript-engine work or host latency.
+_Avoid_: CPU cycle, implementation cost
+
+**Action suspension**:
+The bounded in-memory pause of one invocation after it records an action request and before it receives the matching validated outcome. It is private interpreter state, not a durable continuation.
+_Avoid_: Workflow state, checkpoint
