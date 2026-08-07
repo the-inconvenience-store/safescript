@@ -32,6 +32,14 @@ _Avoid_: Full contract snapshot
 The versioned, verified SafeScript control-flow form produced from accepted source. It uses typed single-assignment values and explicit basic blocks and contains no host handles or ambient authority.
 _Avoid_: Generated JavaScript, bytecode plugin
 
+**Semantic program graph**:
+A complete, deterministic set of source-level compiler facts derived from an accepted program and its host contract. It is disposable, non-executable, and never an input to checking, lowering, or execution.
+_Avoid_: Editable program model, public IR
+
+**Visual projection**:
+A host-defined, read-only selection and grouping of semantic program graph facts for human inspection. It carries no program meaning or authority beyond the graph and canonical TypeScript source from which it was derived.
+_Avoid_: Node program, visual source
+
 **Semantic charge**:
 Deterministic resource usage assigned by the SafeScript IR and ABI specification to language operations and the canonical values they inspect or produce. It does not measure JavaScript-engine work or host latency.
 _Avoid_: CPU cycle, implementation cost
