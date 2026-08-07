@@ -37,7 +37,7 @@ export default [
             },
             {
               sourceTag: 'layer:conformance',
-              onlyDependOnLibsWithTags: ['layer:contracts'],
+              onlyDependOnLibsWithTags: ['layer:contracts', 'layer:engine', 'layer:sdk'],
             },
           ],
         },

@@ -6,6 +6,10 @@
   "dependencies": {
     "@safescript/contracts": "*"
   },
+  "devDependencies": {
+    "@safescript/engine": "*",
+    "@safescript/sdk": "*"
+  },
   "nx": {
     "tags": [
       "layer:conformance"

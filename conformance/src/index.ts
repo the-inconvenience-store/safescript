@@ -4,6 +4,14 @@
  */
 import type { RuntimeBridge, RuntimeBridgeFactory } from '@safescript/contracts';
 
+export {
+  applicationExtensionReference,
+  codeModeReference,
+  deviceRuleReference,
+  walkingSkeletonReference,
+} from './references.js';
+export type { ReferenceIntegration } from './references.js';
+
 /**
  * Runs a conformance case against a bridge created through the public adapter seam.
  *

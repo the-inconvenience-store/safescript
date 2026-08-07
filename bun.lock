@@ -28,6 +28,10 @@
       "dependencies": {
         "@safescript/contracts": "*",
       },
+      "devDependencies": {
+        "@safescript/engine": "*",
+        "@safescript/sdk": "*",
+      },
     },
     "packages/contracts": {
       "name": "@safescript/contracts",
