@@ -202,6 +202,7 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots, E extends Poli
         return await this.bridge.inspect({
           ...this.requests.check(slot, request.source, request.limits),
           views: request.views,
+          ...(request.graphLimits === undefined ? {} : { graphLimits: request.graphLimits }),
         });
       } catch {
         return freeze({ status: 'bridge_error', error: bridgeError('inspect') });

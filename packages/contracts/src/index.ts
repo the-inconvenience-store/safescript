@@ -44,6 +44,8 @@ export type SourceHash = Branded<string, 'SourceHash'>;
 export type ProgramHash = Branded<string, 'ProgramHash'>;
 /** Digest of verified typed IR. */
 export type IrDigest = Branded<string, 'IrDigest'>;
+/** Reproducible identity of one fact in a derived semantic graph. */
+export type SemanticNodeId = Branded<string, 'SemanticNodeId'>;
 
 const HOST_NAME = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/;
 const MODULE_NAME = /^@?[a-z][a-z0-9-]*(?:[/.][a-z][a-z0-9-]*)*$/;
@@ -109,7 +111,16 @@ export const ids = Object.freeze({
 
 /** Domain separators supported by {@link hash}. */
 export type HashDomain =
-  'action-site' | 'artifact' | 'contract' | 'idempotency' | 'ir' | 'program' | 'source' | 'symbol' | 'type';
+  | 'action-site'
+  | 'artifact'
+  | 'contract'
+  | 'idempotency'
+  | 'ir'
+  | 'program'
+  | 'semantic-node'
+  | 'source'
+  | 'symbol'
+  | 'type';
 
 /**
  * Computes a versioned, domain-separated SHA-256 digest.
@@ -129,6 +140,11 @@ export function derivedSymbolId(bytes: Uint8Array): SymbolId {
 /** Derives a reproducible host-call-site identity from canonical semantic bytes. */
 export function derivedActionSiteId(bytes: Uint8Array): ActionSiteId {
   return ids.actionSite(`action-site:${hash('action-site', bytes)}`);
+}
+
+/** Derives a formatting-insensitive identity for one source-semantic graph fact. */
+export function derivedSemanticNodeId(bytes: Uint8Array): SemanticNodeId {
+  return `semantic-node:${hash('semantic-node', bytes)}` as SemanticNodeId;
 }
 
 /** Computes the canonical hash of one source byte sequence. */
@@ -1879,9 +1895,150 @@ export type CheckResult =
 
 /** Read-only derived views available from an accepted compilation. */
 export type InspectView = 'semantic_graph';
+
+/** Independent ceilings for disposable semantic graph export. */
+export interface SemanticGraphLimits {
+  readonly nodes: number;
+  readonly edges: number;
+  readonly bytes: number;
+}
+
+/** Conservative graph-export ceilings; callers may only lower them. */
+export const STANDARD_SEMANTIC_GRAPH_LIMITS: SemanticGraphLimits = Object.freeze({
+  nodes: 100_000,
+  edges: 250_000,
+  bytes: 4 * 1024 * 1024,
+});
+
+/** Closed source-semantic fact kinds. Consumers must reject kinds they do not understand. */
+export type SemanticNodeKind = 'declaration' | 'expression' | 'control' | 'input' | 'output' | 'constant' | 'action';
+
+/** Closed semantic sub-kinds emitted by graph schema 1.x. */
+export type SemanticNodeSemanticKind =
+  | 'program'
+  | 'handler'
+  | 'function'
+  | 'variable'
+  | 'destructure'
+  | 'assign'
+  | 'expression'
+  | 'if'
+  | 'for-of'
+  | 'for-in'
+  | 'loop'
+  | 'break'
+  | 'continue'
+  | 'return'
+  | 'switch'
+  | 'slot-input'
+  | 'control-parameter'
+  | 'constant'
+  | 'project-field'
+  | 'compare'
+  | 'binary'
+  | 'construct-record'
+  | 'construct-variant'
+  | 'build-template'
+  | 'jump'
+  | 'branch'
+  | 'action'
+  | 'structured'
+  | 'host-action'
+  | 'return-value'
+  | 'literal'
+  | 'name'
+  | 'member'
+  | 'index'
+  | 'array'
+  | 'object'
+  | 'template'
+  | 'unary'
+  | 'conditional'
+  | 'call'
+  | 'result';
+
+/** Closed relationships between public semantic facts. */
+export type SemanticEdgeKind = 'contains' | 'control' | 'data' | 'input' | 'output';
+
+/** One typed, source-derived semantic fact. Source spans are navigation metadata, not identity. */
+export interface SemanticGraphNode {
+  readonly id: SemanticNodeId;
+  readonly kind: SemanticNodeKind;
+  readonly semanticKind: SemanticNodeSemanticKind;
+  readonly source?: SourceLocation;
+  readonly label?: string;
+  readonly type?: Schema;
+  readonly symbolId?: SymbolId;
+  readonly actionSiteId?: ActionSiteId;
+  readonly operationId?: OperationId;
+  readonly effectId?: EffectId;
+  readonly capabilityId?: CapabilityId;
+  readonly constant?: null | boolean | number | string;
+  readonly operator?: string;
+  readonly effectCost?: number;
+  readonly idempotency?: OperationDefinition['idempotency'];
+}
+
+/** One deterministic relationship between semantic facts. */
+export interface SemanticGraphEdge {
+  readonly kind: SemanticEdgeKind;
+  readonly from: SemanticNodeId;
+  readonly to: SemanticNodeId;
+  readonly label?: string;
+}
+
+/** Static resource facts derived from the accepted program, never runtime usage. */
+export interface SemanticGraphResources {
+  readonly declarations: number;
+  readonly expressions: number;
+  readonly controlPoints: number;
+  readonly actionSites: number;
+  readonly potentialEffectCost: number;
+  readonly declarationNodes: readonly SemanticNodeId[];
+  readonly expressionNodes: readonly SemanticNodeId[];
+  readonly controlNodes: readonly SemanticNodeId[];
+  readonly actionNodes: readonly SemanticNodeId[];
+}
+
+/** One aggregate authority fact and the action sites that contribute it. */
+export interface SemanticGraphAuthority {
+  readonly kind: 'effect' | 'capability';
+  readonly id: EffectId | CapabilityId;
+  readonly actionNodes: readonly SemanticNodeId[];
+}
+
+/** Complete, disposable source-semantic projection for one accepted program. */
+export interface SemanticGraph {
+  readonly schemaVersion: SemVer;
+  readonly sourceHash: SourceHash;
+  readonly programHash: ProgramHash;
+  readonly compiler: CompilerVersion;
+  readonly language: Version;
+  readonly contract: Readonly<{ id: ContractId; version: SemVer; digest: Sha256Digest }>;
+  readonly slotId: SlotId;
+  readonly entryModule: ModuleId;
+  readonly root: SemanticNodeId;
+  readonly nodes: readonly SemanticGraphNode[];
+  readonly edges: readonly SemanticGraphEdge[];
+  readonly effects: readonly EffectId[];
+  readonly capabilities: readonly CapabilityId[];
+  readonly authorities: readonly SemanticGraphAuthority[];
+  readonly resources: SemanticGraphResources;
+  readonly sources: readonly Readonly<{ module: ModuleId; hash: SourceHash }>[];
+}
+
+/** A requested view may fail independently after source checking has succeeded. */
+export interface SemanticGraphError {
+  readonly code: 'graph_limit_exceeded';
+  readonly limit: keyof SemanticGraphLimits;
+  readonly maximum: number;
+  readonly actual: number;
+}
+
 /** Check request plus the bounded derived views requested by the caller. */
 export interface InspectRequest extends CheckRequest {
   readonly views: readonly InspectView[];
+  readonly graphLimits?: SemanticGraphLimits;
 }
 /** Inspection result; rejected source never returns a partial trusted view. */
 export type InspectResult =
@@ -1889,6 +2046,7 @@ export type InspectResult =
       status: 'accepted';
       check: Extract<CheckResult, { status: 'accepted' }>;
       views: Readonly<Partial<Record<InspectView, CanonicalBytes>>>;
+      viewErrors: Readonly<Partial<Record<InspectView, SemanticGraphError>>>;
     }>
   | Extract<CheckResult, { status: 'rejected' | 'bridge_error' }>;
 

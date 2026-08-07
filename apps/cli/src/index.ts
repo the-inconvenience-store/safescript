@@ -344,6 +344,9 @@ async function perform(command: Command, contractValue: unknown, requestValue: u
         source: source(request.source),
         views: request.views as never,
         ...(request.limits === undefined ? {} : { limits: object(request.limits, 'request.limits') }),
+        ...(request.graphLimits === undefined
+          ? {}
+          : { graphLimits: object(request.graphLimits, 'request.graphLimits') as never }),
       });
     }
     const executionProgram = program(request.program);

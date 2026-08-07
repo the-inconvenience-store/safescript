@@ -548,6 +548,15 @@ describe('compiler validation through the RuntimeBridge interface', () => {
 
     const checked = await bridge.check(language11Request);
     expect(checked.status).toBe('accepted');
+    const inspected = await bridge.inspect({ ...language11Request, views: ['semantic_graph'] });
+    expect(inspected.status).toBe('accepted');
+    if (inspected.status === 'accepted') {
+      const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(inspected.views.semantic_graph ?? [])));
+      expect(graph.nodes.some((node: { semanticKind: string }) => node.semanticKind === 'variable')).toBe(true);
+      expect(graph.nodes.some((node: { semanticKind: string }) => node.semanticKind === 'host-action')).toBe(true);
+      expect(graph.resources.actionNodes).toHaveLength(1);
+      expect(graph.authorities[0].actionNodes).toHaveLength(1);
+    }
     let calls = 0;
     const completed = await bridge.execute(
       {
@@ -1220,12 +1229,53 @@ describe('inspection and bridge lifecycle', () => {
     if (inspected.status === 'accepted') {
       expect(inspected.check.status).toBe('accepted');
       const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(inspected.views.semantic_graph ?? [])));
-      expect(graph.handler).toBe('onDealUpdated');
-      expect(graph.actions).toHaveLength(1);
-      expect(graph.predicates.length).toBeGreaterThan(0);
+      expect(graph.schemaVersion).toEqual({ major: 1, minor: 0, patch: 0 });
+      expect(graph.nodes.filter((node: { kind: string }) => node.kind === 'action')).toHaveLength(1);
+      expect(graph.nodes.some((node: { kind: string }) => node.kind === 'constant')).toBe(true);
+      expect(graph.edges.some((edge: { kind: string }) => edge.kind === 'data')).toBe(true);
+      expect(graph.contract.id).toBe(registry.id);
+      expect(inspected.viewErrors).toEqual({});
     }
     const omitted = await bridge.inspect({ ...checkRequest, views: [] });
-    if (omitted.status === 'accepted') expect(omitted.views).toEqual({});
+    if (omitted.status === 'accepted') {
+      expect(omitted.views).toEqual({});
+      expect(omitted.viewErrors).toEqual({});
+    }
+  });
+
+  it('keeps formatting-insensitive graph IDs and fails graph export atomically at independent limits', async () => {
+    const bridge = createDirectRuntimeBridge();
+    const first = await bridge.inspect({ ...checkRequest, views: ['semantic_graph'] });
+    const formatted = await bridge.inspect({
+      ...checkWithSource(`\n\n${source.replaceAll('  ', '    ')}\n// formatting-only comment\n`),
+      views: ['semantic_graph'],
+    });
+    expect(first.status).toBe('accepted');
+    expect(formatted.status).toBe('accepted');
+    if (first.status === 'accepted' && formatted.status === 'accepted') {
+      const decode = (bytes: readonly number[]) => JSON.parse(new TextDecoder().decode(Uint8Array.from(bytes)));
+      const firstGraph = decode(first.views.semantic_graph ?? []);
+      const formattedGraph = decode(formatted.views.semantic_graph ?? []);
+      expect(firstGraph.nodes.map((node: { id: string }) => node.id)).toEqual(
+        formattedGraph.nodes.map((node: { id: string }) => node.id),
+      );
+    }
+    const bounded = await bridge.inspect({
+      ...checkRequest,
+      views: ['semantic_graph'],
+      graphLimits: { nodes: 1, edges: 250_000, bytes: 4 * 1024 * 1024 },
+    });
+    expect(bounded.status).toBe('accepted');
+    if (bounded.status === 'accepted') {
+      expect(bounded.check.status).toBe('accepted');
+      expect(bounded.views).toEqual({});
+      expect(bounded.viewErrors.semantic_graph).toEqual({
+        code: 'graph_limit_exceeded',
+        limit: 'nodes',
+        maximum: 1,
+        actual: expect.any(Number),
+      });
+    }
   });
 
   it('closes idempotently and rejects later operations', async () => {

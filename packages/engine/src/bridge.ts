@@ -40,6 +40,7 @@ import {
   type Version,
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
+  STANDARD_SEMANTIC_GRAPH_LIMITS,
 } from '@safescript/contracts';
 
 import { createArtifact, verifyArtifact, type CheckedArtifact } from './artifact.js';
@@ -47,6 +48,7 @@ import { compileProgram, compileProgramModules, measureCompilerSource } from './
 import { interpret, InterpreterFault } from './interpreter.js';
 import { verifyProgram, type IrTerminator } from './ir.js';
 import { structuredActions } from './structured-ir.js';
+import { deriveSemanticGraph } from './semantic-graph.js';
 
 const ABI_VERSION = Object.freeze({ major: 1, minor: 0 });
 const COMPILER = Object.freeze({
@@ -789,33 +791,25 @@ export class DirectRuntimeBridge implements RuntimeBridge {
 
   async inspect(request: InspectRequest): Promise<InspectResult> {
     if (this.closed) return { status: 'bridge_error', error: bridgeError('inspect', 'bridge_closed') };
+    if (
+      !Array.isArray(request.views) ||
+      request.views.some((view) => view !== 'semantic_graph') ||
+      new Set(request.views).size !== request.views.length
+    )
+      return { status: 'bridge_error', error: bridgeError('inspect', 'invalid_request', 'invalid view selection') };
+    const graphLimits = request.graphLimits ?? STANDARD_SEMANTIC_GRAPH_LIMITS;
+    if (
+      Object.keys(graphLimits).length !== 3 ||
+      (Object.keys(STANDARD_SEMANTIC_GRAPH_LIMITS) as (keyof typeof STANDARD_SEMANTIC_GRAPH_LIMITS)[]).some(
+        (key) =>
+          !Number.isSafeInteger(graphLimits[key]) ||
+          graphLimits[key] < 0 ||
+          graphLimits[key] > STANDARD_SEMANTIC_GRAPH_LIMITS[key],
+      )
+    )
+      return { status: 'bridge_error', error: bridgeError('inspect', 'invalid_request', 'invalid graph limits') };
     const result = checkCompile(request);
     if (result.status !== 'accepted') return result;
-    const program = result.compiled.artifact.program.program;
-    const graph = frozenBytes(
-      encoder.encode(
-        JSON.stringify({
-          version: [1, 0],
-          handler: result.compiled.artifact.handler,
-          trigger: request.slotId,
-          predicates: program.blocks.flatMap((block) =>
-            block.instructions
-              .filter((instruction) => instruction.tag === 'compare')
-              .map((instruction) => ({ operator: instruction.operator, source: instruction.source })),
-          ),
-          branches: program.blocks
-            .filter((block) => block.terminator.tag === 'branch' || block.terminator.tag === 'switch')
-            .map((block) => ({ block: block.id, kind: block.terminator.tag })),
-          actions: actionInstructions(result.compiled.artifact).map((action) => ({
-            operationId: action.operationId,
-            effectId: action.effectId,
-            capabilityId: action.capabilityId,
-            actionSiteId: action.actionSiteId,
-            source: action.source,
-          })),
-        }),
-      ),
-    );
     const check: AcceptedCheck = Object.freeze({
       status: result.status,
       artifact: result.artifact,
@@ -824,10 +818,19 @@ export class DirectRuntimeBridge implements RuntimeBridge {
       usage: result.usage,
       diagnostics: result.diagnostics,
     });
+    let graph: ReturnType<typeof deriveSemanticGraph> | undefined;
+    try {
+      graph = request.views.includes('semantic_graph')
+        ? deriveSemanticGraph(request, result.compiled.slot, result.compiled.artifact, COMPILER, graphLimits)
+        : undefined;
+    } catch {
+      return { status: 'bridge_error', error: bridgeError('inspect', 'adapter_failure') };
+    }
     return Object.freeze({
       status: 'accepted',
       check,
-      views: Object.freeze(request.views.includes('semantic_graph') ? { semantic_graph: graph } : {}),
+      views: Object.freeze(graph !== undefined && 'bytes' in graph ? { semantic_graph: graph.bytes } : {}),
+      viewErrors: Object.freeze(graph !== undefined && 'code' in graph ? { semantic_graph: Object.freeze(graph) } : {}),
     });
   }
 

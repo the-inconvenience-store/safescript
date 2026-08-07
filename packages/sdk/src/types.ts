@@ -23,6 +23,7 @@ import {
   type PolicyError,
   type Result,
   type RuntimeBridge,
+  type SemanticGraphLimits,
   type Sha256Digest,
   type TraceMode,
 } from '@safescript/contracts';
@@ -95,6 +96,7 @@ export interface CheckRequest<K extends PropertyKey> {
 /** Source check plus explicitly requested read-only derived views. */
 export interface InspectRequest<K extends PropertyKey> extends CheckRequest<K> {
   readonly views: readonly InspectView[];
+  readonly graphLimits?: SemanticGraphLimits;
 }
 /** Typed execution request including host-local context and deterministic invocation inputs. */
 export interface ExecuteRequest<K extends PropertyKey, I, C> {
