@@ -7,7 +7,9 @@ import {
   decodeCanonical,
   deriveIdempotencyKey,
   encodeCanonical,
+  diagnosticRepair,
   ids,
+  languageProfile,
   policyErrorValue,
   resultSchema,
   type ActionOutcome,
@@ -149,6 +151,7 @@ function diagnostic(request: CheckRequest, code: CompilerDiagnosticCode, message
     code,
     severity: 'error' as const,
     message: message.slice(0, MAX_DIAGNOSTIC_MESSAGE_LENGTH),
+    repair: Object.freeze(diagnosticRepair(code)),
     location: Object.freeze({ module: request.source.entry, start, end }),
   });
 }
@@ -205,11 +208,7 @@ function checkCompile(request: CheckRequest): InternalCheckResult {
       ),
       usage: compileUsage,
     });
-  if (
-    !sameVersion(request.abiVersion, ABI_VERSION) ||
-    request.languageVersion.major !== 1 ||
-    ![0, 1].includes(request.languageVersion.minor)
-  )
+  if (!sameVersion(request.abiVersion, ABI_VERSION) || !languageProfile(request.languageVersion))
     return Object.freeze({ status: 'bridge_error', error: bridgeError('check', 'unsupported_version') });
   const slot = validateRegistry(request.registry, request.slotId);
   if (typeof slot === 'string') return reject('SS_CONTRACT_INVALID', slot);

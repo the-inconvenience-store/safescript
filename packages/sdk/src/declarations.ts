@@ -9,7 +9,7 @@ interface DeclarationNode {
   readonly children: Map<string, DeclarationNode>;
 }
 
-function typeName(id: TypeId): string {
+export function declarationTypeName(id: TypeId): string {
   return String(id)
     .slice(5)
     .split(/[.-]/)
@@ -21,7 +21,7 @@ function typeNames(types: readonly TypeDefinition[]): ReadonlyMap<TypeId, string
   const names = new Map<TypeId, string>();
   const idsByName = new Map<string, TypeId>();
   for (const type of types) {
-    const name = typeName(type.id);
+    const name = declarationTypeName(type.id);
     if (['Context', 'Effect', 'Result'].includes(name) || idsByName.has(name)) {
       throw new TypeError(`conflicting declaration name ${name}`);
     }
@@ -31,14 +31,14 @@ function typeNames(types: readonly TypeDefinition[]): ReadonlyMap<TypeId, string
   return names;
 }
 
-function typeScriptType(schema: Schema): string {
+function typeScriptType(schema: Schema, sourceAuthoring: boolean): string {
   switch (schema.kind) {
     case 'unit':
-      return 'null';
+      return sourceAuthoring ? 'void' : 'null';
     case 'boolean':
       return 'boolean';
     case 'int64':
-      return 'bigint';
+      return sourceAuthoring ? 'number' : 'bigint';
     case 'float64':
       return 'number';
     case 'string':
@@ -48,19 +48,22 @@ function typeScriptType(schema: Schema): string {
     case 'instant':
       return 'Readonly<{ epochSeconds: bigint; nanoseconds: number }>';
     case 'list':
-      return `readonly (${typeScriptType(schema.item)})[]`;
+      return `readonly (${typeScriptType(schema.item, sourceAuthoring)})[]`;
     case 'tuple':
-      return `readonly [${schema.items.map(typeScriptType).join(', ')}]`;
+      return `readonly [${schema.items.map((item) => typeScriptType(item, sourceAuthoring)).join(', ')}]`;
     case 'record':
-      return `Readonly<{ ${schema.fields.map((field) => `${field.name}: ${typeScriptType(field.schema)}`).join('; ')} }>`;
+      return `Readonly<{ ${schema.fields.map((field) => `${field.name}: ${typeScriptType(field.schema, sourceAuthoring)}`).join('; ')} }>`;
     case 'variant':
       return schema.variants
-        .map((variant) => `Readonly<{ tag: ${JSON.stringify(variant.tag)}; value: ${typeScriptType(variant.schema)} }>`)
+        .map(
+          (variant) =>
+            `Readonly<{ tag: ${JSON.stringify(variant.tag)}; value: ${typeScriptType(variant.schema, sourceAuthoring)} }>`,
+        )
         .join(' | ');
     case 'brand':
-      return `${typeScriptType(schema.base)} & { readonly __brand: ${JSON.stringify(String(schema.type))} }`;
+      return `${typeScriptType(schema.base, sourceAuthoring)} & { readonly __brand: ${JSON.stringify(String(schema.type))} }`;
     case 'ref':
-      return typeName(schema.type);
+      return declarationTypeName(schema.type);
   }
 }
 
@@ -108,10 +111,11 @@ function hostDeclarations(operations: readonly OperationDefinition[], names: Rea
 export function generateDeclarations(
   types: readonly TypeDefinition[],
   operations: readonly OperationDefinition[],
+  sourceAuthoring = false,
 ): string {
   const names = typeNames(types);
   return [
-    ...types.map((type) => `export type ${names.get(type.id)} = ${typeScriptType(type.schema)};`),
+    ...types.map((type) => `export type ${names.get(type.id)} = ${typeScriptType(type.schema, sourceAuthoring)};`),
     hostDeclarations(operations, names),
   ].join('\n');
 }

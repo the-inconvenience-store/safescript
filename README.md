@@ -29,6 +29,7 @@ Hosts define one immutable contract and create one six-method facade:
 
 ```ts
 const contract = defineContract({ id, version, types, operations, slots });
+const authoringBundle = createAuthoringBundle(contract, 'onEvent');
 
 const safe = createSafeScript({ contract, handlers, authorise });
 
@@ -40,6 +41,11 @@ const result = await safe.execute({
   context,
 });
 ```
+
+The versioned authoring bundle is generated from the validated registry and the slot's exact language profile. It
+contains slot-scoped `host:api` declarations, prelude and deterministic-global declarations, limits, a compact
+restriction guide, representative TypeScript patterns, and structured compiler-repair guidance. It never contains
+private IR or semantic-graph details.
 
 Every host operation becomes a typed action request. The SDK validates it, rechecks current authority, dispatches the registered handler at most once, validates the outcome, and returns ordered action facts with the execution result.
 

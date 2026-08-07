@@ -164,6 +164,70 @@ export interface SemVer extends Version {
   readonly prerelease?: string;
 }
 
+/** Versioned, serialisable authoring rules shared by checking and generated authoring bundles. */
+export interface LanguageProfile {
+  readonly version: Version;
+  readonly name: string;
+  readonly accepted: readonly string[];
+  readonly rejected: readonly string[];
+  readonly authoringRules: readonly string[];
+}
+
+const LANGUAGE_1_0: LanguageProfile = {
+  version: { major: 1, minor: 0 },
+  name: 'SafeScript restricted TypeScript 1.0',
+  accepted: [
+    'named static imports and one named exported async handler',
+    'readonly records, tagged unions, const bindings, if, exhaustive switch, and return',
+    'short-circuit boolean logic, same-type comparisons, bounded templates, and one sequential host action',
+  ],
+  rejected: [
+    'ambient file, network, process, package, environment, or credential access',
+    'mutation, unsafe types or assertions, exceptions, dynamic imports, generated code, loops, and recursion',
+    'floating promises, timers, callbacks, concurrency, reflection, prototypes, classes, and regular expressions',
+  ],
+  authoringRules: [
+    'Submit exactly one named exported async handler with typed event and Context parameters.',
+    'Import host values and types from host:api and Result, Ok, and Err from safescript:prelude.',
+    'Call host operations only through direct ctx paths and await every action exactly once.',
+    'Use immutable values and handle every Result tag; runtime authorisation is always checked again by the host.',
+  ],
+};
+
+const LANGUAGE_1_1: LanguageProfile = {
+  version: { major: 1, minor: 1 },
+  name: 'SafeScript restricted TypeScript 1.1',
+  accepted: [
+    ...LANGUAGE_1_0.accepted,
+    'typed helper functions, closures, restricted generics, bounded loops, recursion, readonly arrays and tuples',
+    'deterministic String, Bytes, Math, Temporal, JSON, console trace, and immutable collection operations',
+    'multiple sequential actions and bounded Promise.all groups whose inputs are statically known',
+  ],
+  rejected: [
+    'ambient file, network, process, package, environment, or credential access',
+    'any, unchecked assertions, exceptions, dynamic imports, generated code, mutable objects, and mutable module state',
+    'floating or duplicated actions, timers, promise races, reflection, prototypes, classes, regex, Map, and Set',
+  ],
+  authoringRules: [
+    ...LANGUAGE_1_0.authoringRules,
+    'Keep loops, recursion, collections, strings, JSON, traces, and concurrent action groups within slot limits.',
+    'Use deterministic intrinsics; time and randomness come only from invocation-provided Temporal.Now and Math.random.',
+    'JSON.parse<T> returns a checked Result; handle both tags before using the decoded value.',
+    'After checking a host Result error, keep later code independent of the original result payload unless bound in that branch.',
+    'Trace Instant and other typed deterministic values directly; do not rely on ambient or prototype conversion.',
+  ],
+};
+
+/** Closed V1 language profiles. The engine and SDK select profiles only from this authority. */
+export const LANGUAGE_PROFILES: readonly LanguageProfile[] = deepFreeze([LANGUAGE_1_0, LANGUAGE_1_1]);
+
+/** Resolves one exact supported language profile. */
+export function languageProfile(version: Version): LanguageProfile | undefined {
+  return LANGUAGE_PROFILES.find(
+    (profile) => profile.version.major === version.major && profile.version.minor === version.minor,
+  );
+}
+
 /** Exact compiler release and build that produced an artifact. */
 export interface CompilerVersion {
   readonly version: SemVer;
@@ -1617,12 +1681,75 @@ export const COMPILER_DIAGNOSTIC_CODES = Object.freeze([
 ] as const);
 export type CompilerDiagnosticCode = (typeof COMPILER_DIAGNOSTIC_CODES)[number];
 
+/** Stable repair classification for coding agents and editor integrations. */
+export type DiagnosticCategory =
+  'authority' | 'contract' | 'control-flow' | 'effects' | 'modules' | 'resources' | 'syntax' | 'types';
+
+/** Structured, non-authoritative guidance for repairing one rejected source program. */
+export interface DiagnosticRepair {
+  readonly category: DiagnosticCategory;
+  readonly action: string;
+}
+
+/** Returns bounded repair guidance without exposing private compiler representation or pass details. */
+export function diagnosticRepair(code: CompilerDiagnosticCode): DiagnosticRepair {
+  if (code === 'SS_AMBIENT_AUTHORITY')
+    return { category: 'authority', action: 'Remove ambient access and use a registered operation on ctx.' };
+  if (code === 'SS_COMPILER_LIMIT')
+    return { category: 'resources', action: 'Reduce source, type, template, or module complexity within slot limits.' };
+  if (code === 'SS_RECORD_SHAPE')
+    return { category: 'types', action: 'Use exact fields and expand shorthand { value } to { value: value }.' };
+  if (code === 'SS_CONTRACT_INVALID' || code === 'SS_CONTEXT_REQUIRED' || code === 'SS_SLOT_LANGUAGE_MISMATCH')
+    return {
+      category: 'contract',
+      action: 'Use the exact generated slot context, declarations, and language version.',
+    };
+  if (
+    code === 'SS_DYNAMIC_IMPORT' ||
+    code === 'SS_IMPORT_FORM' ||
+    code === 'SS_IMPORT_NAME' ||
+    code === 'SS_MODULE_SET_INVALID' ||
+    code === 'SS_MODULE_SHAPE'
+  )
+    return { category: 'modules', action: 'Use only supported static imports from the supplied virtual modules.' };
+  if (
+    code === 'SS_FLOATING_ACTION' ||
+    code === 'SS_INVALID_ACTION' ||
+    code === 'SS_PROMISE_RACE' ||
+    code === 'SS_RESULT_CONSTRUCTION'
+  )
+    return { category: 'effects', action: 'Call ctx directly, consume each action once, and handle its typed Result.' };
+  if (
+    code === 'SS_MISSING_RETURN' ||
+    code === 'SS_SWITCH_EXHAUSTIVE' ||
+    code === 'SS_SWITCH_TYPE' ||
+    code === 'SS_UNREACHABLE_CODE'
+  )
+    return { category: 'control-flow', action: 'Make every reachable path return and handle every closed union tag.' };
+  if (
+    code === 'SS_CLASS_REJECTED' ||
+    code === 'SS_EXCEPTION_REJECTED' ||
+    code === 'SS_GENERATED_CODE' ||
+    code === 'SS_GENERATOR_REJECTED' ||
+    code === 'SS_LOCALE_REJECTED' ||
+    code === 'SS_REGEX_REJECTED' ||
+    code === 'SS_SYNTAX' ||
+    code === 'SS_UNSUPPORTED_EXPRESSION' ||
+    code === 'SS_UNSUPPORTED_FUNCTION' ||
+    code === 'SS_UNSUPPORTED_OPERATOR' ||
+    code === 'SS_UNSUPPORTED_SYNTAX'
+  )
+    return { category: 'syntax', action: 'Rewrite with constructs listed by the supplied language profile.' };
+  return { category: 'types', action: 'Use explicit safe types, immutable values, and exact declared record shapes.' };
+}
+
 /** Stable compiler diagnostic safe for editors, agents, and bridge transports. */
 export interface Diagnostic {
   readonly code: CompilerDiagnosticCode;
   readonly severity: 'error' | 'warning' | 'info';
   /** Human-facing, bounded, non-normative text. Consumers branch on `code` and structured fields instead. */
   readonly message: string;
+  readonly repair: DiagnosticRepair;
   readonly location?: SourceLocation;
   readonly related?: readonly SourceLocation[];
 }

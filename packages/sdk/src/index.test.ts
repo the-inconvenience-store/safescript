@@ -921,6 +921,7 @@ describe('createSafeScript', () => {
           code: 'SS_SYNTAX',
           severity: 'error',
           message: 'actual',
+          repair: { category: 'syntax', action: 'Rewrite with supported syntax.' },
           location: { module: ids.module('module:main'), start: 0, end: 1 },
         },
       ],
