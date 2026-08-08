@@ -54,4 +54,4 @@ private IR or semantic-graph details.
 
 Every host operation becomes a typed action request. The SDK validates it, rechecks current authority, dispatches the registered handler at most once, validates the outcome, and returns ordered action facts with the execution result.
 
-See [the full project design](docs/SafeScript.md) for language semantics, security boundaries, lifecycle rules, and roadmap. See [CONTEXT.md](CONTEXT.md) for the project vocabulary used in source and documentation.
+Start with the [SafeScript documentation](docs/README.md) for the introduction, getting-started walkthrough, language guide, engine architecture, SDK usage, security model, testing, and current scope. See [CONTEXT.md](CONTEXT.md) for the project vocabulary used in source and documentation.

@@ -5,6 +5,9 @@ machine-checked reference ledgers live in `conformance/src/resources.ts`; the
 conformance suite measures them only through `RuntimeBridge` and therefore
 applies unchanged to direct and future process adapters.
 
+For an explanation of how hosts configure these ceilings and read resource
+facts, see [limits, diagnostics, and execution facts](limits-and-diagnostics.md).
+
 ## Fuel schedule
 
 Fuel is semantic work, not elapsed time or JavaScript-engine instruction count.
