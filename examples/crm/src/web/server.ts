@@ -1,11 +1,11 @@
-import { AUTOMATIONS } from '../fixtures/automations.js';
-import { createFakeCrm } from './fixture.js';
+import { AUTOMATIONS } from '../automations.js';
+import { createCrm } from '../runtime.js';
 
 const json = (body: unknown, status = 200): Response =>
   Response.json(body, { status, headers: { 'cache-control': 'no-store' } });
 
-export function createFakeCrmWebApp() {
-  let crm = createFakeCrm();
+export function createCrmWebApp() {
+  let crm = createCrm();
 
   return {
     async fetch(request: Request): Promise<Response> {
@@ -18,7 +18,7 @@ export function createFakeCrmWebApp() {
       if (request.method === 'GET' && url.pathname === '/api/state') return json({ state: crm.store.snapshot() });
       if (request.method === 'POST' && url.pathname === '/api/reset') {
         await crm.safe.close();
-        crm = createFakeCrm();
+        crm = createCrm();
         return json({ state: crm.store.snapshot() });
       }
       if (request.method === 'POST' && url.pathname.startsWith('/api/run/')) {
@@ -60,7 +60,7 @@ export function createFakeCrmWebApp() {
 const port = Number(Bun.env.PORT ?? 4317);
 
 if (import.meta.main) {
-  const app = createFakeCrmWebApp();
+  const app = createCrmWebApp();
   Bun.serve({ port, fetch: app.fetch });
-  console.info(`SafeScript fake CRM: http://localhost:${port}`);
+  console.info(`SafeScript CRM example: http://localhost:${port}`);
 }

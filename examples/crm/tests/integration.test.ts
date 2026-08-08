@@ -2,25 +2,25 @@ import { afterEach, describe, expect, it } from 'bun:test';
 
 import { ids } from '@safescript/contracts';
 
-import { createFakeCrm } from '../app/fixture.js';
-import { projectNodeEditor } from '../app/node-editor.js';
-import { createFakeCrmWebApp } from '../app/server.js';
-import { AUTOMATIONS } from '../fixtures/automations.js';
+import { AUTOMATIONS } from '../src/automations.js';
+import { projectNodeEditor } from '../src/graph/project.js';
+import { createCrm } from '../src/runtime.js';
+import { createCrmWebApp } from '../src/web/server.js';
 
-const open: ReturnType<typeof createFakeCrm>[] = [];
-const fixture = () => {
-  const crm = createFakeCrm();
+const open: ReturnType<typeof createCrm>[] = [];
+const example = () => {
+  const crm = createCrm();
   open.push(crm);
   return crm;
 };
 const automationAt = (index: number) => {
   const automation = AUTOMATIONS[index];
-  if (!automation) throw new Error(`missing automation fixture ${index}`);
+  if (!automation) throw new Error(`missing automation example ${index}`);
   return automation;
 };
 const automationNamed = (id: string) => {
   const automation = AUTOMATIONS.find((candidate) => candidate.id === id);
-  if (!automation) throw new Error(`missing automation fixture ${id}`);
+  if (!automation) throw new Error(`missing automation example ${id}`);
   return automation;
 };
 
@@ -28,13 +28,13 @@ afterEach(async () => {
   await Promise.all(open.splice(0).map(({ safe }) => safe.close()));
 });
 
-describe('fake CRM production-style integration', () => {
+describe('CRM example integration', () => {
   it('checks and executes all ten automations with directly observable CRM effects', async () => {
     expect(AUTOMATIONS).toHaveLength(10);
     expect(new Set(AUTOMATIONS.map(({ input }) => input.workspaceId))).toEqual(new Set(['workspace-acme']));
     expect(new Set(AUTOMATIONS.map(({ input }) => input.dealId))).toEqual(new Set(['deal-100']));
     expect(new Set(AUTOMATIONS.map(({ input }) => input.contactId))).toEqual(new Set(['contact-100']));
-    const crm = fixture();
+    const crm = example();
     const initial = crm.store.snapshot();
     expect(initial.workspace).toEqual({ id: 'workspace-acme', name: 'Acme Research' });
     expect(initial.deals['deal-100']).toMatchObject({
@@ -64,7 +64,7 @@ describe('fake CRM production-style integration', () => {
         expect(requested).toEqual([...automation.expectedOperations]);
         for (const record of result.facts.actions) {
           if (record.phase !== 'requested') continue;
-          expect(record.request.contractId).toBe(ids.contract('contract:fixture.fake-crm'));
+          expect(record.request.contractId).toBe(ids.contract('contract:example.crm'));
           expect(record.request.idempotencyKey).toBeDefined();
           expect(record.request.source.module).toBe(automation.source.entryModule);
         }
@@ -82,7 +82,7 @@ describe('fake CRM production-style integration', () => {
   });
 
   it('derives every read-only editor node and edge from the compiler semantic graph', async () => {
-    const crm = fixture();
+    const crm = example();
     for (const automation of AUTOMATIONS) {
       const first = await crm.inspect(automation);
       const second = await crm.inspect(automation);
@@ -124,7 +124,7 @@ describe('fake CRM production-style integration', () => {
   });
 
   it('reauthorises at runtime and exposes a typed policy error without mutating the CRM', async () => {
-    const crm = fixture();
+    const crm = example();
     const result = await crm.run(automationAt(0), {
       context: { actorId: 'outsider', workspaceIds: [] },
     });
@@ -141,7 +141,7 @@ describe('fake CRM production-style integration', () => {
   });
 
   it('enforces a host-call limit between two real effects', async () => {
-    const crm = fixture();
+    const crm = example();
     const escalation = automationNamed('high-value-escalation');
     const result = await crm.run(escalation, { limits: { hostCalls: 1 } });
     expect(result.status).toBe('failed');
@@ -151,7 +151,7 @@ describe('fake CRM production-style integration', () => {
   });
 
   it('executes a checked artifact with the same observable effect as source', async () => {
-    const crm = fixture();
+    const crm = example();
     const automation = automationAt(4);
     const checked = await crm.safe.check({ slot: 'automation', source: automation.source });
     expect(checked.status).toBe('accepted');
@@ -169,7 +169,7 @@ describe('fake CRM production-style integration', () => {
   });
 
   it('uses the deterministic test API without touching production CRM handlers', async () => {
-    const crm = fixture();
+    const crm = example();
     const automation = automationAt(0);
     const report = await crm.safe.test({
       name: automation.id,
@@ -195,7 +195,7 @@ describe('fake CRM production-style integration', () => {
   });
 
   it('covers canonical no-action branches and rejects ambient authority at compile time', async () => {
-    const crm = fixture();
+    const crm = example();
     const won = automationAt(0);
     for (const input of [
       { ...won.input, amountMinor: 1_999_999n },
@@ -222,7 +222,7 @@ describe('fake CRM production-style integration', () => {
   });
 
   it('bounds graph export independently and fails closed on malformed trusted-host output', async () => {
-    const crm = fixture();
+    const crm = example();
     const automation = automationAt(0);
     const bounded = await crm.safe.inspect({
       slot: 'automation',
@@ -234,7 +234,7 @@ describe('fake CRM production-style integration', () => {
     expect(bounded.status === 'accepted' && bounded.views.semantic_graph).toBeUndefined();
     expect(bounded.status === 'accepted' && bounded.viewErrors.semantic_graph?.code).toBe('graph_limit_exceeded');
 
-    const malformed = createFakeCrm(undefined, {
+    const malformed = createCrm(undefined, {
       mapHandlerResult: (operation, result) => (operation === 'createTask' ? { surprise: result } : result),
     });
     open.push(malformed);
@@ -244,14 +244,14 @@ describe('fake CRM production-style integration', () => {
   });
 
   it('serves the interactive editor and runs or resets one automation through HTTP', async () => {
-    const app = createFakeCrmWebApp();
+    const app = createCrmWebApp();
     try {
       const page = await app.fetch(new Request('http://fixture.test/'));
       const html = await page.text();
       expect(page.status).toBe(200);
       expect(html).toContain('id="run-script"');
       expect(html).toContain('id="graph-stage"');
-      expect(html).not.toContain('createFakeCrmWebApp');
+      expect(html).not.toContain('createCrmWebApp');
 
       const run = await app.fetch(new Request('http://fixture.test/api/run/won-onboarding-task', { method: 'POST' }));
       const result = (await run.json()) as {

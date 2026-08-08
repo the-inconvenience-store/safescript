@@ -1,10 +1,13 @@
 import { ids, type ExecutionLimits, type OperationId, type SemanticGraph } from '@safescript/contracts';
 import { createSafeScript } from '@safescript/sdk';
 
-import { AUTOMATIONS, type AutomationFixture } from '../fixtures/automations.js';
-import { crmContract, type AutomationEvent, type AutomationResult, type MutationInput } from './contract.js';
-import { FakeCrmStore, type CrmMutationKind } from './domain.js';
-import { projectNodeEditor, renderDashboard, type DashboardAutomation } from './node-editor.js';
+import type { CrmActionInput } from './actions.js';
+import { AUTOMATIONS, type AutomationExample } from './automations.js';
+import { crmContract, type AutomationEvent, type AutomationResult } from './contract.js';
+import { type CrmMutationKind } from './crm/model.js';
+import { CrmStore } from './crm/store.js';
+import { projectNodeEditor } from './graph/project.js';
+import { renderDashboard, type DashboardAutomation } from './web/dashboard.js';
 
 export interface CrmInvocationContext {
   readonly actorId: string;
@@ -34,17 +37,18 @@ function decodeGraph(bytes: readonly number[]): SemanticGraph {
   return JSON.parse(new TextDecoder().decode(Uint8Array.from(bytes))) as SemanticGraph;
 }
 
-export interface FakeCrmOptions {
+export interface CrmOptions {
   /** Test-only untrusted host seam used to prove malformed outcomes fail closed. */
   readonly mapHandlerResult?: (operation: keyof typeof crmContract.operations, result: unknown) => unknown;
 }
 
-export function createFakeCrm(store = new FakeCrmStore(), options: FakeCrmOptions = {}) {
+export function createCrm(store = new CrmStore(), options: CrmOptions = {}) {
   let invocation = 0;
-  const handler = (operation: keyof typeof crmContract.operations, kind: CrmMutationKind) => (input: MutationInput) => {
-    const result = { tag: 'ok' as const, value: { id: store.apply(kind, input) } };
-    return options.mapHandlerResult?.(operation, result) ?? result;
-  };
+  const handler =
+    (operation: keyof typeof crmContract.operations, kind: CrmMutationKind) => (input: CrmActionInput) => {
+      const result = { tag: 'ok' as const, value: { id: store.apply(kind, input) } };
+      return options.mapHandlerResult?.(operation, result) ?? result;
+    };
   const handlers = Object.fromEntries(
     (Object.entries(operationKinds) as [keyof typeof operationKinds, CrmMutationKind][]).map(([key, kind]) => [
       key,
@@ -68,7 +72,7 @@ export function createFakeCrm(store = new FakeCrmStore(), options: FakeCrmOption
   });
 
   const context: CrmInvocationContext = Object.freeze({
-    actorId: 'fixture-admin',
+    actorId: 'crm-admin',
     workspaceIds: Object.freeze(['workspace-acme']),
   });
 
@@ -76,7 +80,7 @@ export function createFakeCrm(store = new FakeCrmStore(), options: FakeCrmOption
     store,
     safe,
     context,
-    async inspect(automation: AutomationFixture): Promise<SemanticGraph> {
+    async inspect(automation: AutomationExample): Promise<SemanticGraph> {
       const result = await safe.inspect({ slot: 'automation', source: automation.source, views: ['semantic_graph'] });
       if (result.status !== 'accepted' || !result.views.semantic_graph) {
         throw new Error(`automation ${automation.id} did not produce a semantic graph: ${result.status}`);
@@ -84,7 +88,7 @@ export function createFakeCrm(store = new FakeCrmStore(), options: FakeCrmOption
       return decodeGraph(result.views.semantic_graph);
     },
     async run(
-      automation: AutomationFixture,
+      automation: AutomationExample,
       options: Readonly<{
         context?: CrmInvocationContext;
         input?: AutomationEvent;
@@ -96,7 +100,7 @@ export function createFakeCrm(store = new FakeCrmStore(), options: FakeCrmOption
         program: { kind: 'source', source: automation.source },
         input: options.input ?? automation.input,
         context: options.context ?? context,
-        idempotencySeed: [...new TextEncoder().encode(`fake-crm:${automation.id}:${invocation}`)],
+        idempotencySeed: [...new TextEncoder().encode(`crm-example:${automation.id}:${invocation}`)],
         fixedInstant: { epochSeconds: 1_786_060_800n, nanoseconds: 0 },
         randomSeed: [1, 2, 3, 4],
         trace: 'semantic',

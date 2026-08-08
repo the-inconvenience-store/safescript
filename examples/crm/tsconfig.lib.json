@@ -6,7 +6,7 @@
     "tsBuildInfoFile": "dist/tsconfig.lib.tsbuildinfo",
     "types": ["bun"]
   },
-  "include": ["app/**/*.ts", "fixtures/**/*.ts", "tests/**/*.ts"],
+  "include": ["src/**/*.ts", "tests/**/*.ts"],
   "references": [
     { "path": "../../packages/contracts/tsconfig.lib.json" },
     { "path": "../../packages/sdk/tsconfig.lib.json" }

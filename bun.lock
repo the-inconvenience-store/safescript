@@ -33,8 +33,8 @@
         "@safescript/sdk": "*",
       },
     },
-    "conformance/fake-crm": {
-      "name": "@safescript/fake-crm",
+    "examples/crm": {
+      "name": "@safescript/example-crm",
       "version": "0.0.0",
       "dependencies": {
         "@safescript/contracts": "*",
@@ -346,7 +346,7 @@
 
     "@safescript/engine": ["@safescript/engine@workspace:packages/engine"],
 
-    "@safescript/fake-crm": ["@safescript/fake-crm@workspace:conformance/fake-crm"],
+    "@safescript/example-crm": ["@safescript/example-crm@workspace:examples/crm"],
 
     "@safescript/sdk": ["@safescript/sdk@workspace:packages/sdk"],
 

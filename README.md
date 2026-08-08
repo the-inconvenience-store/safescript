@@ -10,6 +10,11 @@ SafeScript is an embeddable restricted TypeScript compiler and bounded runtime. 
 - `@safescript/conformance` hosts adapter-neutral conformance helpers.
 - `apps/cli` is the initial command-line package.
 
+## Examples
+
+- [`examples/crm`](examples/crm) is an interactive CRM host. It shows how a contract, handlers, runtime authorisation,
+  semantic-graph projection, and shared application state fit together, then lets you run the scripts in a browser.
+
 ## Development
 
 Install dependencies with Bun, then run the same gates used for every change:

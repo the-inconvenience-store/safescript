@@ -6,7 +6,8 @@
     "packages/*",
     "apps/*",
     "conformance",
-    "conformance/*"
+    "conformance/*",
+    "examples/*"
   ],
   "scripts": {
     "build": "nx run-many -t build",

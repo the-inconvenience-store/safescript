@@ -1,5 +1,5 @@
 {
-  "name": "@safescript/fake-crm",
+  "name": "@safescript/example-crm",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -8,18 +8,18 @@
     "@safescript/sdk": "*"
   },
   "scripts": {
-    "demo": "bun run app/server.ts"
+    "demo": "bun run src/web/server.ts"
   },
   "nx": {
     "tags": [
-      "layer:conformance"
+      "layer:example"
     ],
     "targets": {
       "build": {},
       "lint": {
         "executor": "nx:run-commands",
         "options": {
-          "command": "eslint app fixtures tests"
+          "command": "eslint src tests"
         }
       },
       "test": {
