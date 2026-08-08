@@ -25,6 +25,7 @@ export function createFakeCrmWebApp() {
         const id = decodeURIComponent(url.pathname.slice('/api/run/'.length));
         const automation = AUTOMATIONS.find((candidate) => candidate.id === id);
         if (!automation) return json({ error: 'Unknown automation' }, 404);
+        crm.store.receiveEvent(automation.id, automation.input);
         const result = await crm.run(automation);
         const actions =
           result.status === 'completed' || result.status === 'failed' || result.status === 'cancelled'

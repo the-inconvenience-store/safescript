@@ -23,6 +23,13 @@ const operationKinds: Readonly<Record<keyof typeof crmContract.operations, CrmMu
   recordAudit: 'audit',
 };
 
+const dashboardEvent = (event: AutomationEvent): Readonly<Record<string, string>> =>
+  Object.freeze(
+    Object.fromEntries(
+      Object.entries(event).map(([key, value]) => [key, typeof value === 'bigint' ? String(value) : value]),
+    ),
+  );
+
 function decodeGraph(bytes: readonly number[]): SemanticGraph {
   return JSON.parse(new TextDecoder().decode(Uint8Array.from(bytes))) as SemanticGraph;
 }
@@ -104,6 +111,7 @@ export function createFakeCrm(store = new FakeCrmStore(), options: FakeCrmOption
           id: automation.id,
           name: automation.name,
           description: automation.description,
+          event: dashboardEvent(automation.input),
           source: automation.source.modules[0]?.source ?? '',
           sourceHash: graph.sourceHash,
           editor: projectNodeEditor(graph),

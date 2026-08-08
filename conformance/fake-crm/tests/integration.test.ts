@@ -31,7 +31,21 @@ afterEach(async () => {
 describe('fake CRM production-style integration', () => {
   it('checks and executes all ten automations with directly observable CRM effects', async () => {
     expect(AUTOMATIONS).toHaveLength(10);
+    expect(new Set(AUTOMATIONS.map(({ input }) => input.workspaceId))).toEqual(new Set(['workspace-acme']));
+    expect(new Set(AUTOMATIONS.map(({ input }) => input.dealId))).toEqual(new Set(['deal-100']));
+    expect(new Set(AUTOMATIONS.map(({ input }) => input.contactId))).toEqual(new Set(['contact-100']));
     const crm = fixture();
+    const initial = crm.store.snapshot();
+    expect(initial.workspace).toEqual({ id: 'workspace-acme', name: 'Acme Research' });
+    expect(initial.deals['deal-100']).toMatchObject({
+      contactId: 'contact-100',
+      ownerId: 'owner-riley',
+      stage: 'qualified',
+      amountMinor: 2_500_000,
+    });
+    expect(initial.contacts['contact-100']).toMatchObject({ name: 'Ada Lovelace', tags: ['prospect'] });
+    expect(initial.owners['owner-alex']?.name).toBe('Alex Morgan');
+    expect(initial.recentEvents).toEqual([]);
     for (const automation of AUTOMATIONS) {
       const checked = await crm.safe.check({ slot: 'automation', source: automation.source });
       expect(checked.status, automation.id).toBe('accepted');
@@ -58,9 +72,9 @@ describe('fake CRM production-style integration', () => {
     }
     const state = crm.store.snapshot();
     expect(state.tasks).toHaveLength(2);
-    expect(state.contactTags['contact-100']).toEqual(['vip', 'nurture']);
-    expect(state.owners['deal-100']).toBe('owner-alex');
-    expect(state.dealStages['deal-100']).toBe('qualified');
+    expect(state.contacts['contact-100']?.tags).toEqual(['prospect', 'vip', 'nurture']);
+    expect(state.deals['deal-100']?.ownerId).toBe('owner-alex');
+    expect(state.deals['deal-100']?.stage).toBe('qualified');
     expect(state.notifications).toHaveLength(2);
     expect(state.followups).toHaveLength(2);
     expect(state.notes).toHaveLength(1);
@@ -105,6 +119,8 @@ describe('fake CRM production-style integration', () => {
     expect(html).toContain('graph-viewport');
     expect(html).toContain('window.__CRM_AUTOMATIONS__');
     expect(html).toContain('CRM state');
+    expect(html).toContain('Selected event');
+    expect(html).toContain('Acme Research');
   });
 
   it('reauthorises at runtime and exposes a typed policy error without mutating the CRM', async () => {
@@ -121,6 +137,7 @@ describe('fake CRM production-style integration', () => {
       },
     });
     expect(crm.store.effectCount()).toBe(0);
+    expect(crm.store.snapshot().deals['deal-100']?.stage).toBe('qualified');
   });
 
   it('enforces a host-call limit between two real effects', async () => {
@@ -240,18 +257,40 @@ describe('fake CRM production-style integration', () => {
       const result = (await run.json()) as {
         readonly status: string;
         readonly actions: readonly Readonly<{ operationId: string; effectId: string; outcome: string }>[];
-        readonly state: Readonly<{ tasks: readonly Readonly<{ value: string }>[] }>;
+        readonly state: Readonly<{
+          deals: Readonly<Record<string, Readonly<{ contactId: string; stage: string }>>>;
+          recentEvents: readonly Readonly<{ automationId: string; dealId: string; stage: string }>[];
+          tasks: readonly Readonly<{ entityId: string; value: string }>[];
+        }>;
       };
       expect(run.status).toBe(200);
       expect(result.status).toBe('completed');
       expect(result.actions).toEqual([
         { operationId: 'operation:tasks.create', effectId: 'effect:tasks.create', outcome: 'completed' },
       ]);
+      expect(result.state.deals['deal-100']?.contactId).toBe('contact-100');
+      expect(result.state.deals['deal-100']?.stage).toBe('won');
+      expect(result.state.recentEvents[0]).toMatchObject({
+        automationId: 'won-onboarding-task',
+        dealId: 'deal-100',
+        stage: 'won',
+      });
+      expect(result.state.tasks[0]?.entityId).toBe('deal-100');
       expect(result.state.tasks[0]?.value).toBe('Onboard Ada Lovelace');
 
       const reset = await app.fetch(new Request('http://fixture.test/api/reset', { method: 'POST' }));
-      const resetResult = (await reset.json()) as { readonly state: Readonly<{ tasks: readonly unknown[] }> };
+      const resetResult = (await reset.json()) as {
+        readonly state: Readonly<{
+          deals: Readonly<Record<string, Readonly<{ ownerId: string; stage: string }>>>;
+          contacts: Readonly<Record<string, Readonly<{ tags: readonly string[] }>>>;
+          recentEvents: readonly unknown[];
+          tasks: readonly unknown[];
+        }>;
+      };
       expect(resetResult.state.tasks).toEqual([]);
+      expect(resetResult.state.deals['deal-100']).toMatchObject({ ownerId: 'owner-riley', stage: 'qualified' });
+      expect(resetResult.state.contacts['contact-100']?.tags).toEqual(['prospect']);
+      expect(resetResult.state.recentEvents).toEqual([]);
     } finally {
       await app.close();
     }
