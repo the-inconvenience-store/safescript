@@ -75,3 +75,11 @@ _Avoid_: Request ID, permission token
 **Runtime bridge**:
 The transport-neutral serialisable seam through which a host SDK checks, inspects, executes, cancels, and closes SafeScript runtime work. It is not a transport protocol, host SDK, or execution backend.
 _Avoid_: Runtime API, IPC protocol, compiler service
+
+**Runtime worker**:
+A separately supervised local process that runs the SafeScript compiler and interpreter and proposes typed host actions across the worker protocol. It holds no handlers, credentials, or current authority.
+_Avoid_: Daemon, workflow worker, trusted plugin process
+
+**Worker protocol**:
+The versioned, language-neutral, bidirectional contract between a host adapter and a runtime worker. It carries runtime-bridge operations, typed action requests and outcomes, cancellation, lifecycle, and bounded execution facts without granting host authority.
+_Avoid_: Runtime bridge, remote service API, permission channel
