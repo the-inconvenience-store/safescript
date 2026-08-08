@@ -5,7 +5,8 @@
   "workspaces": [
     "packages/*",
     "apps/*",
-    "conformance"
+    "conformance",
+    "conformance/*"
   ],
   "scripts": {
     "build": "nx run-many -t build",

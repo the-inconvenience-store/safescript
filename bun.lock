@@ -17,7 +17,7 @@
     },
     "apps/cli": {
       "name": "@safescript/cli",
-      "version": "0.0.0",
+      "version": "1.0.0",
       "dependencies": {
         "@safescript/sdk": "*",
       },
@@ -33,24 +33,32 @@
         "@safescript/sdk": "*",
       },
     },
-    "packages/contracts": {
-      "name": "@safescript/contracts",
-      "version": "0.0.0",
-    },
-    "packages/engine": {
-      "name": "@safescript/engine",
+    "conformance/fake-crm": {
+      "name": "@safescript/fake-crm",
       "version": "0.0.0",
       "dependencies": {
         "@safescript/contracts": "*",
+        "@safescript/sdk": "*",
+      },
+    },
+    "packages/contracts": {
+      "name": "@safescript/contracts",
+      "version": "1.0.0",
+    },
+    "packages/engine": {
+      "name": "@safescript/engine",
+      "version": "1.0.0",
+      "dependencies": {
+        "@safescript/contracts": "^1.0.0",
         "typescript": "6.0.3",
       },
     },
     "packages/sdk": {
       "name": "@safescript/sdk",
-      "version": "0.0.0",
+      "version": "1.0.0",
       "dependencies": {
-        "@safescript/contracts": "*",
-        "@safescript/engine": "*",
+        "@safescript/contracts": "^1.0.0",
+        "@safescript/engine": "^1.0.0",
       },
     },
   },
@@ -337,6 +345,8 @@
     "@safescript/contracts": ["@safescript/contracts@workspace:packages/contracts"],
 
     "@safescript/engine": ["@safescript/engine@workspace:packages/engine"],
+
+    "@safescript/fake-crm": ["@safescript/fake-crm@workspace:conformance/fake-crm"],
 
     "@safescript/sdk": ["@safescript/sdk@workspace:packages/sdk"],
 

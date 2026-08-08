@@ -1,0 +1,34 @@
+{
+  "name": "@safescript/fake-crm",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@safescript/contracts": "*",
+    "@safescript/sdk": "*"
+  },
+  "scripts": {
+    "demo": "bun run app/server.ts"
+  },
+  "nx": {
+    "tags": [
+      "layer:conformance"
+    ],
+    "targets": {
+      "build": {},
+      "lint": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "eslint app fixtures tests"
+        }
+      },
+      "test": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "bun test ./tests/integration.test.ts"
+        }
+      },
+      "typecheck": {}
+    }
+  }
+}

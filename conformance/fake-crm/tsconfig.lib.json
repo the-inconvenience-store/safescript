@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": ".",
+    "tsBuildInfoFile": "dist/tsconfig.lib.tsbuildinfo",
+    "types": ["bun"]
+  },
+  "include": ["app/**/*.ts", "fixtures/**/*.ts", "tests/**/*.ts"],
+  "references": [
+    { "path": "../../packages/contracts/tsconfig.lib.json" },
+    { "path": "../../packages/sdk/tsconfig.lib.json" }
+  ]
+}
