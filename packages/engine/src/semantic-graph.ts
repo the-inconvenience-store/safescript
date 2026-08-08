@@ -348,7 +348,13 @@ function structuredExpression(
     type,
     ...('value' in expression && expression.tag === 'literal' ? { constant: expression.value } : {}),
     ...('operator' in expression ? { operator: expression.operator } : {}),
-    ...(expression.tag === 'name' ? { label: expression.name } : {}),
+    ...(expression.tag === 'name' || expression.tag === 'member' ? { label: expression.name } : {}),
+    ...(expression.tag === 'result' ? { label: expression.variant } : {}),
+    ...(expression.tag === 'template'
+      ? {
+          label: expression.parts.map((part, index) => (typeof part === 'string' ? part : `\${${index}}`)).join(''),
+        }
+      : {}),
   });
   context.builder.edge('contains', parent, node);
   if (binding) context.builder.edge('data', binding.node, node, 'binding');
@@ -417,6 +423,7 @@ function structuredStatements(
   path: string,
   context: StructuredContext,
   parent: SemanticNodeId,
+  relation?: string,
 ): void {
   let previous: SemanticNodeId | undefined;
   for (const [index, statement] of statements.entries()) {
@@ -430,7 +437,7 @@ function structuredStatements(
         ? { symbolId: derivedSymbolId(encoder.encode(`${context.request.source.entry}:${path}:${statement.name}`)) }
         : {}),
     });
-    context.builder.edge('contains', parent, node);
+    context.builder.edge('contains', parent, node, relation);
     if (previous) context.builder.edge('control', previous, node);
     previous = node;
     if (statement.tag === 'variable') {
@@ -450,8 +457,8 @@ function structuredStatements(
     } else if (statement.tag === 'if') {
       const condition = structuredExpression(statement.condition, `${statementPath}/condition`, context, node);
       context.builder.edge('data', condition.node, node, 'condition');
-      structuredStatements(statement.whenTrue, `${statementPath}/true`, context, node);
-      structuredStatements(statement.whenFalse, `${statementPath}/false`, context, node);
+      structuredStatements(statement.whenTrue, `${statementPath}/true`, context, node, 'true');
+      structuredStatements(statement.whenFalse, `${statementPath}/false`, context, node, 'false');
     } else if (statement.tag === 'for-of' || statement.tag === 'for-in') {
       const value = structuredExpression(
         statement.tag === 'for-of' ? statement.values : statement.value,
@@ -460,13 +467,13 @@ function structuredStatements(
         node,
       );
       context.bindings.set(statement.name, { node, type: value.type.kind === 'list' ? value.type.item : STRING });
-      structuredStatements(statement.body, `${statementPath}/body`, context, node);
+      structuredStatements(statement.body, `${statementPath}/body`, context, node, 'body');
     } else if (statement.tag === 'loop') {
-      structuredStatements(statement.initializer, `${statementPath}/initializer`, context, node);
+      structuredStatements(statement.initializer, `${statementPath}/initializer`, context, node, 'initializer');
       const condition = structuredExpression(statement.condition, `${statementPath}/condition`, context, node);
       context.builder.edge('data', condition.node, node, 'condition');
-      structuredStatements(statement.body, `${statementPath}/body`, context, node);
-      structuredStatements(statement.increment, `${statementPath}/increment`, context, node);
+      structuredStatements(statement.body, `${statementPath}/body`, context, node, 'body');
+      structuredStatements(statement.increment, `${statementPath}/increment`, context, node, 'increment');
     } else if (statement.tag === 'return') {
       const value = structuredExpression(statement.value, `${statementPath}/value`, context, node);
       const output = context.builder.node(`${statementPath}/output`, {
@@ -484,7 +491,7 @@ function structuredStatements(
       const value = structuredExpression(statement.value, `${statementPath}/value`, context, node);
       context.builder.edge('data', value.node, node, 'value');
       statement.cases.forEach((item, caseIndex) =>
-        structuredStatements(item.body, `${statementPath}/case/${caseIndex}:${item.value}`, context, node),
+        structuredStatements(item.body, `${statementPath}/case/${caseIndex}:${item.value}`, context, node, item.value),
       );
     }
   }

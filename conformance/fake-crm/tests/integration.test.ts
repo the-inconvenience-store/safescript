@@ -82,7 +82,24 @@ describe('fake CRM production-style integration', () => {
         new Set(first.nodes.filter(({ kind }) => kind === 'action').map(({ operationId }) => operationId)),
       ).toEqual(new Set(automation.expectedOperations));
       expect(editor.edges.every(({ from, to }) => graphIds.has(from) && graphIds.has(to))).toBe(true);
+      for (const action of editor.nodes.filter(({ kind }) => kind === 'action')) {
+        expect(
+          editor.edges.some(({ from, to }) => from === action.id || to === action.id),
+          automation.id,
+        ).toBe(true);
+      }
     }
+    const wonGraph = await crm.inspect(automationNamed('won-onboarding-task'));
+    const wonEditor = projectNodeEditor(wonGraph);
+    expect(wonEditor.nodes.find(({ title }) => title === 'IF')?.detail).toContain('previousStage === "won"');
+    expect(wonEditor.nodes.find(({ title }) => title === 'tasks.create')?.detail).toBe(
+      '{ workspaceId: event.workspaceId, entityId: event.dealId, value: `Onboard ${event.name}` }',
+    );
+    expect(wonEditor.nodes.filter(({ kind }) => kind === 'return').map(({ detail }) => detail)).toEqual([
+      'Ok()',
+      'Err(result.value)',
+      'Ok()',
+    ]);
     const html = await crm.render();
     expect(html).toContain('READ ONLY · SEMANTIC GRAPH');
     expect(html).toContain('graph-viewport');
