@@ -1,57 +1,172 @@
 # SafeScript
 
-SafeScript is an embeddable restricted TypeScript compiler and bounded runtime. A host application defines the only types, operations, capabilities, and resource limits available to extension code; SafeScript never executes generated JavaScript or grants ambient file, network, process, package, environment, or credential access.
+SafeScript runs user- and agent-authored TypeScript inside your application without giving it access to your process.
 
-## Packages
+Your application defines the available data, operations, permissions, and limits. SafeScript checks source against that contract, compiles it to typed IR, and runs it in a bounded interpreter. It never executes generated JavaScript and provides no ambient file, network, package, environment, process, or credential access.
 
-- `@safescript/contracts` defines the serialisable schemas, identifiers, action ABI, runtime bridge, limits, diagnostics, and canonical codecs shared by every adapter.
-- `@safescript/engine` provides the direct in-process compiler and bounded IR interpreter behind `RuntimeBridge`.
-- `@safescript/sdk` provides the host-facing `defineContract` and `createSafeScript` interface, current-authorisation gateway, and deterministic test harness.
-- `@safescript/conformance` hosts adapter-neutral conformance helpers.
-- `apps/cli` is the initial command-line package.
+Use SafeScript for code mode, application extensions, agent-authored automations, device rules, and visual programming experiences where TypeScript remains the canonical source.
 
-## Examples
+## Try it
 
-- [`examples/crm`](examples/crm) is an interactive CRM host. It shows how a contract, handlers, runtime authorisation,
-  semantic-graph projection, and shared application state fit together, then lets you run the scripts in a browser.
+Run the interactive CRM example:
+
+```sh
+bun install
+bun run --cwd examples/crm demo
+```
+
+Open <http://localhost:4317> to inspect and execute ten CRM automations. The example includes host operations, runtime authorization, checked artifacts, deterministic tests, and a visual projection of the program's semantic graph.
+
+## Use the SDK
+
+A host defines one contract, provides one handler per operation, and authorizes every action when it is requested:
+
+```ts
+import { createAuthoringBundle, createSafeScript } from '@safescript/sdk';
+
+const safe = createSafeScript({
+  contract,
+  handlers: {
+    createTask: async (input) => ({
+      tag: 'ok',
+      value: await tasks.create(input),
+    }),
+  },
+  authorise: ({ context, resourceScope }) =>
+    context.workspaceIds.includes(resourceScope.workspaceId ?? '')
+      ? { status: 'allowed' }
+      : {
+          status: 'rejected',
+          error: { code: 'forbidden', detail: 'Workspace access denied' },
+        },
+});
+
+const authoring = createAuthoringBundle(contract, 'automation');
+const checked = await safe.check({ slot: 'automation', source });
+
+if (checked.status === 'accepted') {
+  const result = await safe.execute({
+    slot: 'automation',
+    program: { kind: 'artifact', bytes: checked.artifact },
+    input: event,
+    context: { workspaceIds: [event.workspaceId] },
+  });
+}
+```
+
+The authoring bundle contains the slot's generated types, allowed operations, language rules, limits, examples, and compiler-repair guidance. A checked artifact is only executable input: every host action is still validated and reauthorized at runtime.
+
+See [getting started](docs/getting-started.md) for a complete contract and runnable integration.
+
+## Code mode
+
+Give an agent a narrow host API instead of individual tool calls. It can write ordinary control flow around only the operations you expose:
+
+```ts
+import { Err, Ok, type Result } from 'safescript:prelude';
+import { type Context, type ResearchRequest, type ResearchError } from 'host:api';
+
+export async function research(request: ResearchRequest, ctx: Context): Promise<Result<void, ResearchError>> {
+  const page = await ctx.http.fetch({ url: request.url });
+  if (page.tag === 'error') return Err(page.value);
+
+  for (const profileId of page.value.profileIds) {
+    const enriched = await ctx.profiles.enrich({ id: profileId });
+    if (enriched.tag === 'error') return Err(enriched.value);
+  }
+
+  return Ok();
+}
+```
+
+The host chooses exactly what `http.fetch` and `profiles.enrich` mean, which destinations and records are allowed, and how much work one invocation may perform.
+
+## User-authored visual editing
+
+A visual editor can derive its canvas from the public semantic graph:
+
+```ts
+const inspected = await safe.inspect({
+  slot: 'automation',
+  source,
+  views: ['semantic_graph'],
+});
+
+if (inspected.status === 'accepted' && inspected.views.semantic_graph) {
+  const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(inspected.views.semantic_graph)));
+  renderCanvas(graph);
+}
+```
+
+The graph contains declarations, control flow, data flow, action sites, effects, capabilities, types, and stable semantic IDs. It is a read-only projection, not an executable node format. The editor owns how a user's visual change becomes TypeScript, then submits the new source to `safe.check` before execution.
+
+The [CRM example](examples/crm/README.md) demonstrates this projection model.
+
+## Agent-authored code edits
+
+Give an agent the current source plus the exact slot-scoped authoring bundle, then check its proposal through the same compiler used in production:
+
+```ts
+const bundle = createAuthoringBundle(contract, 'automation');
+const editedSource = await askYourAgent({
+  source,
+  files: bundle.files,
+  diagnostics: bundle.diagnostics,
+});
+
+const checked = await safe.check({
+  slot: 'automation',
+  source: editedSource,
+});
+
+if (checked.status === 'rejected') {
+  await returnDiagnosticsToAgent(checked.diagnostics);
+}
+```
+
+The agent never needs private IR or compiler internals. Source remains reviewable, versionable, and canonical; artifacts and semantic graphs can always be regenerated.
+
+## Across different verticals
+
+The language and runtime stay the same. Each host supplies a different contract:
+
+| Vertical         | Extension input                 | Example host operations                                         |
+| ---------------- | ------------------------------- | --------------------------------------------------------------- |
+| CRM and sales    | Deal, contact, or account event | Create task, assign owner, add tag, schedule follow-up          |
+| Customer support | Ticket and customer context     | Classify, route, draft response, escalate                       |
+| Finance          | Transaction or close event      | Flag exception, request evidence, post approved entry           |
+| Internal tools   | Typed application state         | Fetch approved data, transform records, update a workspace      |
+| Devices and IoT  | Telemetry snapshot              | Set actuator, emit alert, record observation                    |
+| Agent code mode  | User request and tool context   | Fetch a permitted URL, enrich a profile, write a bounded result |
+
+Operations are application-specific and execute only after current host authorization. SafeScript does not provide generic network or database access.
+
+## What is included
+
+- `@safescript/sdk` — contracts, host integration, authorization gateway, authoring bundles, and deterministic tests
+- `@safescript/engine` — restricted TypeScript compiler, checked artifacts, semantic inspection, and bounded interpreter
+- `@safescript/contracts` — serializable schemas, IDs, limits, diagnostics, canonical codecs, and runtime bridge records
+- `@safescript/cli` — offline JSON commands for check, inspect, execute, and test
+- `@safescript/conformance` — adapter-neutral reference programs and compatibility evidence
+
+SafeScript is not a workflow engine, approval system, retry coordinator, durable runtime, or general JavaScript sandbox. Read [current scope](docs/current-scope.md) for the implemented and deferred boundaries.
+
+## Documentation
+
+- [Getting started](docs/getting-started.md)
+- [Language guide](docs/language.md)
+- [SDK guide](docs/sdk.md)
+- [Architecture and engine](docs/engine.md)
+- [Security model](docs/security.md)
+- [Artifacts and semantic inspection](docs/artifacts-and-inspection.md)
+- [Testing and conformance](docs/testing.md)
 
 ## Development
 
-Install dependencies with Bun, then run the same gates used for every change:
-
-```bash
-bun install
+```sh
 bun run format:check
 bun run test
 bun run lint
 bun run typecheck
 bun run build
 ```
-
-## Integration shape
-
-Hosts define one immutable contract and create one six-method facade:
-
-```ts
-const contract = defineContract({ id, version, types, operations, slots });
-const authoringBundle = createAuthoringBundle(contract, 'onEvent');
-
-const safe = createSafeScript({ contract, handlers, authorise });
-
-const checked = await safe.check({ slot: 'onEvent', source });
-const result = await safe.execute({
-  slot: 'onEvent',
-  program: { kind: 'source', source },
-  input,
-  context,
-});
-```
-
-The versioned authoring bundle is generated from the validated registry and the slot's exact language profile. It
-contains slot-scoped `host:api` declarations, prelude and deterministic-global declarations, limits, a compact
-restriction guide, representative TypeScript patterns, and structured compiler-repair guidance. It never contains
-private IR or semantic-graph details.
-
-Every host operation becomes a typed action request. The SDK validates it, rechecks current authority, dispatches the registered handler at most once, validates the outcome, and returns ordered action facts with the execution result.
-
-Start with the [SafeScript documentation](docs/README.md) for the introduction, getting-started walkthrough, language guide, engine architecture, SDK usage, security model, testing, and current scope. See [CONTEXT.md](CONTEXT.md) for the project vocabulary used in source and documentation.
