@@ -1,0 +1,70 @@
+{
+  "schemaVersion": "1.0.0",
+  "protocol": { "major": 1, "minor": 0 },
+  "valid": [
+    {
+      "name": "session close request",
+      "kind": "session.close.request",
+      "frameHex": "0000003da562696401646b696e647573657373696f6e2e636c6f73652e72657175657374677061796c6f616441a06776657273696f6e01687265706c795f746ff6",
+      "envelopeHex": "a562696401646b696e647573657373696f6e2e636c6f73652e72657175657374677061796c6f616441a06776657273696f6e01687265706c795f746ff6",
+      "payloadHex": "a0"
+    }
+  ],
+  "hostile": [
+    {
+      "name": "zero-length frame",
+      "inputHex": "00000000",
+      "expected": { "code": "frame_length_zero", "scope": "connection" }
+    },
+    {
+      "name": "non-minimal message ID",
+      "inputHex": "0000003ea56269641801646b696e647573657373696f6e2e636c6f73652e72657175657374677061796c6f616441a06776657273696f6e01687265706c795f746ff6",
+      "expected": { "code": "noncanonical_cbor", "scope": "connection" }
+    },
+    {
+      "name": "indefinite payload bytes",
+      "inputHex": "0000003fa562696401646b696e647573657373696f6e2e636c6f73652e72657175657374677061796c6f61645f41a0ff6776657273696f6e01687265706c795f746ff6",
+      "expected": { "code": "noncanonical_cbor", "scope": "connection" }
+    },
+    {
+      "name": "out-of-order envelope keys",
+      "inputHex": "0000003da56776657273696f6e0162696401646b696e647573657373696f6e2e636c6f73652e72657175657374677061796c6f616441a0687265706c795f746ff6",
+      "expected": { "code": "noncanonical_cbor", "scope": "connection" }
+    },
+    {
+      "name": "duplicate envelope field",
+      "inputHex": "00000041a66269640162696402646b696e647573657373696f6e2e636c6f73652e72657175657374677061796c6f616441a06776657273696f6e01687265706c795f746ff6",
+      "expected": { "code": "noncanonical_cbor", "scope": "connection" }
+    },
+    {
+      "name": "unknown envelope field",
+      "inputHex": "00000040a66178f662696401646b696e647573657373696f6e2e636c6f73652e72657175657374677061796c6f616441a06776657273696f6e01687265706c795f746ff6",
+      "expected": { "code": "envelope_schema", "scope": "connection" }
+    },
+    {
+      "name": "missing envelope field",
+      "inputHex": "00000033a462696401646b696e647573657373696f6e2e636c6f73652e72657175657374677061796c6f616441a06776657273696f6e01",
+      "expected": { "code": "envelope_schema", "scope": "connection" }
+    },
+    {
+      "name": "trailing envelope byte",
+      "inputHex": "0000003ea562696401646b696e647573657373696f6e2e636c6f73652e72657175657374677061796c6f616441a06776657273696f6e01687265706c795f746ff600",
+      "expected": { "code": "malformed_cbor", "scope": "connection" }
+    },
+    {
+      "name": "invalid UTF-8 kind",
+      "inputHex": "00000029a562696401646b696e6461ff677061796c6f616441a06776657273696f6e01687265706c795f746ff6",
+      "expected": { "code": "malformed_cbor", "scope": "connection" }
+    },
+    {
+      "name": "forbidden payload tag",
+      "inputHex": "0000003ea562696401646b696e647573657373696f6e2e636c6f73652e72657175657374677061796c6f616442c0a06776657273696f6e01687265706c795f746ff6",
+      "expected": { "code": "noncanonical_cbor", "scope": "connection" }
+    },
+    {
+      "name": "frame above absolute maximum",
+      "inputHex": "01000001",
+      "expected": { "code": "frame_too_large", "scope": "connection" }
+    }
+  ]
+}

@@ -1,0 +1,458 @@
+; SafeScript worker protocol 1.0
+; Maps are closed. Deterministic encoding and additional semantic constraints are
+; defined by wire-protocol.md and the document owning each record.
+
+worker-envelope = {
+  version: 1,
+  kind: message-kind,
+  id: message-id,
+  reply_to: message-id / null,
+  payload: bstr .cbor message-payload,
+}
+
+message-id = 1..18446744073709551615
+message-kind =
+  "session.hello" / "session.welcome" / "session.incompatible" /
+  "bridge.check.request" / "bridge.check.result" /
+  "bridge.inspect.request" / "bridge.inspect.result" /
+  "bridge.execute.request" / "bridge.execute.result" /
+  "bridge.cancel.request" / "bridge.cancel.result" /
+  "session.close.request" / "session.close.result" /
+  "action.request" / "action.outcome" / "protocol.error"
+
+message-payload =
+  session-hello / session-welcome / session-incompatible /
+  bridge-check-request / bridge-check-result /
+  bridge-inspect-request / bridge-inspect-result /
+  bridge-execute-request / bridge-execute-result /
+  bridge-cancel-request / bridge-cancel-result /
+  session-close-request / session-close-result /
+  action-request / action-outcome / protocol-error
+
+; Handshake
+
+session-hello = {
+  protocol: protocol-range,
+  sdk: build-identity,
+  expected_worker: expected-worker,
+  required_features: [* feature-name],
+  optional_features: [* feature-name],
+  versions: supported-version-sets,
+  limits: operational-limits,
+}
+
+session-welcome = {
+  protocol: version,
+  features: [* feature-name],
+  worker: worker-identity,
+  versions: supported-version-sets,
+  limits: operational-limits,
+  implementation: bounded-text,
+}
+
+session-incompatible = {
+  code: "incompatible_session",
+  dimensions: [+ incompatibility-dimension],
+  ? detail: bounded-text,
+}
+
+protocol-range = { major: uint, min_minor: uint, max_minor: uint }
+build-identity = { version: semver, build: bounded-text }
+expected-worker = {
+  package_version: semver,
+  build_digest: sha256,
+  override: bool,
+}
+worker-identity = {
+  package_version: semver,
+  compiler: compiler-version,
+  build_digest: sha256,
+}
+supported-version-sets = {
+  abi: [+ version],
+  language: [+ version],
+  ir: [+ version],
+  diagnostic_catalog: [+ semver],
+  artifact: [+ version],
+  authoring_bundle: [+ semver],
+}
+incompatibility-dimension =
+  "protocol_major" / "protocol_minor" / "required_feature" /
+  "bundled_worker_version" / "worker_build_digest" / "abi" /
+  "language" / "ir" / "diagnostic_catalog" / "artifact" /
+  "authoring_bundle" / "operational_limit"
+
+operational-limits = {
+  max_frame_bytes: uint,
+  max_payload_bytes: uint,
+  max_decoded_depth: uint,
+  max_decoded_nodes: uint,
+  max_in_flight: uint,
+  max_pending_replies: uint,
+  max_queued_bytes: uint,
+  partial_frame_ms: uint,
+  worker_start_ms: uint,
+  handshake_ms: uint,
+  graceful_close_ms: uint,
+  max_stderr_bytes: uint,
+  restart_attempts: uint,
+  restart_window_ms: uint,
+}
+
+; Bridge messages
+
+bridge-check-request = check-request
+bridge-check-result = check-result
+bridge-inspect-request = inspect-request
+bridge-inspect-result = inspect-result
+bridge-execute-request = execute-request
+bridge-execute-result = execution-result
+bridge-cancel-request = cancel-request
+bridge-cancel-result = cancel-result
+
+session-close-request = {}
+session-close-result =
+  { status: "closed" } /
+  { status: "bridge_error", error: bridge-error }
+
+action-request = {
+  execute_id: message-id,
+  request: action-request-record,
+}
+
+action-outcome = {
+  request: message-id,
+  outcome: action-outcome-record,
+}
+
+protocol-error = {
+  code: protocol-error-code,
+  scope: "request" / "connection",
+  ? detail: bounded-text,
+}
+
+protocol-error-code =
+  "frame_length_zero" / "frame_too_large" / "truncated_frame" /
+  "frame_timeout" / "malformed_cbor" / "noncanonical_cbor" /
+  "envelope_schema" / "unsupported_envelope_version" /
+  "unknown_message_kind" / "payload_schema" /
+  "protocol_limit_exceeded" / "unexpected_message" /
+  "invalid_correlation" / "duplicate_message_id" /
+  "message_id_exhausted" / "capacity_exceeded"
+
+; Public RuntimeBridge ABI records
+
+check-request = {
+  abi_version: version,
+  language_version: version,
+  registry: contract-registry,
+  slot_id: identifier,
+  source: source-program,
+  limits: compile-limits,
+}
+
+check-result =
+  {
+    status: "accepted",
+    artifact: canonical-bytes,
+    summary: program-summary,
+    provenance: compiler-provenance,
+    usage: compile-usage,
+    diagnostics: [* diagnostic],
+  } /
+  { status: "rejected", diagnostics: [* diagnostic], usage: compile-usage } /
+  { status: "bridge_error", error: bridge-error }
+
+inspect-request = {
+  abi_version: version,
+  language_version: version,
+  registry: contract-registry,
+  slot_id: identifier,
+  source: source-program,
+  limits: compile-limits,
+  views: [* "semantic_graph"],
+  ? graph_limits: graph-limits,
+}
+
+inspect-result =
+  {
+    status: "accepted",
+    check: check-accepted,
+    views: { ? semantic_graph: canonical-bytes },
+    view_errors: { ? semantic_graph: graph-error },
+  } /
+  { status: "rejected", diagnostics: [* diagnostic], usage: compile-usage } /
+  { status: "bridge_error", error: bridge-error }
+
+check-accepted = {
+  status: "accepted",
+  artifact: canonical-bytes,
+  summary: program-summary,
+  provenance: compiler-provenance,
+  usage: compile-usage,
+  diagnostics: [* diagnostic],
+}
+
+execute-request = {
+  abi_version: version,
+  registry: contract-registry,
+  slot_id: identifier,
+  invocation_id: identifier,
+  program: executable-program,
+  input: canonical-bytes,
+  limits: execution-limits,
+  ? idempotency_seed: canonical-bytes,
+  ? fixed_instant: instant,
+  ? random_seed: canonical-bytes,
+  trace: "none" / "summary" / "semantic",
+}
+
+executable-program =
+  { kind: "source", source: check-request } /
+  { kind: "artifact", bytes: canonical-bytes }
+
+execution-result =
+  {
+    status: "not_started",
+    ? diagnostics: [* diagnostic],
+    ? error: bridge-error,
+    ? usage: compile-usage,
+  } /
+  { status: "completed", output: canonical-bytes, facts: execution-facts } /
+  { status: "failed", error: execution-error, facts: execution-facts } /
+  { status: "cancelled", error: execution-error, facts: execution-facts } /
+  { status: "bridge_error", error: bridge-error }
+
+cancel-request = { abi_version: version, invocation_id: identifier }
+cancel-result =
+  { status: "accepted" } /
+  { status: "not_active" } /
+  { status: "bridge_error", error: bridge-error }
+
+; Action ABI
+
+action-request-record = {
+  abi_version: version,
+  contract_id: identifier,
+  required_contract_version: semver,
+  ir_digest: sha256,
+  invocation_id: identifier,
+  request_id: identifier,
+  slot_id: identifier,
+  operation_id: identifier,
+  effect_id: identifier,
+  capability_id: identifier,
+  action_site_id: identifier,
+  source: source-provenance,
+  input: canonical-bytes,
+  ? idempotency_key: sha256,
+}
+
+action-outcome-record = {
+  abi_version: version,
+  request_id: identifier,
+  result:
+    { tag: "completed", value: canonical-bytes } /
+    { tag: "rejected", value: policy-error } /
+    {
+      tag: "failed",
+      value: { effect_state: "not_performed" / "unknown", failure: host-failure },
+    },
+}
+
+policy-error = { code: bounded-text, ? detail: bounded-text }
+host-failure = {
+  code: "cancelled" / "gateway_fault" / "handler_fault" /
+        "invalid_result" / "timeout" / "transport_lost" / "unavailable",
+  ? detail: bounded-text,
+}
+
+action-record =
+  { phase: "requested", request: action-request-record } /
+  {
+    phase: "resolved",
+    request_id: identifier,
+    outcome: action-outcome-record,
+  }
+
+; Compiler, execution, and failure records
+
+execution-facts = {
+  preparation: execution-preparation,
+  actions: [* action-record],
+  trace: trace-result,
+  usage: execution-usage,
+}
+
+execution-preparation =
+  {
+    kind: "source",
+    artifact: canonical-bytes,
+    summary: program-summary,
+    provenance: compiler-provenance,
+    usage: compile-usage,
+    diagnostics: [* diagnostic],
+  } /
+  { kind: "artifact", ir_digest: sha256 }
+
+trace-result = { records: [* canonical-bytes], truncated: bool }
+program-summary = { effects: [* identifier], capabilities: [* identifier] }
+compiler-provenance = {
+  compiler: compiler-version,
+  language: version,
+  ir: version,
+  abi: version,
+}
+compiler-version = { version: semver, build: bounded-text }
+
+compile-usage = { source_bytes: uint, syntax_nodes: uint, type_work: uint }
+execution-usage = {
+  fuel: uint,
+  allocations: uint,
+  allocated_bytes: uint,
+  peak_retained_bytes: uint,
+  peak_collection_items: uint,
+  peak_value_depth: uint,
+  peak_value_nodes: uint,
+  peak_value_bytes: uint,
+  peak_call_depth: uint,
+  host_calls: uint,
+  peak_concurrent_actions: uint,
+  trace_bytes: uint,
+  output_bytes: uint,
+}
+
+diagnostic = {
+  code: bounded-text,
+  severity: "error" / "warning" / "info",
+  message: bounded-text,
+  repair: { category: bounded-text, action: bounded-text },
+  ? location: source-location,
+  ? related: [* source-location],
+}
+
+bridge-error = {
+  code: bridge-error-code,
+  phase: "check" / "inspect" / "execute" / "cancel" / "close" / "action",
+  ? detail: bounded-text,
+}
+bridge-error-code =
+  "adapter_failure" / "artifact_verification_failed" / "bridge_closed" /
+  "invalid_request" / "unsupported_version" / "worker_start_failed" /
+  "worker_start_timeout" / "worker_lost" / "worker_crash_loop" /
+  "worker_close_timeout" / "worker_identity_mismatch"
+
+execution-error = {
+  code: bounded-text,
+  ? detail: bounded-text,
+  ? source: source-provenance,
+}
+
+source-location = { module: identifier, start: uint, end: uint }
+source-provenance = { module: identifier, start: uint, end: uint }
+graph-limits = { nodes: uint, edges: uint, bytes: uint }
+graph-error = {
+  code: "graph_limit_exceeded",
+  limit: "nodes" / "edges" / "bytes",
+  maximum: uint,
+  actual: uint,
+}
+
+; Contract registry and schema language
+
+contract-registry = {
+  id: identifier,
+  version: semver,
+  digest: sha256,
+  schemas: { types: [* type-definition] },
+  effects: [* fingerprint-definition],
+  capabilities: [* fingerprint-definition],
+  operations: [* operation-definition],
+  slots: [* slot-definition],
+  definitions: [* fingerprint-definition],
+}
+
+type-definition = { id: identifier, schema: schema, fingerprint: sha256 }
+fingerprint-definition = { id: identifier, fingerprint: sha256 }
+operation-definition = {
+  id: identifier,
+  input: identifier,
+  output: identifier,
+  error: identifier,
+  effect: identifier,
+  capability: identifier,
+  effect_cost: uint,
+  idempotency: "none" / "required",
+  fingerprint: sha256,
+}
+slot-definition = {
+  id: identifier,
+  input: identifier,
+  output: identifier,
+  language_version: version,
+  effects: [* identifier],
+  capabilities: [* identifier],
+  compile_limits: compile-limits,
+  execution_limits: execution-limits,
+  fingerprint: sha256,
+}
+
+schema =
+  { kind: "unit" } /
+  { kind: "boolean" } /
+  { kind: "int64", ? minimum: int, ? maximum: int } /
+  { kind: "float64", ? minimum: float64, ? maximum: float64 } /
+  { kind: "string", ? max_bytes: uint } /
+  { kind: "bytes", ? max_bytes: uint } /
+  { kind: "instant", ? minimum: instant, ? maximum: instant } /
+  { kind: "list", item: schema, ? max_items: uint } /
+  { kind: "tuple", items: [* schema] } /
+  { kind: "record", fields: [* record-field] } /
+  { kind: "variant", variants: [* variant-member] } /
+  { kind: "brand", type: identifier, base: schema } /
+  { kind: "ref", type: identifier }
+
+record-field = { name: bounded-text, schema: schema }
+variant-member = { tag: bounded-text, schema: schema }
+
+source-program = { entry: identifier, modules: [* source-module] }
+source-module = { id: identifier, source: canonical-bytes }
+
+compile-limits = {
+  source_bytes: uint,
+  module_bytes: uint,
+  modules: uint,
+  imports: uint,
+  declarations: uint,
+  syntax_nodes: uint,
+  syntax_depth: uint,
+  type_depth: uint,
+  type_instantiation_work: uint,
+  diagnostics: uint,
+  derived_template_bytes: uint,
+}
+
+execution-limits = {
+  max_depth: uint,
+  max_nodes: uint,
+  max_bytes: uint,
+  fuel: uint,
+  allocations: uint,
+  allocated_bytes: uint,
+  retained_bytes: uint,
+  collection_items: uint,
+  call_depth: uint,
+  host_calls: uint,
+  concurrent_actions: uint,
+  trace_bytes: uint,
+  output_bytes: uint,
+}
+
+version = { major: uint, minor: uint }
+semver = { major: uint, minor: uint, patch: uint, ? prerelease: bounded-text }
+instant = { epoch_seconds: int, nanoseconds: 0..999999999 }
+canonical-bytes = bstr
+sha256 = tstr .size 64
+identifier = tstr
+feature-name = tstr
+bounded-text = tstr
