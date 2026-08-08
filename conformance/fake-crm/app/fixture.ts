@@ -4,7 +4,7 @@ import { createSafeScript } from '@safescript/sdk';
 import { AUTOMATIONS, type AutomationFixture } from '../fixtures/automations.js';
 import { crmContract, type AutomationEvent, type AutomationResult, type MutationInput } from './contract.js';
 import { FakeCrmStore, type CrmMutationKind } from './domain.js';
-import { renderDashboard, renderNodeEditor } from './node-editor.js';
+import { projectNodeEditor, renderDashboard, type DashboardAutomation } from './node-editor.js';
 
 export interface CrmInvocationContext {
   readonly actorId: string;
@@ -97,12 +97,19 @@ export function createFakeCrm(store = new FakeCrmStore(), options: FakeCrmOption
       });
     },
     async render(): Promise<string> {
-      const editors: string[] = [];
+      const automations: DashboardAutomation[] = [];
       for (const automation of AUTOMATIONS) {
         const graph = await this.inspect(automation);
-        editors.push(renderNodeEditor(automation.name, graph));
+        automations.push({
+          id: automation.id,
+          name: automation.name,
+          description: automation.description,
+          source: automation.source.modules[0]?.source ?? '',
+          sourceHash: graph.sourceHash,
+          editor: projectNodeEditor(graph),
+        });
       }
-      return renderDashboard(editors, store.snapshot());
+      return renderDashboard(automations, store.snapshot());
     },
     async runAll(): Promise<readonly AutomationResult[]> {
       const outputs: AutomationResult[] = [];

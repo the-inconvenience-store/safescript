@@ -4,6 +4,7 @@ import { ids } from '@safescript/contracts';
 
 import { createFakeCrm } from '../app/fixture.js';
 import { projectNodeEditor } from '../app/node-editor.js';
+import { createFakeCrmWebApp } from '../app/server.js';
 import { AUTOMATIONS } from '../fixtures/automations.js';
 
 const open: ReturnType<typeof createFakeCrm>[] = [];
@@ -83,9 +84,10 @@ describe('fake CRM production-style integration', () => {
       expect(editor.edges.every(({ from, to }) => graphIds.has(from) && graphIds.has(to))).toBe(true);
     }
     const html = await crm.render();
-    expect(html.match(/READ ONLY/g)).toHaveLength(10);
-    expect(html).toContain('data-semantic-node=');
-    expect(html).toContain('CRM state after run');
+    expect(html).toContain('READ ONLY · SEMANTIC GRAPH');
+    expect(html).toContain('graph-viewport');
+    expect(html).toContain('window.__CRM_AUTOMATIONS__');
+    expect(html).toContain('CRM state');
   });
 
   it('reauthorises at runtime and exposes a typed policy error without mutating the CRM', async () => {
@@ -205,5 +207,36 @@ describe('fake CRM production-style integration', () => {
     const failed = await malformed.run(automation);
     expect(failed.status).toBe('failed');
     expect(failed.status === 'failed' && failed.error.code).toBe('invalid_result');
+  });
+
+  it('serves the interactive editor and runs or resets one automation through HTTP', async () => {
+    const app = createFakeCrmWebApp();
+    try {
+      const page = await app.fetch(new Request('http://fixture.test/'));
+      const html = await page.text();
+      expect(page.status).toBe(200);
+      expect(html).toContain('id="run-script"');
+      expect(html).toContain('id="graph-stage"');
+      expect(html).not.toContain('createFakeCrmWebApp');
+
+      const run = await app.fetch(new Request('http://fixture.test/api/run/won-onboarding-task', { method: 'POST' }));
+      const result = (await run.json()) as {
+        readonly status: string;
+        readonly actions: readonly Readonly<{ operationId: string; effectId: string; outcome: string }>[];
+        readonly state: Readonly<{ tasks: readonly Readonly<{ value: string }>[] }>;
+      };
+      expect(run.status).toBe(200);
+      expect(result.status).toBe('completed');
+      expect(result.actions).toEqual([
+        { operationId: 'operation:tasks.create', effectId: 'effect:tasks.create', outcome: 'completed' },
+      ]);
+      expect(result.state.tasks[0]?.value).toBe('Onboard Ada Lovelace');
+
+      const reset = await app.fetch(new Request('http://fixture.test/api/reset', { method: 'POST' }));
+      const resetResult = (await reset.json()) as { readonly state: Readonly<{ tasks: readonly unknown[] }> };
+      expect(resetResult.state.tasks).toEqual([]);
+    } finally {
+      await app.close();
+    }
   });
 });

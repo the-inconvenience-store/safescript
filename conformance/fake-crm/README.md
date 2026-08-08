@@ -10,5 +10,13 @@ Run the browser fixture with:
 bun run --cwd conformance/fake-crm demo
 ```
 
-Then open <http://localhost:4317>. Each request runs the automations in a fresh CRM, displays their read-only node views
-derived from `safe.inspect(..., views: ["semantic_graph"])`, and shows the resulting CRM state beside them.
+Then open <http://localhost:4317>. Choose any automation and press **Run script**. The browser calls the fixture API,
+which executes the stored source through `createSafeScript`; the graph highlights every observed host action and the CRM
+state and execution activity update in place. Reset clears all fixture effects.
+
+The canvas is a host-owned, read-only projection of `safe.inspect(..., views: ["semantic_graph"])`: its positioned
+nodes and SVG connections carry the semantic graph IDs, while pan, wheel zoom, fit-to-view, focus, and script selection
+behave like a real graph viewer. Canonical TypeScript remains the only executable authority.
+
+The website follows the restrained light visual system in the referenced Twenty `DESIGN.md`: serif display hierarchy,
+mono metadata, neutral surfaces, hairline borders, 4px cards, a deep-ink primary action, and reduced-motion support.
