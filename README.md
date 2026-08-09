@@ -1,6 +1,6 @@
 # SafeScript
 
-SafeScript runs user- and agent-authored TypeScript inside your application without giving it access to your process.
+SafeScript runs user- and agent-authored TypeScript inside your application without giving it access to your process. It was born from the need for a safe, restricted language that could be embedded into agentic applications for end-user-customisable workflows, extensions, and automations while remaining safe and familiar to agents and humans.
 
 Your application defines the available data, operations, permissions, and limits. SafeScript checks source against that contract, compiles it to typed IR, and runs it in a bounded interpreter. It never executes generated JavaScript and provides no ambient file, network, package, environment, process, or credential access.
 

@@ -10,7 +10,7 @@ The publication unit is identified by the [manifest](../../conformance/worker-pr
 - `worker-protocol-1.0.cddl`;
 - canonical valid and hostile byte fixtures;
 - protocol version and closed message-kind catalog;
-- the SafeScript v1 language, IR, ABI, diagnostic, artifact, canonical-value, and semantic-resource references incorporated by the selected payload records.
+- the selected SafeScript language, IR, action ABI 2.0, diagnostic, artifact, canonical-value, and semantic-resource references incorporated by the payload records.
 
 Fixture schema changes use their own semantic version. Changing expected bytes, failure meaning, state transition, or semantic ledger requires the compatibility change dictated by the owning surface.
 
@@ -22,7 +22,7 @@ Encoders MUST emit the fixture bytes exactly. Decoders MUST either return the fi
 
 ## State and lifecycle corpus
 
-The corpus exercises successful bootstrap and all incompatibility dimensions; every valid message in every state/direction; unknown, duplicate, late, crossed, and reused correlation; concurrent bridge work; nested action exchanges; cancellation races; idempotent close; partial writes; stderr saturation; queue and credit exhaustion; startup/handshake/close deadlines; worker exit at compile, interpretation, action suspension, and terminal write; restart suppression; and explicit override identity failures.
+The corpus exercises successful bootstrap and all incompatibility dimensions, including ABI 1.0 versus ABI 2.0 isolation; every valid message in every state/direction; unknown, duplicate, late, crossed, and reused correlation; concurrent bridge work; nested action exchanges; cancellation races; idempotent close; partial writes; stderr saturation; queue and credit exhaustion; startup/handshake/close deadlines; worker exit at compile, interpretation, action suspension, and terminal write; restart suppression; and explicit override identity failures.
 
 No case may replay a bridge request or action. Crash cases assert the exact facts retained and the effect state assigned to every unresolved action.
 
@@ -41,7 +41,7 @@ Operational supervisor events and wall-clock durations are excluded. Any semanti
 
 Hostile peers attempt malformed registries, artifacts, source, inputs, action requests/outcomes, oversized detail, control characters, path/environment disclosure, message replay, handler double-dispatch, credential access, stdout contamination, and unexpected exceptions.
 
-Fixtures include distinctive secret sentinels in environment, invocation context, handler closures, peer payloads, and thrown exceptions. No public result, stderr default, supervisor event, diagnostic, trace, or protocol error may reveal a forbidden sentinel. Policy rejection must not call a handler; malformed or duplicate actions dispatch zero times.
+Fixtures include distinctive secret sentinels in environment, invocation context, hook and handler closures, peer payloads, and thrown exceptions. No worker payload, stderr default, supervisor event, trace, or protocol error may reveal a forbidden sentinel. Host-local hook diagnostics may appear only on the SDK result and contain no exception text. A stopped `beforeAction` must not call a handler; malformed, duplicate, uncorrelated, or over-budget actions invoke neither hooks nor handlers.
 
 ## Platform evidence
 

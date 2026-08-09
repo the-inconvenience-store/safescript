@@ -1,6 +1,6 @@
 # SafeScript v2 specification
 
-SafeScript v2 makes the supervised local [runtime worker](../../CONTEXT.md#runtime-worker) the default execution path for the TypeScript SDK. SafeScript source remains canonical, every host action remains subject to current host authorization, and process failure never causes implicit replay.
+SafeScript v2 makes the supervised local [runtime worker](../../CONTEXT.md#runtime-worker) the default execution path for the TypeScript SDK. SafeScript source remains canonical, every host action crosses the validated host gateway, and process failure never causes implicit replay. Host policy is optional and remains host-owned through the SDK's [execution and action hooks](../proposals/action-hooks.md); no hook or host context crosses the worker boundary.
 
 ## Normative protocol 1.0
 

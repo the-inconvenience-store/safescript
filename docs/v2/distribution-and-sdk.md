@@ -31,7 +31,7 @@ The SDK has two identity checks:
 1. before spawn, installed package metadata and the generated build manifest match the SDK-pinned release;
 2. during handshake, the worker reports the expected package version, compiler build, protocol support, and build digest.
 
-Both MUST pass for the bundled worker. Identity proves the selected installed build, not authorization or absence of compromise. All worker messages remain untrusted and every action remains currently authorized by the host.
+Both MUST pass for the bundled worker. Identity proves the selected installed build, not authorization or absence of compromise. All worker messages remain untrusted and every action still crosses the validated host gateway; whether the host enforces authorization there is host policy.
 
 ## Explicit override
 
@@ -41,7 +41,7 @@ An override configuration states its permitted protocol range, required features
 
 ## TypeScript facade behavior
 
-`createSafeScript` uses the supervised process bridge by default in v2 while preserving its six public methods: `check`, `inspect`, `execute`, `test`, `cancel`, and `close`. Contract declaration, handlers, authorization, invocation context, codecs, deterministic tests, and public result unions retain their existing roles.
+`createSafeScript` uses the supervised process bridge by default in v2 while preserving its six public methods: `check`, `inspect`, `execute`, `test`, `cancel`, and `close`. Contract declaration, handlers, optional lifecycle hooks, invocation context, codecs, deterministic tests, and public result unions remain SDK concerns. The facade invokes hooks on the host side of either bridge; hook callbacks, host context, credentials, policy state, and hook diagnostics are never encoded into worker messages.
 
 The direct in-process bridge remains a supported explicit option for development, conformance, deterministic unit/integration tests, and constrained deployments. It passes the same semantic conformance suite but does not claim process containment. Selecting it is deliberate configuration and is never an automatic response to worker failure.
 

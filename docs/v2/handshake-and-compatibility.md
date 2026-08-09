@@ -48,6 +48,8 @@ The host MUST validate every selected value against its hello. The worker MUST N
 
 Handshake success establishes compatibility for the session protocol only. Every subsequent request still validates its ABI, language, IR, compiler, contract, artifact, slot, limits, and canonical values at the existing SafeScript seams.
 
+Protocol 1.0's v2 action records require action ABI 2.0. ABI is an exact negotiated dimension: a peer that offers only ABI 1.0 has no common action ABI, receives `session.incompatible` with dimension `abi`, and closes before bridge or action work. Peers MUST NOT translate ABI 1.0 rejected outcomes into ABI 2.0 declared results or host failures.
+
 ## Incompatibility
 
 `session.incompatible` contains code `incompatible_session` and a non-empty, sorted, unique list of failed dimensions. Closed dimensions are:

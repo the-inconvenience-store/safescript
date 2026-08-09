@@ -4,7 +4,7 @@ This document defines the compatibility promise and required host migration from
 
 ## Preserved compatibility
 
-V2 preserves supported v1 contract definitions, canonical schemas and values, language 1.0 and 1.1 source semantics, slot effects/capabilities, ABI action meaning, current authorization, handler signatures, deterministic time/randomness, diagnostic ownership, semantic resource charging, semantic graphs, authoring bundles, and the six-method TypeScript facade unless a separately versioned contract says otherwise.
+V2 preserves canonical schemas and values, language 1.0 and 1.1 source semantics, slot effects/capabilities, deterministic time/randomness, diagnostic ownership, semantic resource charging, semantic graphs, authoring bundles, and the six-method TypeScript facade unless a separately versioned contract says otherwise.
 
 For the same accepted source or regenerated artifact, registry, slot, input, deterministic values, semantic limits, and scripted actions, direct and worker adapters MUST agree on check status, source diagnostics/codes/provenance, program summary, graph bytes, terminal execution status/output, ordered action facts, semantic traces, and semantic usage.
 
@@ -16,11 +16,13 @@ Hosts MUST deploy a supported Node runtime and permit child-process stdio, or ex
 
 V2 adds protocol/supervisor failure codes without changing the meaning of v1 codes. Code that exhaustively branches on a failure union must be updated. Raw process errors and exceptions remain excluded.
 
+V2 also adopts [optional execution and action hooks](../proposals/action-hooks.md), SDK 2.0, and action ABI 2.0. It does not preserve v1's required `authorise` callback, `resourceScope` extractor, universal policy-error variant, or rejected action-outcome tag. A `beforeAction` stop is encoded as the operation's ordinary declared `Err`; hook failures remain bounded host failures or SDK-local diagnostics.
+
 ## Checked artifacts
 
 Checked artifacts are disposable compiler-bound optimizations, not durable compatibility or permission tokens. V1 artifact bytes need not execute under the v2 compiler/worker build. A host with canonical source rechecks and stores a new artifact; a host with only an incompatible artifact receives a not-started compatibility failure.
 
-V2 performs no automatic artifact translation and never changes source to preserve an artifact. Artifact execution still revalidates canonical bytes, compiler, language, IR, ABI, contract requirements, definitions, slot, digest, and private IR before interpretation, and every action receives current authorization.
+V2 performs no automatic artifact translation and never changes source to preserve an artifact. Artifact execution still revalidates canonical bytes, compiler, language, IR, ABI, contract requirements, definitions, slot, digest, and private IR before interpretation. Checked v1 artifacts retain their ABI 1.0 requirement and run only through a compatible v1 adapter.
 
 ## Direct bridge option
 
@@ -36,7 +38,7 @@ Direct mode preserves semantic behavior but does not emit worker lifecycle facts
 4. Review the worker [spawn contract](security.md#spawn-contract) and remove inherited secrets/environment assumptions.
 5. Set deployment ceilings for startup, handshake, queues, in-flight work, handler duration, close, stderr, and restart rate.
 6. Handle new protocol/supervisor failure codes and unknown action effect state without generic retry.
-7. Exercise authorization and handlers through the worker action path; confirm no credential or host object crosses it.
+7. Move any required authorization into `beforeAction`, handlers, or downstream services; exercise hooks and handlers through the worker action path and confirm no hook, credential, host context, or hook diagnostic crosses it.
 8. Regenerate artifacts and authoring bundles from canonical source and the current contract.
 9. Run direct/worker conformance and application integration tests on every deployment platform.
 10. Integrate idempotent facade close into shutdown and bound external handler latency separately.
@@ -45,4 +47,4 @@ Direct mode preserves semantic behavior but does not emit worker lifecycle facts
 
 A v2 SDK and its bundled worker are one pinned release set. Replacing only one package is unsupported even when a handshake could technically succeed. An explicit override may use a different build only under its declared protocol/digest policy.
 
-Rollback means deploying the previous coordinated SDK/worker set and rechecking canonical source for that compiler. A host MUST NOT reuse artifacts across incompatible builds or replay invocations interrupted during rollout. Blue/green deployments may run independent v1 direct and v2 worker instances against the same source/contract policy, but no live protocol connection mixes them and action idempotency remains host-enforced.
+Rollback means deploying the previous coordinated SDK/worker set and rechecking canonical source for that compiler. A host MUST NOT reuse artifacts across incompatible builds or replay invocations interrupted during rollout. Blue/green deployments may run independent ABI 1.0 direct and ABI 2.0 worker instances against separately compatible contracts, hooks, and artifacts, but no live protocol connection translates or mixes them and action idempotency remains host-enforced.

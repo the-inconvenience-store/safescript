@@ -42,7 +42,7 @@ Whole-frame writes are serialized. Reads and decoding pause when bounded queues 
 
 Process separation does not change the language/IR semantic resource schedule. Fuel, allocations, allocated bytes, retained bytes, value shape, collection size, call depth, host calls, concurrent actions, trace bytes, output bytes, compile usage, and graph usage MUST match the direct bridge for the same accepted inputs and selected semantic limits.
 
-Wall time, OS scheduling, process RSS, pipe buffers, protocol bytes, queue wait, startup, handshake, handler latency, and restart counts MUST NOT be charged as semantic fuel or inserted into deterministic execution facts. Operator CPU and memory quotas are deployment controls.
+Wall time, OS scheduling, process RSS, pipe buffers, protocol bytes, queue wait, startup, handshake, hook or handler latency, and restart counts MUST NOT be charged as semantic fuel or inserted into deterministic execution facts. Operator CPU and memory quotas are deployment controls.
 
 ## Operational facts
 
@@ -77,4 +77,4 @@ Malformed framing, envelope ambiguity, message-ID reuse, unknown envelope versio
 
 A valid correlated request whose nested payload violates its selected schema may receive one bounded `protocol.error`; the request then terminates and the connection MAY remain ready only if no state or capacity ambiguity exists. Handshake incompatibility returns one `session.incompatible` and closes normally.
 
-Worker loss never replays work. Started executions retain validated facts already observed. Any unresolved action effect is unknown unless the host proves it was not performed. Failures terminate the smallest trustworthy scope and MUST NOT be converted to source diagnostics, typed policy/domain errors, or successful cancellation.
+Worker loss never replays work. Started executions retain validated facts already observed. Any unresolved action effect is unknown unless the host proves it was not performed. Failures terminate the smallest trustworthy scope and MUST NOT be converted to source diagnostics, declared operation errors, SDK-local hook diagnostics, or successful cancellation.

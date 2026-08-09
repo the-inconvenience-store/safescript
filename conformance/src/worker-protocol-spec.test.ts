@@ -248,6 +248,24 @@ describe('worker protocol 1.0 publication', () => {
     }
   });
 
+  it('freezes action ABI 2.0 without host-local policy or hook values', async () => {
+    const [schema, handshake, security] = await Promise.all([
+      Bun.file(new URL('docs/v2/worker-protocol-1.0.cddl', repositoryRoot)).text(),
+      Bun.file(new URL('docs/v2/handshake-and-compatibility.md', repositoryRoot)).text(),
+      Bun.file(new URL('docs/v2/security.md', repositoryRoot)).text(),
+    ]);
+
+    const actionOutcome = schema.slice(schema.indexOf('action-outcome-record ='), schema.indexOf('host-failure ='));
+    expect(actionOutcome).toContain('{ tag: "completed", value: canonical-bytes }');
+    expect(actionOutcome).toContain('tag: "failed"');
+    expect(actionOutcome).not.toContain('tag: "rejected"');
+    expect(schema).not.toContain('policy-error');
+    expect(schema).not.toContain('hook_diagnostics');
+    expect(schema).toContain('action-abi-version = { major: 2, minor: 0 }');
+    expect(handshake).toContain('offers only ABI 1.0 has no common action ABI');
+    expect(security).toContain('Hook decisions and hook diagnostics are SDK-local facts');
+  });
+
   it('links the v2 surface from project documentation without broken local references', async () => {
     const [manifest, documentationIndex] = await Promise.all([
       Bun.file(

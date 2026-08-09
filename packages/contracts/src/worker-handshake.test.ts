@@ -16,7 +16,7 @@ const version = (major: bigint, minor: bigint) => ({ major, minor });
 const semver = (major: bigint, minor: bigint, patch: bigint) => ({ major, minor, patch });
 
 const versions = {
-  abi: [version(1n, 0n)],
+  abi: [version(2n, 0n)],
   language: [version(1n, 0n), version(1n, 1n)],
   ir: [version(1n, 0n)],
   diagnostic_catalog: [semver(1n, 0n, 0n)],
@@ -103,7 +103,7 @@ describe('worker protocol handshake', () => {
     [{ ...worker, features: ['feature.optional', 'worker.extra'] }, ['required_feature']],
     [{ ...worker, worker: { ...worker.worker, package_version: semver(3n, 0n, 0n) } }, ['bundled_worker_version']],
     [{ ...worker, worker: { ...worker.worker, build_digest: 'invalid' } }, ['worker_build_digest']],
-    [{ ...worker, versions: { ...versions, abi: [version(2n, 0n)] } }, ['abi']],
+    [{ ...worker, versions: { ...versions, abi: [version(1n, 0n)] } }, ['abi']],
     [{ ...worker, versions: { ...versions, language: [version(2n, 0n)] } }, ['language']],
     [{ ...worker, versions: { ...versions, ir: [version(2n, 0n)] } }, ['ir']],
     [{ ...worker, versions: { ...versions, diagnostic_catalog: [semver(2n, 0n, 0n)] } }, ['diagnostic_catalog']],

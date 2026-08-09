@@ -1,6 +1,8 @@
 ; SafeScript worker protocol 1.0
 ; Maps are closed. Deterministic encoding and additional semantic constraints are
 ; defined by wire-protocol.md and the document owning each record.
+; Action records use ABI 2.0. SDK hooks, host context, credentials, policy state,
+; and hook diagnostics are host-local and have no wire representation.
 
 worker-envelope = {
   version: 1,
@@ -143,7 +145,7 @@ protocol-error-code =
 ; Public RuntimeBridge ABI records
 
 check-request = {
-  abi_version: version,
+  abi_version: action-abi-version,
   language_version: version,
   registry: contract-registry,
   slot_id: identifier,
@@ -164,7 +166,7 @@ check-result =
   { status: "bridge_error", error: bridge-error }
 
 inspect-request = {
-  abi_version: version,
+  abi_version: action-abi-version,
   language_version: version,
   registry: contract-registry,
   slot_id: identifier,
@@ -194,7 +196,7 @@ check-accepted = {
 }
 
 execute-request = {
-  abi_version: version,
+  abi_version: action-abi-version,
   registry: contract-registry,
   slot_id: identifier,
   invocation_id: identifier,
@@ -223,7 +225,7 @@ execution-result =
   { status: "cancelled", error: execution-error, facts: execution-facts } /
   { status: "bridge_error", error: bridge-error }
 
-cancel-request = { abi_version: version, invocation_id: identifier }
+cancel-request = { abi_version: action-abi-version, invocation_id: identifier }
 cancel-result =
   { status: "accepted" } /
   { status: "not_active" } /
@@ -232,7 +234,7 @@ cancel-result =
 ; Action ABI
 
 action-request-record = {
-  abi_version: version,
+  abi_version: action-abi-version,
   contract_id: identifier,
   required_contract_version: semver,
   ir_digest: sha256,
@@ -249,18 +251,16 @@ action-request-record = {
 }
 
 action-outcome-record = {
-  abi_version: version,
+  abi_version: action-abi-version,
   request_id: identifier,
   result:
     { tag: "completed", value: canonical-bytes } /
-    { tag: "rejected", value: policy-error } /
     {
       tag: "failed",
       value: { effect_state: "not_performed" / "unknown", failure: host-failure },
     },
 }
 
-policy-error = { code: bounded-text, ? detail: bounded-text }
 host-failure = {
   code: "cancelled" / "gateway_fault" / "handler_fault" /
         "invalid_result" / "timeout" / "transport_lost" / "unavailable",
@@ -301,7 +301,7 @@ compiler-provenance = {
   compiler: compiler-version,
   language: version,
   ir: version,
-  abi: version,
+  abi: action-abi-version,
 }
 compiler-version = { version: semver, build: bounded-text }
 
@@ -361,6 +361,7 @@ graph-error = {
 ; Contract registry and schema language
 
 contract-registry = {
+  abi_version: action-abi-version,
   id: identifier,
   version: semver,
   digest: sha256,
@@ -449,6 +450,7 @@ execution-limits = {
 }
 
 version = { major: uint, minor: uint }
+action-abi-version = { major: 2, minor: 0 }
 semver = { major: uint, minor: uint, patch: uint, ? prerelease: bounded-text }
 instant = { epoch_seconds: int, nanoseconds: 0..999999999 }
 canonical-bytes = bstr

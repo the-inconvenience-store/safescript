@@ -1,6 +1,6 @@
 # Optional execution and action hooks
 
-Status: proposed
+Status: accepted for SafeScript v2
 
 Tracking issue: `safescript-eq6`
 
@@ -17,11 +17,11 @@ SafeScript will guarantee validation, correlation, resource bounds, and register
 
 Before-hooks may stop work. After-hooks may observe work but may not replace an outcome that has already been decided.
 
-This is a breaking SDK and action-ABI change. If accepted for the in-progress v2 release, it supersedes v2's current promise to preserve v1 host-contract and current-authorisation semantics. It requires SDK 2.0 and action ABI 2.0 before worker protocol 1.0 freezes; it is not a reinterpretation of v1 contracts.
+This is a breaking SDK and action-ABI change. It supersedes v2's earlier promise to preserve v1 host-contract and current-authorisation semantics. It requires SDK 2.0 and action ABI 2.0 before worker protocol 1.0 freezes; it is not a reinterpretation of v1 contracts.
 
 ## Motivation
 
-The SDK currently requires every host to provide `authorise`, every operation to provide a pure `resourceScope` extractor, and every operation error schema to contain a `policy` variant. The gateway invokes that callback immediately before handler dispatch. This gives SafeScript a strong guarantee that every valid action receives a current host policy decision.
+The v1 SDK requires every host to provide `authorise`, every operation to provide a pure `resourceScope` extractor, and every operation error schema to contain a `policy` variant. The gateway invokes that callback immediately before handler dispatch. This gives SafeScript a strong guarantee that every valid action receives a current host policy decision.
 
 The policy itself is nevertheless entirely host-owned. Many hosts already enforce authority in operation handlers or downstream services, while other hosts need admission control, quotas, tenancy checks, tracing, metrics, or maintenance gates at the same boundary. Treating one of those concerns as a mandatory SDK concept makes the contract and test API more prescriptive without making the host's policy correct.
 
@@ -129,7 +129,7 @@ It follows the universal action-lifecycle rule above: it runs once for every cor
 - An after-hook failure records only an SDK-owned `hook_fault` diagnostic with lifecycle point, invocation ID, and request ID where applicable. It contains no host exception text. At most one diagnostic exists per configured after-hook invocation, so action diagnostics remain bounded by the host-call limit and execution diagnostics by one invocation.
 - Cancellation is checked before and after each before-hook and before handler dispatch. After-hooks receive the cancellation signal but are still awaited once their corresponding outcome has been fixed.
 
-An action stopped by `beforeAction` consumes one host-call attempt and the operation's semantic effect charge, just as the current authorization rejection does. Gateway concurrency capacity is reserved across `beforeAction` and handler dispatch and is released as soon as the outcome is fixed, before `afterAction` is awaited. Every exit path releases it exactly once.
+An action stopped by `beforeAction` consumes one host-call attempt and the operation's semantic effect charge, just as a v1 authorization rejection does. Gateway concurrency capacity is reserved across `beforeAction` and handler dispatch and is released as soon as the outcome is fixed, before `afterAction` is awaited. Every exit path releases it exactly once.
 
 Cancellation before handler dispatch fixes a cancelled host failure with effect state `not_performed` and then invokes `afterAction`. Cancellation cannot pre-empt trusted handler work. If cancellation occurs after dispatch, the handler receives the signal; any late handler settlement and its `afterAction` observation follow the existing late-completion rule and cannot resume or rewrite an already cancelled invocation. If a trusted callback never settles, SafeScript cannot force it to complete.
 
@@ -139,7 +139,7 @@ SafeScript bounds recorded hook diagnostics, not the latency or external activit
 
 ## Action outcomes and ABI
 
-The current `ActionOutcome` has a dedicated current-policy rejection. That tag exists to support mandatory SDK authorisation. Under this proposal it is removed in the next action ABI:
+The v1 `ActionOutcome` has a dedicated current-policy rejection. That tag exists to support mandatory SDK authorisation. Action ABI 2.0 removes it:
 
 - a handler result or before-action declared error is a completed, canonically encoded operation `Result`;
 - an SDK, transport, or handler infrastructure problem is a host failure with explicit effect state.
@@ -150,7 +150,7 @@ The worker continues to treat all action requests and outcomes as untrusted prot
 
 ## SDK and contract changes
 
-The next major API removes:
+The v2 API removes:
 
 - the required `authorise` facade option;
 - `AuthorisationDecision` and authorization-specific action context;
@@ -200,7 +200,7 @@ Downstream services should continue to enforce their own authority when they can
 
 ## Migration
 
-This proposal is not source-compatible with the v1 host SDK or wire-compatible with the current action ABI. Migration requires SDK 2.0, action ABI 2.0, and the corresponding worker-protocol definitions. If incorporated into v2, the existing v2 epic, specifications, and issues that require preservation of current authorization must be amended before their gateway and release gates proceed.
+This design is not source-compatible with the v1 host SDK or wire-compatible with action ABI 1.0. Migration requires SDK 2.0, action ABI 2.0, and the corresponding worker-protocol definitions. The v2 epic, specifications, and gateway plan therefore use optional host policy rather than preserving mandatory current authorization.
 
 For a host that wants to preserve existing behavior:
 
@@ -228,7 +228,7 @@ This preserves the enforcement point when the host configures it, not exact v1 w
 
 ## Documentation impact
 
-Implementation must update the introduction, getting started guide, SDK guide, security model, contracts and values, engine guide, artifact guidance, testing guide, current scope, glossary, authoring guidance, v2 specification, worker protocol, and migration guidance. Until implementation ships, those documents remain normative for current v1 behavior and this proposal remains non-normative.
+The normative v2 specification and worker protocol incorporate this decision. The introduction, getting started guide, SDK guide, security model, contracts and values, engine guide, artifact guidance, testing guide, current scope, glossary, and authoring guidance must distinguish historical v1 behavior from the v2 hook API before the v2 documentation gate closes.
 
 ## Alternatives considered
 
@@ -252,9 +252,9 @@ This maximizes flexibility but transfers correlation, result validation, at-most
 
 This improves composition but introduces ordering, short-circuit, unwinding, and error-precedence rules. One optional callback per lifecycle point is sufficient; hosts can compose callbacks using their own application conventions.
 
-## Acceptance criteria
+## Acceptance record
 
-The proposal is ready for implementation when:
+The design was accepted with these conditions:
 
 - the four lifecycle points and their invocation order are unambiguous;
 - before-hook stop behavior is typed and fail-closed;
