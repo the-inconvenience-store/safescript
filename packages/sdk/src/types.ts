@@ -206,6 +206,13 @@ export interface ScriptedAction<O extends Operations = Operations> {
   readonly outcome: Result<unknown, unknown> | HandlerFailure;
 }
 
+/** Optional deterministic stand-in for a host rejecting execution before the runtime bridge starts. */
+export type ScriptedExecutionRejection = Readonly<{
+  status: 'rejected';
+  code: string;
+  detail?: string;
+}>;
+
 /** Optional observable facts asserted by {@link SafeScript.test}. */
 export interface TestExpectation<O> {
   readonly status?: ExecutionResult<O>['status'];
@@ -224,6 +231,7 @@ export interface TestRequest<K extends PropertyKey, I, O, Ops extends Operations
   readonly slot: K;
   readonly program: Program;
   readonly input: I;
+  readonly execution?: ScriptedExecutionRejection;
   readonly actions?: readonly ScriptedAction<Ops>[];
   readonly fixed?: Readonly<{
     instant?: InstantValue;

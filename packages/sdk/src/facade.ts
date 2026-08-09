@@ -575,21 +575,36 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
     const identity = hash('program', encodeUtf8(`${request.name}\0${stable(request.program)}`));
     const invocationId = request.fixed?.invocationId ?? ids.invocation(`invocation:${identity.slice(0, 32)}`);
     const scripted = createScriptedHost(this.options.contract, this.operationsById, request.actions ?? []);
-    const execution = await this.executeBridge(
-      slot,
-      {
-        slot: request.slot,
-        program: request.program,
-        input: request.input,
-        context: undefined as C,
-        invocationId,
-        idempotencySeed: request.fixed?.idempotencySeed ?? [...encodeUtf8(identity)],
-        ...(request.fixed?.instant === undefined ? {} : { fixedInstant: request.fixed.instant }),
-        randomSeed: request.fixed?.randomSeed ?? [...encodeUtf8(hash('program', encodeUtf8(`${identity}:random`)))],
-      },
-      scripted.host,
-      invocationId,
-    );
+    const decision = request.execution === undefined ? undefined : validBeforeExecuteDecision(request.execution);
+    const execution =
+      request.execution === undefined
+        ? await this.executeBridge(
+            slot,
+            {
+              slot: request.slot,
+              program: request.program,
+              input: request.input,
+              context: undefined as C,
+              invocationId,
+              idempotencySeed: request.fixed?.idempotencySeed ?? [...encodeUtf8(identity)],
+              ...(request.fixed?.instant === undefined ? {} : { fixedInstant: request.fixed.instant }),
+              randomSeed: request.fixed?.randomSeed ?? [
+                ...encodeUtf8(hash('program', encodeUtf8(`${identity}:random`))),
+              ],
+            },
+            scripted.host,
+            invocationId,
+          )
+        : decision?.status === 'rejected'
+          ? freeze({
+              status: 'not_started' as const,
+              error: {
+                code: 'execution_rejected' as const,
+                hostCode: decision.code,
+                ...(decision.detail === undefined ? {} : { detail: decision.detail }),
+              },
+            })
+          : freeze({ status: 'bridge_error' as const, error: bridgeError('execute', 'invalid_request') });
     scripted.finish();
     compareExpectations(request.expect, execution, scripted.mismatches);
     return freeze({ passed: scripted.mismatches.length === 0, mismatches: scripted.mismatches, execution });

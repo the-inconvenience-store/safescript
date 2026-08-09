@@ -30,6 +30,7 @@ export type {
   SafeScriptHooks,
   SafeScriptOptions,
   ScriptedAction,
+  ScriptedExecutionRejection,
   SdkExecutionFacts,
   SourceProgram,
   TestExpectation,

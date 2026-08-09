@@ -434,6 +434,156 @@ describe('createSafeScript', () => {
     );
   });
 
+  it('scripts an execution rejection without invoking production hooks, handlers, or the bridge', async () => {
+    const bridge = new FakeBridge();
+    let bridgeCalls = 0;
+    let productionCalls = 0;
+    bridge.executeResult = async () => {
+      bridgeCalls++;
+      return { status: 'bridge_error', error: { code: 'adapter_failure', phase: 'execute' } };
+    };
+    const safe = createSafeScript({
+      contract,
+      bridge,
+      handlers: {
+        read: () => {
+          productionCalls++;
+          return { tag: 'ok', value: 'production' } as const;
+        },
+      },
+      hooks: {
+        beforeExecute: () => {
+          productionCalls++;
+          return { status: 'continue' } as const;
+        },
+        afterExecute: () => {
+          productionCalls++;
+        },
+      },
+    });
+
+    const report = await safe.test({
+      name: 'maintenance rejection',
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 2n },
+      execution: { status: 'rejected', code: 'maintenance', detail: 'scheduled' },
+      expect: { status: 'not_started' },
+    });
+
+    expect(report).toEqual({
+      passed: true,
+      mismatches: [],
+      execution: {
+        status: 'not_started',
+        error: { code: 'execution_rejected', hostCode: 'maintenance', detail: 'scheduled' },
+      },
+    });
+    expect(bridgeCalls).toBe(0);
+    expect(productionCalls).toBe(0);
+  });
+
+  it('uses a scripted declared Err without invoking production hooks or handlers', async () => {
+    const bridge = new FakeBridge();
+    let productionCalls = 0;
+    bridge.executeResult = async (request, host) => {
+      const requestAction = action(request);
+      const outcome = await host.handleAction(requestAction);
+      bridge.actions.push(outcome);
+      const output = encodeCanonical({ kind: 'string' }, 'done');
+      if (!output.ok) throw new Error('fixture encoding failed');
+      return {
+        status: 'completed',
+        output: [...output.value],
+        facts: {
+          ...facts,
+          actions: [
+            { phase: 'requested', request: requestAction },
+            { phase: 'resolved', requestId: requestAction.requestId, outcome },
+          ],
+        },
+      };
+    };
+    const touched = (): void => {
+      productionCalls++;
+    };
+    const safe = createSafeScript({
+      contract,
+      bridge,
+      handlers: {
+        read: () => {
+          touched();
+          return { tag: 'ok', value: 'production' } as const;
+        },
+      },
+      hooks: {
+        beforeExecute: () => {
+          touched();
+          return { status: 'continue' } as const;
+        },
+        afterExecute: touched,
+        beforeAction: () => {
+          touched();
+          return { status: 'continue' } as const;
+        },
+        afterAction: touched,
+      },
+    });
+
+    const report = await safe.test({
+      name: 'declared error',
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 2n },
+      actions: [
+        {
+          operation: 'read',
+          input: { value: 2n },
+          outcome: { tag: 'error', value: { tag: 'domain', value: 'blocked' } },
+        },
+      ],
+      expect: { status: 'completed', output: 'done' },
+    });
+
+    expect(report.passed).toBe(true);
+    expect(productionCalls).toBe(0);
+    const outcome = bridge.actions.at(-1);
+    expect(outcome?.result.tag).toBe('completed');
+    if (outcome?.result.tag !== 'completed') throw new Error('expected scripted declared result');
+    expect(
+      decodeCanonical(resultSchema(outputType.schema, errorType.schema), Uint8Array.from(outcome.result.value)),
+    ).toEqual({ ok: true, value: { tag: 'error', value: { tag: 'domain', value: 'blocked' } } });
+  });
+
+  it('bounds repeated afterAction diagnostics without retaining hook exceptions', async () => {
+    const bridge = new FakeBridge();
+    bridge.executeResult = async (request, host) => {
+      for (let sequence = 0; sequence < 17; sequence++) await host.handleAction(action(request, sequence));
+      return { status: 'bridge_error', error: { code: 'adapter_failure', phase: 'execute' } };
+    };
+    const safe = createSafeScript({
+      contract,
+      bridge,
+      handlers: { read: () => ({ tag: 'ok', value: 'handled' }) as const },
+      hooks: {
+        afterAction: () => {
+          throw new Error('SECRET_REPEATED_HOOK_FAILURE');
+        },
+      },
+    });
+
+    const result = await safe.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      context: {},
+      invocationId,
+    });
+
+    expect(result.hookDiagnostics).toHaveLength(16);
+    expect(JSON.stringify(result)).not.toContain('SECRET_REPEATED_HOOK_FAILURE');
+  });
+
   it('rejects uncorrelated bridge actions and accepts compatible contract requirements', async () => {
     const bridge = new FakeBridge();
     let handlers = 0;

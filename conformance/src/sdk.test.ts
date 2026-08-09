@@ -11,13 +11,19 @@ import {
   type IrDigest,
   type RuntimeBridge,
 } from '@safescript/contracts';
-import { createSafeScript, defineContract, type ContractType } from '@safescript/sdk';
+import {
+  ProcessRuntimeBridge,
+  createSafeScript,
+  defineContract,
+  type ContractType,
+  type ProcessWorkerTransport,
+} from '@safescript/sdk';
+import { RuntimeWorkerServer } from '@safescript/worker';
 
 interface Input {
   readonly value: bigint;
 }
-type HostError =
-  Readonly<{ tag: 'policy'; value: Readonly<{ code: string }> }> | Readonly<{ tag: 'domain'; value: string }>;
+type HostError = string;
 
 const inputType: ContractType<Input> = {
   id: ids.type('type:conformance.input'),
@@ -29,13 +35,7 @@ const outputType: ContractType<string> = {
 };
 const errorType: ContractType<HostError> = {
   id: ids.type('type:conformance.error'),
-  schema: {
-    kind: 'variant',
-    variants: [
-      { tag: 'policy', schema: { kind: 'record', fields: [{ name: 'code', schema: { kind: 'string' } }] } },
-      { tag: 'domain', schema: { kind: 'string' } },
-    ],
-  },
+  schema: { kind: 'string' },
 };
 const effect = ids.effect('effect:conformance.read');
 const capability = ids.capability('capability:conformance.read');
@@ -88,8 +88,59 @@ const usage = Object.freeze({
   outputBytes: 5,
 });
 
+class AsyncByteQueue implements AsyncIterable<Uint8Array> {
+  readonly #values: Uint8Array[] = [];
+  readonly #waiters: Array<(result: IteratorResult<Uint8Array>) => void> = [];
+  #ended = false;
+
+  push(value: Uint8Array): void {
+    if (this.#ended) return;
+    const waiter = this.#waiters.shift();
+    if (waiter) waiter({ done: false, value });
+    else this.#values.push(value);
+  }
+
+  end(): void {
+    if (this.#ended) return;
+    this.#ended = true;
+    for (const waiter of this.#waiters.splice(0)) waiter({ done: true, value: undefined });
+  }
+
+  [Symbol.asyncIterator](): AsyncIterator<Uint8Array> {
+    return {
+      next: () => {
+        const value = this.#values.shift();
+        if (value) return Promise.resolve({ done: false, value });
+        if (this.#ended) return Promise.resolve({ done: true, value: undefined });
+        return new Promise((resolve) => this.#waiters.push(resolve));
+      },
+    };
+  }
+}
+
+function throughWorker(bridge: RuntimeBridge): RuntimeBridge {
+  const incoming = new AsyncByteQueue();
+  const connection: { server?: RuntimeWorkerServer } = {};
+  const transport: ProcessWorkerTransport = {
+    incoming,
+    write: (frame) => connection.server?.receive(frame),
+    close: () => connection.server?.finish(),
+  };
+  connection.server = new RuntimeWorkerServer({
+    bridge,
+    write: (frame) => incoming.push(frame),
+    close: () => incoming.end(),
+  });
+  return new ProcessRuntimeBridge({ transport });
+}
+
+const adapters: Array<[string, (bridge: RuntimeBridge) => RuntimeBridge]> = [
+  ['in-process', (bridge) => bridge],
+  ['worker', throughWorker],
+];
+
 describe('public SDK conformance', () => {
-  it('encodes requests, dispatches a typed action, and decodes output through an injected bridge', async () => {
+  it.each(adapters)('%s adapter preserves SDK hook boundaries around a typed action', async (_name, adapt) => {
     let bridgeRequestInput: readonly number[] = [];
     let observedAction: ActionRequest | undefined;
     const facts: ExecutionFacts = {
@@ -159,13 +210,25 @@ describe('public SDK conformance', () => {
     const events: string[] = [];
     const safe = createSafeScript<{ tenant: string }, typeof contract.operations, typeof contract.slots>({
       contract,
-      bridge,
+      bridge: adapt(bridge),
       createInvocationId: () => invocationId,
       handlers: {
         read: (input, context) => {
           events.push(`handle:${context.context.tenant}:${input.value}`);
           return { tag: 'ok', value: 'host-value' };
         },
+      },
+      hooks: {
+        beforeExecute: () => {
+          events.push('before-execute');
+          return { status: 'continue' };
+        },
+        beforeAction: () => {
+          events.push('before-action');
+          return { status: 'continue' };
+        },
+        afterAction: () => events.push('after-action'),
+        afterExecute: () => events.push('after-execute'),
       },
     });
     const result = await safe.execute({
@@ -180,7 +243,7 @@ describe('public SDK conformance', () => {
     });
     expect(result.status).toBe('completed');
     if (result.status === 'completed') expect(result.output).toBe('done');
-    expect(events).toEqual(['handle:acme:7']);
+    expect(events).toEqual(['before-execute', 'before-action', 'handle:acme:7', 'after-action', 'after-execute']);
     expect(observedAction?.invocationId).toBe(invocationId);
     const encodedInput = encodeCanonical(inputType.schema, { value: 7n });
     expect(encodedInput.ok).toBe(true);

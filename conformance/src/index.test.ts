@@ -514,28 +514,25 @@ describe('runtime bridge conformance corpus', () => {
     const reference = walkingSkeletonReference;
     const request = executionRequest(reference, { kind: 'source', source: referenceCheckRequest(reference) }, '7');
     const actionSchema = resultSchema(ref(referenceTypes.actionOutput), ref(referenceTypes.actionError));
-    const rejected = await factory().execute(request, {
+    const declaredError = await factory().execute(request, {
       handleAction: async (action) => ({
         abiVersion: { major: 2, minor: 0 },
         requestId: action.requestId,
         result: {
           tag: 'completed',
-          value: encode(actionSchema, { tag: 'error', value: { tag: 'policy', value: { code: 'denied' } } }),
+          value: encode(actionSchema, { tag: 'error', value: { tag: 'domain', value: 'denied' } }),
         },
       }),
     });
-    expect(rejected.status).toBe('completed');
-    if (rejected.status === 'completed') {
+    expect(declaredError.status).toBe('completed');
+    if (declaredError.status === 'completed') {
       const decoded = decodeCanonical(
         resultSchema({ kind: 'unit' }, ref(referenceTypes.actionError)),
-        Uint8Array.from(rejected.output),
+        Uint8Array.from(declaredError.output),
         { registry: referenceRegistry.schemas },
       );
-      expect(decoded.ok && decoded.value).toEqual({
-        tag: 'error',
-        value: { tag: 'policy', value: { code: 'denied' } },
-      });
-      expect(rejected.facts.actions.map(({ phase }) => phase)).toEqual(['requested', 'resolved']);
+      expect(decoded.ok && decoded.value).toEqual({ tag: 'error', value: { tag: 'domain', value: 'denied' } });
+      expect(declaredError.facts.actions.map(({ phase }) => phase)).toEqual(['requested', 'resolved']);
     }
 
     const hostFailure = await factory().execute(
