@@ -1,6 +1,6 @@
 # Architecture and engine
 
-The SafeScript engine is the reference compiler and execution runtime behind the transport-neutral `RuntimeBridge`. The TypeScript SDK uses it directly in-process, but the bridge records are designed to remain serializable for other adapters.
+The SafeScript engine is the reference compiler and execution runtime behind the transport-neutral `RuntimeBridge`. The TypeScript SDK runs it in the pinned local worker by default. Hosts can inject `createDirectRuntimeBridge()` explicitly when they deliberately want the compiler and interpreter in-process; both adapters use the same serializable bridge records and semantic conformance suite.
 
 ## Compilation pipeline
 

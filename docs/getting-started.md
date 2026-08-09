@@ -9,7 +9,7 @@ bun install
 bun run build
 ```
 
-The three packages used by a host are `@safescript/contracts`, `@safescript/engine`, and `@safescript/sdk`. Most integrations import the engine only indirectly through the SDK's default direct bridge.
+The default host integration uses `@safescript/contracts` and `@safescript/sdk`; the SDK installs the exact matching `@safescript/worker`. The worker runs under Node.js 22 or 24. A non-Node host must inject `createNodeProcessRuntimeBridge({ nodePath: '/absolute/path/to/node' })`, or explicitly choose the direct bridge shown below.
 
 ## 2. Define the host contract
 
@@ -130,6 +130,20 @@ const safe = createSafeScript<InvocationContext, typeof contract.operations, typ
 });
 ```
 
+Construction is synchronous and does not spawn a process. The first bridge operation starts and verifies the worker. Direct mode is an explicit deployment choice and never a fallback:
+
+```ts
+import { createDirectRuntimeBridge } from '@safescript/engine';
+
+const directSafe = createSafeScript({
+  contract,
+  handlers,
+  bridge: createDirectRuntimeBridge(),
+});
+```
+
+Direct mode preserves language semantics but does not provide process containment. Prefer the default worker for production unless the deployment has consciously accepted that distinction.
+
 The SDK requires exactly one handler for every operation. It validates action envelopes, decodes inputs, runs the configured hook, dispatches at most once after `continue`, and validates the declared outcome. A `stop` becomes the operation's ordinary declared `Err`; it is not a special policy outcome.
 
 Hooks are optional host integration points, not built-in authorization. If this operation can also be reached outside SafeScript, its handler or downstream task service should enforce authority as defense in depth. A host with several checks composes them inside its one `beforeAction` callback and owns their order.
@@ -189,6 +203,8 @@ if (checked.status !== 'accepted') {
 
 await safe.close();
 ```
+
+Always observe `close()` during orderly shutdown. A worker lost during an invocation is not replayed; reconcile any external action with unknown effect state before deciding whether application-level retry is safe.
 
 You can execute `{ kind: "source", source }` for the compile-and-run fast path or the accepted artifact bytes. Artifact execution revalidates compatibility and integrity and uses the same gateway, hooks, and handlers as source execution.
 

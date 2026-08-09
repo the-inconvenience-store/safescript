@@ -23,6 +23,7 @@ import {
   type RuntimeBridge,
   type RuntimeBridgeHost,
 } from '@safescript/contracts';
+import { createDirectRuntimeBridge } from '@safescript/engine';
 
 import {
   ContractDefinitionError,
@@ -333,8 +334,23 @@ describe('createSafeScript', () => {
         bridge: new FakeBridge(),
       }),
     ).toThrow(SdkConfigurationError);
+    const defaultWorker = createSafeScript({
+      contract,
+      handlers: { read: () => ({ tag: 'error', value: { tag: 'domain', value: 'unused' } }) as const },
+    });
+    const rejected = await defaultWorker.check({
+      slot: 'main',
+      source: {
+        entryModule: ids.module('module:main'),
+        modules: [{ id: ids.module('module:main'), source: 'this is not TypeScript {' }],
+      },
+    });
+    expect(rejected.status).toBe('rejected');
+    expect(await defaultWorker.close()).toEqual({ status: 'closed' });
+
     const direct = createSafeScript({
       contract,
+      bridge: createDirectRuntimeBridge(),
       handlers: { read: () => ({ tag: 'error', value: { tag: 'domain', value: 'unused' } }) as const },
     });
     expect(await direct.close()).toEqual({ status: 'closed' });

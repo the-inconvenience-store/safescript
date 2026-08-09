@@ -19,6 +19,8 @@ Trusted components include:
 - the host's contract construction, lifecycle hooks, operation handlers, and downstream services;
 - any process adapter and transport endpoint that the host chooses to run.
 
+The default SDK facade uses the supervised local worker. The host-side adapter treats that worker as a protocol-untrusted peer: it revalidates every frame, correlation, action, outcome, and compatibility fact, while hooks, handlers, host context, credentials, and policy state remain in the host process. Process separation is defense in depth and does not grant authority or claim an operating-system sandbox.
+
 Trusted does not mean infallible. The public boundaries still validate registry records, canonical bytes, correlations, results, limits, and versions and map unexpected implementation failures to stable fail-closed outcomes.
 
 ## No ambient authority

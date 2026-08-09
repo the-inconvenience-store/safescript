@@ -31,11 +31,12 @@ The **runtime** checks and executes source. It owns parsing restrictions, loweri
 
 - `@safescript/contracts` contains language-neutral schemas, stable identifiers, codecs, bridge records, limits, diagnostics, and action records.
 - `@safescript/engine` contains the direct in-process compiler, artifact verifier, semantic graph exporter, typed IR, and bounded interpreter.
-- `@safescript/sdk` provides contract authoring and the six-method host facade.
+- `@safescript/worker` packages that engine behind the bounded worker protocol.
+- `@safescript/sdk` provides contract authoring and the six-method host facade, backed by a supervised local worker by default.
 - `@safescript/cli` is an offline JSON adapter over the public SDK.
 - `@safescript/conformance` contains adapter-neutral reference programs, resource ledgers, and compatibility tests.
 
-The current implementation is a TypeScript host SDK with a direct in-process runtime bridge. See [current scope and roadmap](current-scope.md) for the exact implemented/deferred boundary.
+The current implementation is a TypeScript host SDK with a worker-backed default and an explicit conformant direct bridge. See [current scope and roadmap](current-scope.md) for the exact implemented/deferred boundary.
 
 ## What SafeScript is not
 

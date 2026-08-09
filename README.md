@@ -58,6 +58,8 @@ if (checked.status === 'accepted') {
 
 The authoring bundle contains the slot's generated types, allowed operations, language rules, limits, examples, and compiler-repair guidance. A checked artifact is only executable input: every host action is still validated by the gateway. The host decides whether authority is enforced in a hook, handler, downstream service, or several layers.
 
+`createSafeScript` starts a pinned, supervised local worker lazily on its first bridge operation. Hosts must run on Node.js 22 or 24 (or explicitly configure a supported Node executable) and must await `safe.close()` during shutdown. Development and constrained deployments can deliberately select the conformant in-process bridge; worker startup failure never falls back to it automatically. See the [v2 migration guide](docs/v2/migration.md) before upgrading an existing direct-mode deployment.
+
 See [getting started](docs/getting-started.md) for a complete contract and runnable integration.
 
 ## Code mode
@@ -146,6 +148,7 @@ Operations are application-specific and dispatch only through the validated host
 ## What is included
 
 - `@safescript/sdk` — contracts, host integration, validated action gateway, lifecycle hooks, authoring bundles, and deterministic tests
+- `@safescript/worker` — pinned local runtime worker and versioned protocol implementation
 - `@safescript/engine` — restricted TypeScript compiler, checked artifacts, semantic inspection, and bounded interpreter
 - `@safescript/contracts` — serializable schemas, IDs, limits, diagnostics, canonical codecs, and runtime bridge records
 - `@safescript/cli` — offline JSON commands for check, inspect, execute, and test

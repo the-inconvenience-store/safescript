@@ -10,7 +10,7 @@ The repository currently implements:
 - restricted TypeScript language 1.0 and additive 1.1;
 - complete registered source-module sets with generated `host:api` and deterministic prelude/globals;
 - SafeScript-owned compilation to verified typed IR without generated-JavaScript execution;
-- direct in-process `RuntimeBridge` for check, inspect, execute, cancel, and close;
+- supervised worker-backed default and explicit direct in-process `RuntimeBridge` for check, inspect, execute, cancel, and close;
 - checked artifact creation and fail-closed verification;
 - bounded IR interpretation with deterministic fuel and value/resource accounting;
 - sequential actions and bounded deterministic `Promise.all` groups;
@@ -21,11 +21,11 @@ The repository currently implements:
 - the six-method TypeScript facade and deterministic scripted-action tests;
 - slot-scoped agent/editor authoring bundles with repair guidance;
 - offline JSON CLI commands for check, inspect, execute, and test;
-- the worker protocol 1.0 specification, standalone runtime worker, pinned manifest-verified Node launcher, explicit process bridge adapter, and lazy restart-bounded supervisor;
+- the worker protocol 1.0 specification, standalone runtime worker, pinned manifest-verified Node launcher, default process bridge adapter, and lazy restart-bounded supervisor;
 - adapter-neutral conformance references, resource ledgers, hostile cases, release metadata, and authoring evidence;
 - an interactive CRM integration and read-only semantic-graph projection.
 
-The public TypeScript packages and CLI are version 1.0.0. The supported compatibility dimensions include language 1.0 and 1.1, IR 1.0 and 1.1, action ABI 2.0, worker protocol 1.0, diagnostic catalog 1.4.0, and authoring bundle 1.0.0.
+The source tree now contains the v2 worker-default implementation. Package manifests remain at 1.0.0 until the coordinated preview, release-candidate, and stable publication gates; those manifests are not a v2 release claim. The supported compatibility dimensions include language 1.0 and 1.1, IR 1.0 and 1.1, action ABI 2.0, worker protocol 1.0, diagnostic catalog 1.4.0, and authoring bundle 1.0.0.
 
 ## Host responsibilities, not missing runtime features
 
@@ -46,7 +46,7 @@ These concerns are outside SafeScript's core contract rather than implied automa
 
 The current repository does not yet provide:
 
-- worker-backed default facade selection and platform hardening recipes;
+- platform-specific optional hardening recipes beyond the portable spawn contract;
 - Python, Go, Rust, Java, or C# host SDKs;
 - a WebAssembly execution backend;
 - artifact cache/storage/signing/export products;

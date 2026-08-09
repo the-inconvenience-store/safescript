@@ -24,6 +24,19 @@ Checked artifacts are disposable compiler-bound optimizations, not durable compa
 
 V2 performs no automatic artifact translation and never changes source to preserve an artifact. Artifact execution still revalidates canonical bytes, compiler, language, IR, ABI, contract requirements, definitions, slot, digest, and private IR before interpretation. Checked v1 artifacts retain their ABI 1.0 requirement and run only through a compatible v1 adapter.
 
+### Artifact regeneration procedure
+
+Treat regeneration as a deployment migration, not an in-place byte conversion:
+
+1. retain the canonical source and the exact v2 contract used by the target deployment;
+2. create the v2 facade, call `check` for the intended slot, and require `status: "accepted"`;
+3. store the returned artifact with its compiler provenance, language/IR/ABI versions, contract fingerprint, slot, and source identity;
+4. exercise the artifact through the worker path with representative deterministic tests before serving it;
+5. publish it in a cache namespace separate from v1 artifacts, then switch traffic atomically;
+6. retain source—not cross-version artifact bytes—as the rollback authority.
+
+Do not overwrite the last deployable artifact set until the new worker/package set and regenerated artifacts pass together. A rejected source is a migration failure to resolve at source or contract level; it is never repaired by editing artifact bytes.
+
 ## Direct bridge option
 
 The direct in-process bridge remains an explicit conformant adapter. Hosts select it through SDK configuration for development, tests, or a deployment that consciously accepts an in-process compiler/interpreter. It is not selected automatically after missing worker files, handshake failure, crash, timeout, or unsupported platform.
@@ -42,6 +55,14 @@ Direct mode preserves semantic behavior but does not emit worker lifecycle facts
 8. Regenerate artifacts and authoring bundles from canonical source and the current contract.
 9. Run direct/worker conformance and application integration tests on every deployment platform.
 10. Integrate idempotent facade close into shutdown and bound external handler latency separately.
+
+## Operational rollout
+
+Before enabling the worker-backed default, preflight the exact installed SDK/worker package set on every deployment platform. Confirm the supported Node executable, child-process permission, pipe creation, read-only access to package files, non-sensitive working directory, empty worker environment, startup/handshake/close ceilings, and process CPU/memory controls. Run the application integration suite through both bridges, but deploy only the bridge selected by configuration.
+
+Roll out by a normal canary or blue/green boundary that keeps each facade and worker lifecycle within one release set. Observe stable counts for startup failure, identity mismatch, timeout, worker loss, crash-loop suppression, close timeout, cancellation, and unknown action effect state. Logs and metrics must not add source, canonical payloads, environment values, paths, credentials, raw stderr, exceptions, or stack traces.
+
+On shutdown, stop accepting new work, cancel only according to application policy, await active facade calls as appropriate, and await `close()`. On worker loss, fail the affected invocation without replay. Reconcile an unresolved effect using the host's idempotency/domain records before any new invocation; deterministic source does not make replay safe.
 
 ## Rollback and mixed versions
 

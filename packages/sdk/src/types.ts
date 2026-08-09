@@ -259,6 +259,7 @@ export interface TestReport<O> {
 export interface CreateSafeScriptOptions<C, O extends Operations, S extends Slots> {
   readonly contract: Contract<O, S>;
   readonly handlers: HandlerTable<O, C>;
+  /** Explicit conforming bridge; omitted uses the pinned supervised Node worker. */
   readonly bridge?: RuntimeBridge;
   readonly defaultCompileLimits?: Partial<CompileLimits>;
   readonly defaultExecutionLimits?: Partial<ExecutionLimits>;

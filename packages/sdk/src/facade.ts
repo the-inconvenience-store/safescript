@@ -29,10 +29,9 @@ import {
   type RuntimeBridgeHost,
   type SourceProgram as BridgeSourceProgram,
 } from '@safescript/contracts';
-import { createDirectRuntimeBridge } from '@safescript/engine';
-
 import type { Contract, Operations, Slot, Slots } from './contract.js';
 import { createGateway, type OperationEntry } from './gateway.js';
+import { createNodeProcessRuntimeBridge } from './node-process-bridge.js';
 import { ABI_VERSION, bridgeError, completeLimits, encodeUtf8, freeze, stable } from './shared.js';
 import { compareExpectations, createScriptedHost, testMismatch } from './testing.js';
 import {
@@ -318,7 +317,7 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
 
   constructor(private readonly options: CreateSafeScriptOptions<C, O, S>) {
     const operationEntries = Object.entries(options.contract.operations) as [keyof O, O[keyof O]][];
-    this.bridge = options.bridge ?? createDirectRuntimeBridge();
+    this.bridge = options.bridge ?? createNodeProcessRuntimeBridge();
     this.createInvocationId =
       options.createInvocationId ?? (() => ids.invocation(`invocation:${randomBytes(16).toString('hex')}`));
     this.operationsById = new Map(
@@ -625,8 +624,8 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
 /**
  * Creates the host-facing SafeScript facade and binds operation handlers once.
  *
- * @remarks The direct in-process bridge is used unless `options.bridge` is supplied. All asynchronous methods resolve
- * stable result unions; only invalid construction throws synchronously.
+ * @remarks A lazy supervised Node worker bridge is used unless `options.bridge` is supplied. All asynchronous methods
+ * resolve stable result unions; only invalid construction throws synchronously.
  * @throws SdkConfigurationError when handlers or default limits do not match the contract.
  */
 export function createSafeScript<C, O extends Operations, S extends Slots>(

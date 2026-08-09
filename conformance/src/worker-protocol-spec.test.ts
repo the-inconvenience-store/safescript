@@ -279,8 +279,10 @@ describe('worker protocol 1.0 publication', () => {
       '## Preserved compatibility',
       '## Intentional v2 changes',
       '## Checked artifacts',
+      '### Artifact regeneration procedure',
       '## Direct bridge option',
       '## Host migration checklist',
+      '## Operational rollout',
       '## Rollback and mixed versions',
     ])
       expect(migration).toContain(heading);

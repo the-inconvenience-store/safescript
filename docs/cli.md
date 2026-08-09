@@ -2,6 +2,8 @@
 
 `@safescript/cli` is an offline JSON adapter over the public TypeScript SDK. It exposes `check`, `inspect`, `execute`, and deterministic `test` without package loading, configuration discovery, handler modules, credentials, or ambient authority.
 
+The CLI follows the SDK's worker-backed default, verifies the pinned worker before use, and closes it before exit. Worker lifecycle failures produce the ordinary stable bridge-error JSON record and exit status `2`; the CLI never retries or switches to direct mode.
+
 ## Run it
 
 ```sh
