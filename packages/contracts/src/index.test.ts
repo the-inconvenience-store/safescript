@@ -31,7 +31,8 @@ import {
 
 describe('action ABI 2.0 isolation', () => {
   it('accepts only ABI 2.0 action outcomes and never translates v1 rejections', () => {
-    const requestId = ids.request(ids.invocation('invocation:0123456789abcdef0123456789abcdef'), 0);
+    const invocationId = ids.invocation('invocation:0123456789abcdef0123456789abcdef');
+    const requestId = ids.request(invocationId, 0);
     expect(ACTION_ABI_VERSION).toEqual({ major: 2, minor: 0 });
     expect(isActionAbiVersion(ACTION_ABI_VERSION)).toBe(true);
     expect(isActionAbiVersion({ major: 1, minor: 0 })).toBe(false);
@@ -49,11 +50,29 @@ describe('action ABI 2.0 isolation', () => {
         result: { tag: 'rejected', value: { code: 'denied' } },
       }),
     ).toBe(false);
-    expect(isHookDiagnostics([{ code: 'hook_fault', point: 'before_action', detail: 'safe' }])).toBe(true);
-    expect(isHookDiagnostics(Array.from({ length: 17 }, () => ({ code: 'hook_fault', point: 'before_action' })))).toBe(
-      false,
-    );
-    expect(isHookDiagnostics([{ code: 'hook_fault', point: 'before_action', detail: 'x'.repeat(161) }])).toBe(false);
+    expect(
+      isHookDiagnostics([{ code: 'hook_fault', point: 'before_action', invocationId, requestId, detail: 'safe' }]),
+    ).toBe(true);
+    expect(
+      isHookDiagnostics(
+        Array.from({ length: 17 }, () => ({ code: 'hook_fault', point: 'before_action', invocationId })),
+      ),
+    ).toBe(false);
+    expect(
+      isHookDiagnostics([{ code: 'hook_fault', point: 'before_action', invocationId, detail: 'x'.repeat(161) }]),
+    ).toBe(false);
+    expect(isHookDiagnostics([{ code: 'hook_fault', point: 'after_action', invocationId }])).toBe(false);
+    expect(isHookDiagnostics([{ code: 'hook_fault', point: 'after_execute', invocationId, requestId }])).toBe(false);
+    expect(
+      isHookDiagnostics([
+        {
+          code: 'hook_fault',
+          point: 'after_action',
+          invocationId,
+          requestId: ids.request(ids.invocation('invocation:fedcba9876543210fedcba9876543210'), 0),
+        },
+      ]),
+    ).toBe(false);
   });
 });
 

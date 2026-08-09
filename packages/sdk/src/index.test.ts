@@ -504,6 +504,251 @@ describe('createSafeScript', () => {
     ).toThrow(SdkConfigurationError);
   });
 
+  it('runs immutable execution hooks and rejects before bridge execution', async () => {
+    const bridge = new FakeBridge();
+    let bridgeCalls = 0;
+    bridge.executeResult = async () => {
+      bridgeCalls++;
+      throw new Error('must not execute');
+    };
+    const observed: string[] = [];
+    const safe = createSafeScript({
+      contract,
+      bridge,
+      handlers: { read: () => ({ tag: 'ok', value: 'unused' }) as const },
+      createInvocationId: () => invocationId,
+      hooks: {
+        beforeExecute: (context) => {
+          expect(Object.isFrozen(context)).toBe(true);
+          expect(Object.isFrozen(context.input)).toBe(true);
+          expect(context.context).toEqual({ actor: 'a' });
+          expect(context.slot).toBe('main');
+          expect(context.slotId).toBe(slotId);
+          expect(context.input).toEqual({ value: 3n });
+          observed.push('before');
+          return { status: 'rejected', code: 'maintenance', detail: 'scheduled' } as const;
+        },
+        afterExecute: (event) => {
+          expect(Object.isFrozen(event)).toBe(true);
+          expect(Object.isFrozen(event.result)).toBe(true);
+          observed.push(`after:${event.result.status}`);
+        },
+      },
+    });
+    const result = await safe.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 3n },
+      context: { actor: 'a' },
+    });
+    expect(result).toMatchObject({
+      status: 'not_started',
+      error: { code: 'execution_rejected', hostCode: 'maintenance', detail: 'scheduled' },
+    });
+    expect(observed).toEqual(['before', 'after:not_started']);
+    expect(bridgeCalls).toBe(0);
+  });
+
+  it('accepts character-bounded rejection details and gives post-hook cancellation precedence', async () => {
+    const rejectionCode = '😀'.repeat(64);
+    const rejectionDetail = '界'.repeat(160);
+    const rejected = createSafeScript({
+      contract,
+      bridge: new FakeBridge(),
+      handlers: { read: () => ({ tag: 'ok', value: 'unused' }) as const },
+      createInvocationId: () => invocationId,
+      hooks: {
+        beforeExecute: () => ({ status: 'rejected', code: rejectionCode, detail: rejectionDetail }),
+      },
+    });
+    const rejectedResult = await rejected.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      context: {},
+    });
+    expect(rejectedResult).toMatchObject({
+      status: 'not_started',
+      error: { code: 'execution_rejected', hostCode: rejectionCode, detail: rejectionDetail },
+    });
+
+    const controller = new AbortController();
+    const cancelled = createSafeScript({
+      contract,
+      bridge: new FakeBridge(),
+      handlers: { read: () => ({ tag: 'ok', value: 'unused' }) as const },
+      createInvocationId: () => invocationId,
+      hooks: {
+        beforeExecute: () => {
+          controller.abort();
+          return { status: 'rejected', code: 'too-late' } as const;
+        },
+      },
+    });
+    const cancelledResult = await cancelled.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      context: {},
+      signal: controller.signal,
+    });
+    expect(cancelledResult).toMatchObject({ status: 'not_started', error: { code: 'cancelled' } });
+  });
+
+  it('fails closed for malformed beforeExecute hooks and still observes the fixed result', async () => {
+    for (const beforeExecute of [
+      () => ({}),
+      () => {
+        throw new Error('secret');
+      },
+    ]) {
+      const bridge = new FakeBridge();
+      let bridgeCalls = 0;
+      bridge.executeResult = async () => {
+        bridgeCalls++;
+        throw new Error('must not execute');
+      };
+      const observed: string[] = [];
+      const safe = createSafeScript({
+        contract,
+        bridge,
+        handlers: { read: () => ({ tag: 'ok', value: 'unused' }) as const },
+        createInvocationId: () => invocationId,
+        hooks: {
+          beforeExecute: beforeExecute as never,
+          afterExecute: ({ result }) =>
+            observed.push(`${result.status}:${'error' in result ? result.error?.code : undefined}`),
+        },
+      });
+      const result = await safe.execute({
+        slot: 'main',
+        program: { kind: 'artifact', bytes: [] },
+        input: { value: 1n },
+        context: {},
+      });
+      expect(result).toMatchObject({ status: 'not_started', error: { code: 'hook_fault' } });
+      expect(JSON.stringify(result)).not.toContain('secret');
+      expect(observed).toEqual(['not_started:hook_fault']);
+      expect(bridgeCalls).toBe(0);
+    }
+  });
+
+  it('afterExecute observes every bridge terminal path without changing it', async () => {
+    const cases: readonly ExecutionResult[] = [
+      { status: 'bridge_error', error: { code: 'adapter_failure', phase: 'execute' } },
+      { status: 'not_started', error: { code: 'invalid_request', phase: 'execute' } },
+      { status: 'failed', error: { code: 'resource_exhausted' }, facts },
+      { status: 'cancelled', error: { code: 'cancelled' }, facts },
+      { status: 'completed', output: [100, 100, 111, 110, 101], facts },
+    ];
+    for (const fixed of cases) {
+      const bridge = new FakeBridge();
+      bridge.executeResult = async () => fixed;
+      const observed: string[] = [];
+      const safe = createSafeScript({
+        contract,
+        bridge,
+        handlers: { read: () => ({ tag: 'ok', value: 'unused' }) as const },
+        createInvocationId: () => invocationId,
+        hooks: { afterExecute: ({ result }) => observed.push(result.status) },
+      });
+      const result = await safe.execute({
+        slot: 'main',
+        program: { kind: 'artifact', bytes: [] },
+        input: { value: 1n },
+        context: {},
+      });
+      expect(result.status).toBe(fixed.status);
+      expect(observed).toEqual([fixed.status]);
+    }
+  });
+
+  it('records a bounded afterExecute hook fault without replacing the fixed result', async () => {
+    const safe = createSafeScript({
+      contract,
+      bridge: new FakeBridge(),
+      handlers: { read: () => ({ tag: 'ok', value: 'unused' }) as const },
+      createInvocationId: () => invocationId,
+      hooks: {
+        afterExecute: () => {
+          throw new Error('SUPER_SECRET_AFTER_HOOK');
+        },
+      },
+    });
+    const result = await safe.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      context: {},
+    });
+    expect(result.status).toBe('completed');
+    if (result.status === 'completed') expect(result.output).toBe('done');
+    expect(result.hookDiagnostics).toEqual([{ code: 'hook_fault', point: 'after_execute', invocationId }]);
+    expect(JSON.stringify(result)).not.toContain('SUPER_SECRET_AFTER_HOOK');
+  });
+
+  it('does not invoke execution hooks for invalid public requests', async () => {
+    let hookCalls = 0;
+    const safe = createSafeScript({
+      contract,
+      bridge: new FakeBridge(),
+      handlers: { read: () => ({ tag: 'ok', value: 'unused' }) as const },
+      hooks: {
+        beforeExecute: () => {
+          hookCalls++;
+          return { status: 'continue' } as const;
+        },
+        afterExecute: () => {
+          hookCalls++;
+        },
+      },
+    });
+    await safe.execute({
+      slot: 'missing' as 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      context: {},
+    });
+    const invalidInput = await safe.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 'bad' as unknown as bigint },
+      context: {},
+    });
+    const invalidSeed = await safe.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      context: {},
+      randomSeed: [256],
+    });
+    const invalidTrace = await safe.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      context: {},
+      trace: 'verbose' as 'none',
+    });
+    const invalidSignal = await safe.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      context: {},
+      signal: { aborted: false } as never,
+    });
+    const overLimitInput = await safe.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      context: {},
+      limits: { maxBytes: 0 },
+    });
+    expect(hookCalls).toBe(0);
+    for (const result of [invalidInput, invalidSeed, invalidTrace, invalidSignal, overLimitInput]) {
+      expect(result).toMatchObject({ status: 'bridge_error', error: { code: 'invalid_request' } });
+    }
+  });
+
   it('resolves deployment, slot, and invocation limits by minimum', async () => {
     const bridge = new FakeBridge();
     bridge.executeResult = async (request) => {
