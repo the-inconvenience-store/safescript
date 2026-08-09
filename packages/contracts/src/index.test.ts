@@ -301,6 +301,11 @@ describe('stable failure catalog', () => {
       'trailing_bytes',
       'unknown_type',
       'unsupported_version',
+      'worker_close_timeout',
+      'worker_crash_loop',
+      'worker_lost',
+      'worker_start_failed',
+      'worker_start_timeout',
     ]);
     const codes: string[] = DIAGNOSTIC_CATALOG.map((entry) => entry.code);
     const meanings = DIAGNOSTIC_CATALOG.map((entry) => entry.meaning);
@@ -312,7 +317,7 @@ describe('stable failure catalog', () => {
     expect([...COMPILER_DIAGNOSTIC_CODES]).toEqual(
       [...COMPILER_DIAGNOSTIC_CODES].sort((left, right) => left.localeCompare(right)),
     );
-    expect(DIAGNOSTIC_CATALOG_VERSION).toEqual({ major: 1, minor: 1, patch: 0 });
+    expect(DIAGNOSTIC_CATALOG_VERSION).toEqual({ major: 1, minor: 2, patch: 0 });
     for (const entry of DIAGNOSTIC_CATALOG) {
       expect(Object.isFrozen(entry)).toBe(true);
       expect(Object.isFrozen(entry.fields)).toBe(true);

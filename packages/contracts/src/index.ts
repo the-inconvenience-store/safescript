@@ -1763,7 +1763,16 @@ export interface BridgeError {
 
 /** Closed request, bridge-lifecycle, and artefact-preparation failures. */
 export type BridgeErrorCode =
-  'adapter_failure' | 'artifact_verification_failed' | 'bridge_closed' | 'invalid_request' | 'unsupported_version';
+  | 'adapter_failure'
+  | 'artifact_verification_failed'
+  | 'bridge_closed'
+  | 'invalid_request'
+  | 'unsupported_version'
+  | 'worker_close_timeout'
+  | 'worker_crash_loop'
+  | 'worker_lost'
+  | 'worker_start_failed'
+  | 'worker_start_timeout';
 
 /** The only action ABI emitted or accepted by the v2 SDK, runtime, and worker protocol. */
 export const ACTION_ABI_VERSION = Object.freeze({ major: 2, minor: 0 } as const);
@@ -2458,7 +2467,7 @@ export interface FailureCatalogEntry {
  * breaking and requires a major version. Removal first requires a deprecated entry and replacement path; message text
  * is deliberately outside this contract.
  */
-export const DIAGNOSTIC_CATALOG_VERSION: SemVer = Object.freeze({ major: 1, minor: 1, patch: 0 });
+export const DIAGNOSTIC_CATALOG_VERSION: SemVer = Object.freeze({ major: 1, minor: 2, patch: 0 });
 
 const COMPILER_DIAGNOSTIC_MEANINGS = Object.freeze([
   'ambient authority access',
@@ -2533,7 +2542,7 @@ const compilerCatalog = COMPILER_DIAGNOSTIC_CODES.map((code, index) =>
 );
 
 /**
- * Complete V1 SafeScript-owned failure catalog, sorted by stable code.
+ * Complete SafeScript-owned failure catalog, sorted by stable code.
  *
  * @remarks Policy and domain `Result` error codes remain contract-owned and are intentionally absent. Entries never
  * name compiler passes, private IR nodes, exception types, transports, or adapter implementation details.
@@ -2767,6 +2776,46 @@ export const DIAGNOSTIC_CATALOG: readonly FailureCatalogEntry[] = Object.freeze(
       'runtime_bridge',
       'runtime bridge version is unsupported',
       ['phase', 'detail'],
+      'not_applicable',
+    ),
+    catalogEntry(
+      'worker_close_timeout',
+      'bridge',
+      'runtime_bridge',
+      'worker graceful close exceeded its deadline',
+      ['phase'],
+      'not_applicable',
+    ),
+    catalogEntry(
+      'worker_crash_loop',
+      'bridge',
+      'runtime_bridge',
+      'worker restart rate capacity is exhausted',
+      ['phase'],
+      'not_applicable',
+    ),
+    catalogEntry(
+      'worker_lost',
+      'bridge',
+      'runtime_bridge',
+      'established worker connection ended unexpectedly',
+      ['phase'],
+      'not_applicable',
+    ),
+    catalogEntry(
+      'worker_start_failed',
+      'bridge',
+      'runtime_bridge',
+      'worker process or handshake failed before readiness',
+      ['phase'],
+      'not_applicable',
+    ),
+    catalogEntry(
+      'worker_start_timeout',
+      'bridge',
+      'runtime_bridge',
+      'worker startup or handshake exceeded its deadline',
+      ['phase'],
       'not_applicable',
     ),
   ].sort((left, right) => left.code.localeCompare(right.code)),

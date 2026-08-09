@@ -30,7 +30,7 @@ import {
   RuntimeWorkerServer,
 } from '@safescript/worker';
 
-import { createSafeScript, defineContract, type ContractType } from './index.js';
+import { SupervisedProcessRuntimeBridge, createSafeScript, defineContract, type ContractType } from './index.js';
 import { DEFAULT_PROCESS_WORKER_HELLO, ProcessRuntimeBridge, type ProcessWorkerTransport } from './process-bridge.js';
 
 const digest = '0'.repeat(64);
@@ -288,7 +288,381 @@ class ScriptedTransport implements ProcessWorkerTransport {
   }
 }
 
+class WriteFailingTransport extends ScriptedTransport {
+  failedWrites = 0;
+
+  override async write(frame: Uint8Array): Promise<void> {
+    const envelope = decodeFrame(frame);
+    if (envelope.kind === 'bridge.check.request') {
+      this.failedWrites++;
+      throw new Error('SECRET_ESTABLISHED_WRITE_FAILURE');
+    }
+    await super.write(frame);
+  }
+}
+
 describe('process RuntimeBridge state machine', () => {
+  it('starts lazily, fails lost work once, and uses a fresh worker only for later calls', async () => {
+    const transports: ScriptedTransport[] = [];
+    const bridge = new SupervisedProcessRuntimeBridge({
+      start: () => {
+        const transport = new ScriptedTransport();
+        transports.push(transport);
+        return transport;
+      },
+      startupTimeoutMs: 100,
+      handshakeTimeoutMs: 100,
+      closeTimeoutMs: 100,
+      restartAttempts: 3,
+      restartWindowMs: 1_000,
+    });
+
+    expect(transports).toHaveLength(0);
+    const lost = bridge.check(checkRequest);
+    while (!transports[0]) await Bun.sleep(1);
+    const firstRequest = await transports[0].request('bridge.check.request');
+    transports[0].incoming.end();
+
+    expect(await lost).toEqual({
+      status: 'bridge_error',
+      error: { code: 'worker_lost', phase: 'check' },
+    });
+    expect(transports[0].sent.filter(({ kind }) => kind === 'bridge.check.request')).toEqual([firstRequest]);
+
+    const recovered = bridge.check(checkRequest);
+    while (!transports[1]) await Bun.sleep(1);
+    const secondRequest = await transports[1].request('bridge.check.request');
+    const payload = encodeWorkerBridgePayload('bridge.check.result', {
+      status: 'bridge_error',
+      error: { code: 'invalid_request', phase: 'check' },
+    });
+    if (!payload.ok) throw new Error(payload.failure.code);
+    transports[1].emit('bridge.check.result', secondRequest.id, payload.value);
+
+    expect(await recovered).toEqual({
+      status: 'bridge_error',
+      error: { code: 'invalid_request', phase: 'check' },
+    });
+    expect(transports[1].sent.filter(({ kind }) => kind === 'bridge.check.request')).toEqual([secondRequest]);
+    const closing = bridge.close();
+    const closeRequest = await transports[1].request('session.close.request');
+    const closePayload = encodeWorkerBridgePayload('session.close.result', { status: 'closed' });
+    if (!closePayload.ok) throw new Error(closePayload.failure.code);
+    transports[1].emit('session.close.result', closeRequest.id, closePayload.value);
+    expect(await closing).toEqual({ status: 'closed' });
+  });
+
+  it('uses a fresh worker immediately after an idle connection is lost', async () => {
+    const transports = [new ScriptedTransport(), new ScriptedTransport()] as const;
+    let starts = 0;
+    const bridge = new SupervisedProcessRuntimeBridge({
+      start: () => {
+        const transport = transports[starts++];
+        if (!transport) throw new Error('unexpected extra start');
+        return transport;
+      },
+      startupTimeoutMs: 100,
+      handshakeTimeoutMs: 100,
+      closeTimeoutMs: 100,
+      restartAttempts: 3,
+      restartWindowMs: 1_000,
+    });
+
+    const first = bridge.check(checkRequest);
+    const firstRequest = await transports[0].request('bridge.check.request');
+    const firstPayload = encodeWorkerBridgePayload('bridge.check.result', {
+      status: 'bridge_error',
+      error: { code: 'invalid_request', phase: 'check' },
+    });
+    if (!firstPayload.ok) throw new Error(firstPayload.failure.code);
+    transports[0].emit('bridge.check.result', firstRequest.id, firstPayload.value);
+    await first;
+    transports[0].incoming.end();
+    while (transports[0].closes === 0) await Bun.sleep(1);
+
+    const later = bridge.check(checkRequest);
+    const laterRequest = await transports[1].request('bridge.check.request');
+    const laterPayload = encodeWorkerBridgePayload('bridge.check.result', {
+      status: 'bridge_error',
+      error: { code: 'invalid_request', phase: 'check' },
+    });
+    if (!laterPayload.ok) throw new Error(laterPayload.failure.code);
+    transports[1].emit('bridge.check.result', laterRequest.id, laterPayload.value);
+    expect(await later).toMatchObject({ status: 'bridge_error', error: { code: 'invalid_request' } });
+    expect(starts).toBe(2);
+
+    const closing = bridge.close();
+    const closeRequest = await transports[1].request('session.close.request');
+    const closePayload = encodeWorkerBridgePayload('session.close.result', { status: 'closed' });
+    if (!closePayload.ok) throw new Error(closePayload.failure.code);
+    transports[1].emit('session.close.result', closeRequest.id, closePayload.value);
+    expect(await closing).toEqual({ status: 'closed' });
+  });
+
+  it('allows the initial start plus bounded restart attempts before suppressing a crash loop', async () => {
+    let starts = 0;
+    const bridge = new SupervisedProcessRuntimeBridge({
+      start: () => {
+        starts++;
+        throw new Error('SECRET_START_FAILURE');
+      },
+      startupTimeoutMs: 100,
+      handshakeTimeoutMs: 100,
+      closeTimeoutMs: 100,
+      restartAttempts: 3,
+      restartWindowMs: 1_000,
+    });
+
+    for (let attempt = 0; attempt < 4; attempt++) {
+      expect(await bridge.check(checkRequest)).toEqual({
+        status: 'bridge_error',
+        error: { code: 'worker_start_failed', phase: 'check' },
+      });
+    }
+    expect(await bridge.check(checkRequest)).toEqual({
+      status: 'bridge_error',
+      error: { code: 'worker_crash_loop', phase: 'check' },
+    });
+    expect(starts).toBe(4);
+    expect(await bridge.close()).toEqual({ status: 'closed' });
+  });
+
+  it('allows an initial start while suppressing every restart when the budget is zero', async () => {
+    let starts = 0;
+    const bridge = new SupervisedProcessRuntimeBridge({
+      start: () => {
+        starts++;
+        throw new Error('worker did not start');
+      },
+      startupTimeoutMs: 100,
+      handshakeTimeoutMs: 100,
+      closeTimeoutMs: 100,
+      restartAttempts: 0,
+      restartWindowMs: 1_000,
+    });
+
+    expect(await bridge.check(checkRequest)).toMatchObject({
+      status: 'bridge_error',
+      error: { code: 'worker_start_failed' },
+    });
+    expect(await bridge.check(checkRequest)).toEqual({
+      status: 'bridge_error',
+      error: { code: 'worker_crash_loop', phase: 'check' },
+    });
+    expect(starts).toBe(1);
+    expect(await bridge.close()).toEqual({ status: 'closed' });
+  });
+
+  it('bounds one shared lazy startup and closes a transport that arrives late', async () => {
+    let starts = 0;
+    let resolveStart!: (transport: ProcessWorkerTransport) => void;
+    const delayed = new Promise<ProcessWorkerTransport>((resolve) => {
+      resolveStart = resolve;
+    });
+    const bridge = new SupervisedProcessRuntimeBridge({
+      start: () => {
+        starts++;
+        return delayed;
+      },
+      startupTimeoutMs: 10,
+      handshakeTimeoutMs: 100,
+      closeTimeoutMs: 100,
+      restartAttempts: 3,
+      restartWindowMs: 1_000,
+    });
+
+    const [check, inspect] = await Promise.all([
+      bridge.check(checkRequest),
+      bridge.inspect({ ...checkRequest, views: ['semantic_graph'] }),
+    ]);
+    expect(check).toEqual({
+      status: 'bridge_error',
+      error: { code: 'worker_start_timeout', phase: 'check' },
+    });
+    expect(inspect).toEqual({
+      status: 'bridge_error',
+      error: { code: 'worker_start_timeout', phase: 'inspect' },
+    });
+    expect(starts).toBe(1);
+
+    const late = new ScriptedTransport();
+    resolveStart(late);
+    while (late.closes === 0) await Bun.sleep(1);
+    expect(late.closes).toBe(1);
+    expect(await bridge.close()).toEqual({ status: 'closed' });
+  });
+
+  it('does not replay a request whose established worker write is lost', async () => {
+    const first = new WriteFailingTransport();
+    const second = new ScriptedTransport();
+    let starts = 0;
+    const bridge = new SupervisedProcessRuntimeBridge({
+      start: () => (starts++ === 0 ? first : second),
+      startupTimeoutMs: 100,
+      handshakeTimeoutMs: 100,
+      closeTimeoutMs: 100,
+      restartAttempts: 3,
+      restartWindowMs: 1_000,
+    });
+
+    expect(await bridge.check(checkRequest)).toEqual({
+      status: 'bridge_error',
+      error: { code: 'worker_lost', phase: 'check' },
+    });
+    expect(first.failedWrites).toBe(1);
+    expect(starts).toBe(1);
+
+    const later = bridge.check(checkRequest);
+    const request = await second.request('bridge.check.request');
+    const payload = encodeWorkerBridgePayload('bridge.check.result', {
+      status: 'bridge_error',
+      error: { code: 'invalid_request', phase: 'check' },
+    });
+    if (!payload.ok) throw new Error(payload.failure.code);
+    second.emit('bridge.check.result', request.id, payload.value);
+    expect(await later).toMatchObject({ status: 'bridge_error', error: { code: 'invalid_request' } });
+    expect(starts).toBe(2);
+
+    const closing = bridge.close();
+    const closeRequest = await second.request('session.close.request');
+    const closePayload = encodeWorkerBridgePayload('session.close.result', { status: 'closed' });
+    if (!closePayload.ok) throw new Error(closePayload.failure.code);
+    second.emit('session.close.result', closeRequest.id, closePayload.value);
+    expect(await closing).toEqual({ status: 'closed' });
+  });
+
+  it('forces one bounded close and cannot restart after explicit close', async () => {
+    const transport = new ScriptedTransport();
+    let starts = 0;
+    const bridge = new SupervisedProcessRuntimeBridge({
+      start: () => {
+        starts++;
+        return transport;
+      },
+      startupTimeoutMs: 100,
+      handshakeTimeoutMs: 100,
+      closeTimeoutMs: 10,
+      restartAttempts: 3,
+      restartWindowMs: 1_000,
+    });
+    const checking = bridge.check(checkRequest);
+    const request = await transport.request('bridge.check.request');
+    const payload = encodeWorkerBridgePayload('bridge.check.result', {
+      status: 'bridge_error',
+      error: { code: 'invalid_request', phase: 'check' },
+    });
+    if (!payload.ok) throw new Error(payload.failure.code);
+    transport.emit('bridge.check.result', request.id, payload.value);
+    await checking;
+
+    const firstClose = bridge.close();
+    const secondClose = bridge.close();
+    expect(secondClose).toBe(firstClose);
+    expect(await firstClose).toEqual({
+      status: 'bridge_error',
+      error: { code: 'worker_close_timeout', phase: 'close' },
+    });
+    expect(transport.closes).toBe(1);
+    expect(await bridge.check(checkRequest)).toEqual({
+      status: 'bridge_error',
+      error: { code: 'bridge_closed', phase: 'check' },
+    });
+    expect(starts).toBe(1);
+  });
+
+  it('retains the observed action and never resends it after loss during suspension', async () => {
+    const transport = new ScriptedTransport();
+    let starts = 0;
+    let release!: () => void;
+    const handlerMayFinish = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const observed: string[] = [];
+    const bridge = new SupervisedProcessRuntimeBridge({
+      start: () => {
+        starts++;
+        return transport;
+      },
+      startupTimeoutMs: 100,
+      handshakeTimeoutMs: 100,
+      closeTimeoutMs: 100,
+      restartAttempts: 3,
+      restartWindowMs: 1_000,
+    });
+    const execution = bridge.execute(
+      {
+        abiVersion: { major: 2, minor: 0 },
+        registry: checkRequest.registry,
+        slotId: checkRequest.slotId,
+        invocationId: actionRequest.invocationId,
+        program: { kind: 'source', source: checkRequest },
+        input: [0xf6],
+        limits: STANDARD_EXECUTION_LIMITS,
+        trace: 'none',
+      },
+      {
+        handleAction: async (request) => {
+          observed.push(request.requestId);
+          await handlerMayFinish;
+          return {
+            abiVersion: request.abiVersion,
+            requestId: request.requestId,
+            result: { tag: 'completed', value: [0xf6] },
+          };
+        },
+      },
+    );
+    const executeRequest = await transport.request('bridge.execute.request');
+    const actionPayload = encodeWorkerBridgePayload('action.request', {
+      executeId: executeRequest.id,
+      request: actionRequest,
+    });
+    if (!actionPayload.ok) throw new Error(actionPayload.failure.code);
+    transport.emit('action.request', null, actionPayload.value);
+    while (observed.length === 0) await Bun.sleep(1);
+    transport.incoming.end();
+
+    expect(await execution).toEqual({
+      status: 'bridge_error',
+      error: { code: 'worker_lost', phase: 'execute' },
+    });
+    expect(observed).toEqual([actionRequest.requestId]);
+    release();
+    await Bun.sleep(1);
+    expect(transport.sent.filter(({ kind }) => kind === 'action.outcome')).toHaveLength(0);
+    expect(starts).toBe(1);
+    expect(await bridge.close()).toEqual({ status: 'closed' });
+  });
+
+  it('shares lazy readiness and atomically fails all work on one lost connection', async () => {
+    const transport = new ScriptedTransport();
+    let starts = 0;
+    const bridge = new SupervisedProcessRuntimeBridge({
+      start: () => {
+        starts++;
+        return transport;
+      },
+      startupTimeoutMs: 100,
+      handshakeTimeoutMs: 100,
+      closeTimeoutMs: 100,
+      restartAttempts: 3,
+      restartWindowMs: 1_000,
+    });
+
+    const check = bridge.check(checkRequest);
+    const inspect = bridge.inspect({ ...checkRequest, views: ['semantic_graph'] });
+    await transport.request('bridge.check.request');
+    await transport.request('bridge.inspect.request');
+    expect(starts).toBe(1);
+    transport.incoming.end();
+
+    expect(await Promise.all([check, inspect])).toEqual([
+      { status: 'bridge_error', error: { code: 'worker_lost', phase: 'check' } },
+      { status: 'bridge_error', error: { code: 'worker_lost', phase: 'inspect' } },
+    ]);
+    expect(await bridge.close()).toEqual({ status: 'closed' });
+  });
+
   it('routes a worker action through SDK hooks without exposing host-local diagnostics to the worker', async () => {
     const workerBridge = new GatewayBridge();
     const { process } = connectedPair(workerBridge);

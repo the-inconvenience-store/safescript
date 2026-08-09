@@ -8,8 +8,16 @@ export { AUTHORING_BUNDLE_VERSION, createAuthoringBundle, createRegistryAuthorin
 export type { AuthoringBundle, AuthoringFile } from './authoring.js';
 export type { Codec, Contract, ContractDefinition, ContractType, Operation, Slot } from './contract.js';
 export { createSafeScript } from './facade.js';
-export { DEFAULT_PROCESS_WORKER_HELLO, ProcessRuntimeBridge } from './process-bridge.js';
-export type { ProcessRuntimeBridgeOptions, ProcessWorkerTransport } from './process-bridge.js';
+export {
+  DEFAULT_PROCESS_WORKER_HELLO,
+  ProcessRuntimeBridge,
+  SupervisedProcessRuntimeBridge,
+} from './process-bridge.js';
+export type {
+  ProcessRuntimeBridgeOptions,
+  ProcessWorkerTransport,
+  SupervisedProcessRuntimeBridgeOptions,
+} from './process-bridge.js';
 export { SdkConfigurationError } from './types.js';
 export type {
   AbortSignal,

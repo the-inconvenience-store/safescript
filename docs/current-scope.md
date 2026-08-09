@@ -21,11 +21,11 @@ The repository currently implements:
 - the six-method TypeScript facade and deterministic scripted-action tests;
 - slot-scoped agent/editor authoring bundles with repair guidance;
 - offline JSON CLI commands for check, inspect, execute, and test;
-- the worker protocol 1.0 specification, standalone runtime worker, and explicit process bridge adapter;
+- the worker protocol 1.0 specification, standalone runtime worker, explicit process bridge adapter, and lazy restart-bounded supervisor;
 - adapter-neutral conformance references, resource ledgers, hostile cases, release metadata, and authoring evidence;
 - an interactive CRM integration and read-only semantic-graph projection.
 
-The public TypeScript packages and CLI are version 1.0.0. The supported compatibility dimensions include language 1.0 and 1.1, IR 1.0 and 1.1, action ABI 2.0, worker protocol 1.0, diagnostic catalog 1.0.0, and authoring bundle 1.0.0.
+The public TypeScript packages and CLI are version 1.0.0. The supported compatibility dimensions include language 1.0 and 1.1, IR 1.0 and 1.1, action ABI 2.0, worker protocol 1.0, diagnostic catalog 1.2.0, and authoring bundle 1.0.0.
 
 ## Host responsibilities, not missing runtime features
 
@@ -46,7 +46,7 @@ These concerns are outside SafeScript's core contract rather than implied automa
 
 The current repository does not yet provide:
 
-- worker-backed default selection, production supervision policy, and platform hardening recipes;
+- worker-backed default selection, concrete child-process launch/package verification, and platform hardening recipes;
 - Python, Go, Rust, Java, or C# host SDKs;
 - a WebAssembly execution backend;
 - artifact cache/storage/signing/export products;

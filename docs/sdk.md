@@ -8,7 +8,7 @@ For a runnable first integration, start with [getting started](getting-started.m
 
 Call `defineContract` with stable types, operations, and slots, then pass the result to `createSafeScript`. Both functions reject configuration problems synchronously. Contract validation catches duplicate or malformed IDs, conflicting schemas, declaration-name collisions, invalid versions or limits, and missing slot permissions.
 
-`createSafeScript` requires exactly one handler for every operation. Lifecycle hooks are optional. By default it creates an independent direct in-process engine bridge; a host can inject another conforming bridge, including `ProcessRuntimeBridge`.
+`createSafeScript` requires exactly one handler for every operation. Lifecycle hooks are optional. By default it creates an independent direct in-process engine bridge; a host can inject another conforming bridge. `ProcessRuntimeBridge` owns one already-created worker connection, while `SupervisedProcessRuntimeBridge` adds lazy shared readiness, bounded restart and close policy, and no-replay recovery for later work.
 
 ```ts
 const safe = createSafeScript({

@@ -70,6 +70,18 @@ export interface ProcessRuntimeBridgeOptions {
   readonly hello?: WorkerProtocolSessionHello;
 }
 
+/** Lazy worker creation and bounded lifecycle policy for a supervised process bridge. */
+export interface SupervisedProcessRuntimeBridgeOptions {
+  readonly start: () => ProcessWorkerTransport | Promise<ProcessWorkerTransport>;
+  readonly hello?: WorkerProtocolSessionHello;
+  readonly startupTimeoutMs?: number;
+  readonly handshakeTimeoutMs?: number;
+  readonly closeTimeoutMs?: number;
+  readonly restartAttempts?: number;
+  readonly restartWindowMs?: number;
+  readonly now?: () => number;
+}
+
 type BridgePhase = BridgeError['phase'];
 type TerminalKind =
   | 'bridge.check.result'
@@ -173,6 +185,11 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
     return this.#ready.promise;
   }
 
+  /** Reports whether this one connection has entered an unrecoverable failed state. */
+  isFailed(): boolean {
+    return this.#state === 'failed';
+  }
+
   async check(request: CheckRequest): Promise<CheckResult> {
     if (!(await this.#available())) return failedResult('check', this.#closedCode()) as CheckResult;
     return this.#request('bridge.check.request', 'bridge.check.result', 'check', request) as Promise<CheckResult>;
@@ -210,6 +227,11 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
     if (this.#closePromise) return this.#closePromise;
     this.#closePromise = this.#close();
     return this.#closePromise;
+  }
+
+  /** Forces this connection to fail; used by a supervisor after an operational deadline expires. */
+  terminate(): Promise<void> {
+    return this.#fail('worker connection terminated by supervisor', 'worker_lost');
   }
 
   async #close(): Promise<CloseResult> {
@@ -283,7 +305,7 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
     try {
       await this.#sendWithId(id, requestKind, null, encoded.value);
     } catch {
-      await this.#fail('worker request write failed');
+      await this.#fail('worker request write failed', 'worker_lost');
     }
     return result;
   }
@@ -303,9 +325,9 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
       }
       const finished = this.#decoder.finish();
       if (!finished.ok) return this.#fail(finished.failure.code);
-      if (this.#state !== 'closed') await this.#fail('worker transport ended');
+      if (this.#state !== 'closed') await this.#fail('worker transport ended', 'worker_lost');
     } catch {
-      await this.#fail('worker transport failed');
+      await this.#fail('worker transport failed', 'worker_lost');
     }
   }
 
@@ -409,7 +431,7 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
     try {
       await this.#send('action.outcome', envelopeId, encoded.value);
     } catch {
-      await this.#fail('action outcome write failed');
+      await this.#fail('action outcome write failed', 'worker_lost');
     }
   }
 
@@ -463,12 +485,12 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
     return this.#state === 'failed';
   }
 
-  async #fail(detail: string): Promise<void> {
+  async #fail(detail: string, code: BridgeError['code'] = 'adapter_failure'): Promise<void> {
     if (this.#state === 'failed' || this.#state === 'closed') return;
     this.#state = 'failed';
     this.#ready.resolve(false);
     for (const [id, pending] of this.#pending)
-      this.#finish(id, pending, failedResult(pending.phase, 'adapter_failure', detail));
+      this.#finish(id, pending, failedResult(pending.phase, code, code === 'worker_lost' ? undefined : detail));
     await this.#closeTransport();
   }
 
@@ -479,6 +501,223 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
       await this.#transport.close();
     } catch {
       // Transport close is best effort after all public promises already have bounded terminal results.
+    }
+  }
+}
+
+interface SupervisedConnection {
+  readonly bridge: ProcessRuntimeBridge;
+  readonly transport: ProcessWorkerTransport;
+}
+
+type DeadlineResult<T> =
+  Readonly<{ status: 'completed'; value: T }> | Readonly<{ status: 'failed' }> | Readonly<{ status: 'timeout' }>;
+
+function withDeadline<T>(promise: Promise<T>, milliseconds: number): Promise<DeadlineResult<T>> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve({ status: 'timeout' });
+    }, milliseconds);
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve({ status: 'completed', value });
+      },
+      () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve({ status: 'failed' });
+      },
+    );
+  });
+}
+
+type Acquisition =
+  Readonly<{ ok: true; connection: SupervisedConnection }> | Readonly<{ ok: false; code: BridgeError['code'] }>;
+
+/**
+ * Lazy, restart-bounded owner for process bridge connections.
+ *
+ * Each public request is submitted to exactly one connection. Worker loss fails that request and may permit only a
+ * later request to start a fresh worker; the supervisor never retries or replays accepted work.
+ */
+export class SupervisedProcessRuntimeBridge implements RuntimeBridge {
+  readonly #options: Readonly<{
+    start: SupervisedProcessRuntimeBridgeOptions['start'];
+    hello: WorkerProtocolSessionHello;
+    startupTimeoutMs: number;
+    handshakeTimeoutMs: number;
+    closeTimeoutMs: number;
+    restartAttempts: number;
+    restartWindowMs: number;
+    now: () => number;
+  }>;
+  readonly #attempts: number[] = [];
+  #connection: SupervisedConnection | undefined;
+  #starting: Promise<Acquisition> | undefined;
+  #closed = false;
+  #closePromise: Promise<CloseResult> | undefined;
+
+  constructor(options: SupervisedProcessRuntimeBridgeOptions) {
+    if (!options || typeof options.start !== 'function') throw new TypeError('worker start function is required');
+    const hello = options.hello ?? DEFAULT_PROCESS_WORKER_HELLO;
+    const values = {
+      startupTimeoutMs: options.startupTimeoutMs ?? Number(hello.limits.worker_start_ms),
+      handshakeTimeoutMs: options.handshakeTimeoutMs ?? Number(hello.limits.handshake_ms),
+      closeTimeoutMs: options.closeTimeoutMs ?? Number(hello.limits.graceful_close_ms),
+      restartAttempts: options.restartAttempts ?? Number(hello.limits.restart_attempts),
+      restartWindowMs: options.restartWindowMs ?? Number(hello.limits.restart_window_ms),
+    };
+    if (
+      ![values.startupTimeoutMs, values.handshakeTimeoutMs, values.closeTimeoutMs, values.restartWindowMs].every(
+        (value) => Number.isSafeInteger(value) && value > 0,
+      ) ||
+      !Number.isSafeInteger(values.restartAttempts) ||
+      values.restartAttempts < 0 ||
+      (options.now !== undefined && typeof options.now !== 'function')
+    )
+      throw new TypeError('worker supervisor limits are invalid');
+    this.#options = { ...values, start: options.start, hello, now: options.now ?? Date.now };
+  }
+
+  async check(request: CheckRequest): Promise<CheckResult> {
+    const acquired = await this.#acquire();
+    if (!acquired.ok) return failedResult('check', acquired.code) as CheckResult;
+    const result = await acquired.connection.bridge.check(request);
+    this.#observe(acquired.connection, result);
+    return result;
+  }
+
+  async inspect(request: InspectRequest): Promise<InspectResult> {
+    const acquired = await this.#acquire();
+    if (!acquired.ok) return failedResult('inspect', acquired.code) as InspectResult;
+    const result = await acquired.connection.bridge.inspect(request);
+    this.#observe(acquired.connection, result);
+    return result;
+  }
+
+  async execute(request: ExecuteRequest, host: RuntimeBridgeHost): Promise<ExecutionResult> {
+    const acquired = await this.#acquire();
+    if (!acquired.ok) return failedResult('execute', acquired.code) as ExecutionResult;
+    const result = await acquired.connection.bridge.execute(request, host);
+    this.#observe(acquired.connection, result);
+    return result;
+  }
+
+  async cancel(request: CancelRequest): Promise<CancelResult> {
+    const acquired = await this.#acquire();
+    if (!acquired.ok) return failedResult('cancel', acquired.code) as CancelResult;
+    const result = await acquired.connection.bridge.cancel(request);
+    this.#observe(acquired.connection, result);
+    return result;
+  }
+
+  close(): Promise<CloseResult> {
+    if (this.#closePromise) return this.#closePromise;
+    this.#closed = true;
+    this.#closePromise = this.#close();
+    return this.#closePromise;
+  }
+
+  async #close(): Promise<CloseResult> {
+    const starting = this.#starting;
+    if (starting) await withDeadline(starting, this.#options.closeTimeoutMs);
+    const connection = this.#connection;
+    this.#connection = undefined;
+    if (!connection) return Object.freeze({ status: 'closed' });
+    const closed = await withDeadline(connection.bridge.close(), this.#options.closeTimeoutMs);
+    if (closed.status === 'completed') return closed.value;
+    await connection.bridge.terminate();
+    return failedResult('close', closed.status === 'timeout' ? 'worker_close_timeout' : 'worker_lost') as CloseResult;
+  }
+
+  async #acquire(): Promise<Acquisition> {
+    if (this.#closed) return Object.freeze({ ok: false, code: 'bridge_closed' });
+    if (this.#connection?.bridge.isFailed()) this.#connection = undefined;
+    if (this.#connection) return Object.freeze({ ok: true, connection: this.#connection });
+    if (this.#starting) return this.#starting;
+    const starting = this.#start();
+    this.#starting = starting;
+    try {
+      return await starting;
+    } finally {
+      if (this.#starting === starting) this.#starting = undefined;
+    }
+  }
+
+  async #start(): Promise<Acquisition> {
+    const now = this.#options.now();
+    while (this.#attempts[0] !== undefined && now - this.#attempts[0] >= this.#options.restartWindowMs)
+      this.#attempts.shift();
+    if (this.#attempts.length > this.#options.restartAttempts)
+      return Object.freeze({ ok: false, code: 'worker_crash_loop' });
+    this.#attempts.push(now);
+
+    const spawning = Promise.resolve().then(this.#options.start);
+    const spawned = await withDeadline(spawning, this.#options.startupTimeoutMs);
+    if (spawned.status === 'timeout') {
+      void spawning.then(
+        (transport) => this.#closeTransport(transport),
+        () => undefined,
+      );
+      return Object.freeze({ ok: false, code: 'worker_start_timeout' });
+    }
+    if (spawned.status === 'failed') return Object.freeze({ ok: false, code: 'worker_start_failed' });
+    const transport = spawned.value;
+    let bridge: ProcessRuntimeBridge;
+    try {
+      bridge = new ProcessRuntimeBridge({ transport, hello: this.#options.hello });
+    } catch {
+      await this.#closeTransport(transport);
+      return Object.freeze({ ok: false, code: 'worker_start_failed' });
+    }
+    const ready = await withDeadline(bridge.ready(), this.#options.handshakeTimeoutMs);
+    if (ready.status === 'timeout') {
+      await bridge.terminate();
+      return Object.freeze({ ok: false, code: 'worker_start_timeout' });
+    }
+    if (ready.status === 'failed') {
+      await bridge.terminate();
+      return Object.freeze({ ok: false, code: 'worker_start_failed' });
+    }
+    if (!ready.value) return Object.freeze({ ok: false, code: 'worker_start_failed' });
+    if (this.#closed) {
+      await bridge.terminate();
+      return Object.freeze({ ok: false, code: 'bridge_closed' });
+    }
+    const connection = Object.freeze({ bridge, transport });
+    this.#connection = connection;
+    return Object.freeze({ ok: true, connection });
+  }
+
+  #observe(connection: SupervisedConnection, result: unknown): void {
+    if (
+      this.#connection === connection &&
+      (connection.bridge.isFailed() ||
+        (result !== null &&
+          typeof result === 'object' &&
+          'status' in result &&
+          result.status === 'bridge_error' &&
+          'error' in result &&
+          result.error !== null &&
+          typeof result.error === 'object' &&
+          'code' in result.error &&
+          result.error.code === 'worker_lost'))
+    )
+      this.#connection = undefined;
+  }
+
+  async #closeTransport(transport: ProcessWorkerTransport): Promise<void> {
+    try {
+      await transport.close();
+    } catch {
+      // Forced supervisor shutdown is best effort after public work has a bounded terminal result.
     }
   }
 }
