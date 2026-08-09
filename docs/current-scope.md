@@ -25,7 +25,7 @@ The repository currently implements:
 - adapter-neutral conformance references, resource ledgers, hostile cases, release metadata, and authoring evidence;
 - an interactive CRM integration and read-only semantic-graph projection.
 
-The source tree now contains the v2 worker-default implementation. Package manifests remain at 1.0.0 until the coordinated preview, release-candidate, and stable publication gates; those manifests are not a v2 release claim. The supported compatibility dimensions include language 1.0 and 1.1, IR 1.0 and 1.1, action ABI 2.0, worker protocol 1.0, diagnostic catalog 1.4.0, and authoring bundle 1.0.0.
+The coordinated public TypeScript package set is version 2.0.0. The supported compatibility dimensions include language 1.0 and 1.1, IR 1.0 and 1.1, action ABI 2.0, worker protocol 1.0, diagnostic catalog 1.4.0, artifact 1.0, authoring bundle 1.0.0, and protocol fixture schema 1.0.0.
 
 ## Host responsibilities, not missing runtime features
 

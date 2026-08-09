@@ -1,7 +1,12 @@
+#!/usr/bin/env node
 /**
  * Thin offline command adapter for the public SafeScript TypeScript SDK.
  * @packageDocumentation
  */
+import { readFile, writeFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
 import {
   ContractDefinitionError,
   SdkConfigurationError,
@@ -77,17 +82,21 @@ const usage =
   'usage: safescript <check|inspect|execute|test> --contract <file|-> [--input <file|->] [--output <file|->]';
 
 const defaultIo: CliIo = {
-  readStdin: async () => Bun.stdin.text(),
-  readFile: async (path) => Bun.file(path).text(),
-  writeStdout: async (text) => {
-    await Bun.write(Bun.stdout, text);
+  readStdin: async () => {
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of process.stdin) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+    return Buffer.concat(chunks).toString('utf8');
   },
-  writeStderr: async (text) => {
-    await Bun.write(Bun.stderr, text);
-  },
-  writeFile: async (path, text) => {
-    await Bun.write(path, text);
-  },
+  readFile: (path) => readFile(path, 'utf8'),
+  writeStdout: (text) =>
+    new Promise((resolveWrite, reject) =>
+      process.stdout.write(text, (error) => (error ? reject(error) : resolveWrite())),
+    ),
+  writeStderr: (text) =>
+    new Promise((resolveWrite, reject) =>
+      process.stderr.write(text, (error) => (error ? reject(error) : resolveWrite())),
+    ),
+  writeFile: (path, text) => writeFile(path, text, 'utf8'),
 };
 
 class CliError extends Error {
@@ -147,14 +156,14 @@ function decodeJsonValue(value: unknown): unknown {
   const record = value as JsonObject;
   if (Object.keys(record).length === 1 && typeof record.$bigint === 'string') return BigInt(record.$bigint);
   if (Object.keys(record).length === 1 && typeof record.$bytes === 'string') {
-    return Uint8Array.fromBase64(record.$bytes);
+    return Uint8Array.from(Buffer.from(record.$bytes, 'base64'));
   }
   return Object.fromEntries(Object.entries(record).map(([key, item]) => [key, decodeJsonValue(item)]));
 }
 
 function encodeJsonValue(_key: string, value: unknown): unknown {
   if (typeof value === 'bigint') return { $bigint: String(value) };
-  if (value instanceof Uint8Array) return { $bytes: value.toBase64() };
+  if (value instanceof Uint8Array) return { $bytes: Buffer.from(value).toString('base64') };
   return value;
 }
 
@@ -388,4 +397,6 @@ export async function runCli(args: readonly string[], io: CliIo = defaultIo): Pr
   }
 }
 
-if (import.meta.main) process.exitCode = await runCli(Bun.argv.slice(2));
+const invokedPath = process.argv[1];
+if (invokedPath !== undefined && pathToFileURL(resolve(invokedPath)).href === import.meta.url)
+  process.exitCode = await runCli(process.argv.slice(2));

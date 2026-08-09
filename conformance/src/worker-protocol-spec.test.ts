@@ -10,6 +10,8 @@ import {
 } from '@safescript/contracts';
 
 interface WorkerProtocolManifest {
+  readonly releaseVersion: string;
+  readonly fixtureSchemaVersion: string;
   readonly protocol: Readonly<{ major: number; minor: number }>;
   readonly normativeDocuments: readonly string[];
   readonly index: string;
@@ -52,6 +54,8 @@ describe('worker protocol 1.0 publication', () => {
 
     const manifest = (await manifestFile.json()) as WorkerProtocolManifest;
     expect(manifest).toEqual({
+      releaseVersion: '2.0.0',
+      fixtureSchemaVersion: '1.0.0',
       protocol: { major: 1, minor: 0 },
       index: 'docs/v2/README.md',
       normativeDocuments: [
@@ -95,7 +99,7 @@ describe('worker protocol 1.0 publication', () => {
       new URL('conformance/worker-protocol/v1/fixtures.json', repositoryRoot),
     ).json()) as WorkerProtocolFixtures;
 
-    expect(fixtures.valid[0]).toEqual({
+    expect(fixtures.valid.find(({ kind }) => kind === 'session.close.request')).toEqual({
       name: 'session close request',
       kind: 'session.close.request',
       frameHex:
@@ -122,37 +126,53 @@ describe('worker protocol 1.0 publication', () => {
     const fixtures = (await Bun.file(
       new URL('conformance/worker-protocol/v1/fixtures.json', repositoryRoot),
     ).json()) as WorkerProtocolFixtures;
+    for (const fixture of fixtures.valid) {
+      const frame = bytes(fixture.frameHex);
+      const decodedFrame = decodeWorkerProtocolFrame(frame);
+      expect(decodedFrame.ok, fixture.name).toBe(true);
+      if (!decodedFrame.ok) continue;
+      expect(hex(decodedFrame.value), fixture.name).toBe(fixture.envelopeHex);
+      const decodedEnvelope = decodeWorkerProtocolEnvelope(decodedFrame.value);
+      expect(decodedEnvelope.ok, fixture.name).toBe(true);
+      if (!decodedEnvelope.ok) continue;
+      expect(hex(decodedEnvelope.value.payload), fixture.name).toBe(fixture.payloadHex);
+      const encodedEnvelope = encodeWorkerProtocolEnvelope(decodedEnvelope.value);
+      expect(encodedEnvelope.ok, fixture.name).toBe(true);
+      if (!encodedEnvelope.ok) continue;
+      const encodedFrame = encodeWorkerProtocolFrame(encodedEnvelope.value);
+      expect(encodedFrame.ok && hex(encodedFrame.value), fixture.name).toBe(fixture.frameHex);
+
+      for (const splitAt of [1, 2, 3, 4, frame.length - 1]) {
+        const decoder = new WorkerProtocolFrameDecoder();
+        expect(decoder.push(frame.subarray(0, splitAt)), fixture.name).toEqual({ ok: true, value: [] });
+        const completed = decoder.push(frame.subarray(splitAt));
+        expect(completed.ok && completed.value.map(hex), fixture.name).toEqual([fixture.envelopeHex]);
+        expect(decoder.finish(), fixture.name).toEqual({ ok: true, value: [] });
+      }
+    }
+
     const fixture = fixtures.valid[0];
     if (!fixture) throw new Error('missing canonical fixture');
     const frame = bytes(fixture.frameHex);
-    const decodedFrame = decodeWorkerProtocolFrame(frame);
-    expect(decodedFrame.ok).toBe(true);
-    if (!decodedFrame.ok) return;
-    expect(hex(decodedFrame.value)).toBe(fixture.envelopeHex);
-    const decodedEnvelope = decodeWorkerProtocolEnvelope(decodedFrame.value);
-    expect(decodedEnvelope.ok).toBe(true);
-    if (!decodedEnvelope.ok) return;
-    expect(hex(decodedEnvelope.value.payload)).toBe(fixture.payloadHex);
-    const encodedEnvelope = encodeWorkerProtocolEnvelope(decodedEnvelope.value);
-    expect(encodedEnvelope.ok).toBe(true);
-    if (!encodedEnvelope.ok) return;
-    const encodedFrame = encodeWorkerProtocolFrame(encodedEnvelope.value);
-    expect(encodedFrame.ok && hex(encodedFrame.value)).toBe(fixture.frameHex);
-
-    for (const splitAt of [1, 2, 3, 4, frame.length - 1]) {
-      const decoder = new WorkerProtocolFrameDecoder();
-      expect(decoder.push(frame.subarray(0, splitAt))).toEqual({ ok: true, value: [] });
-      const completed = decoder.push(frame.subarray(splitAt));
-      expect(completed.ok && completed.value.map(hex)).toEqual([fixture.envelopeHex]);
-      expect(decoder.finish()).toEqual({ ok: true, value: [] });
-    }
-
     const decoder = new WorkerProtocolFrameDecoder();
     const coalesced = new Uint8Array(frame.length * 2);
     coalesced.set(frame);
     coalesced.set(frame, frame.length);
     const completed = decoder.push(coalesced);
     expect(completed.ok && completed.value.map(hex)).toEqual([fixture.envelopeHex, fixture.envelopeHex]);
+  });
+
+  it('publishes one fixed canonical vector for every message kind', async () => {
+    const [manifest, fixtures] = await Promise.all([
+      Bun.file(
+        new URL('conformance/worker-protocol/v1/manifest.json', repositoryRoot),
+      ).json() as Promise<WorkerProtocolManifest>,
+      Bun.file(
+        new URL('conformance/worker-protocol/v1/fixtures.json', repositoryRoot),
+      ).json() as Promise<WorkerProtocolFixtures>,
+    ]);
+    expect(fixtures.valid.map(({ kind }) => kind).sort()).toEqual([...manifest.messageKinds].sort());
+    expect(new Set(fixtures.valid.map(({ name }) => name)).size).toBe(fixtures.valid.length);
   });
 
   it('runs every hostile byte fixture through the bounded codecs', async () => {
@@ -312,10 +332,13 @@ describe('worker protocol 1.0 publication', () => {
       expect(workflow).toContain(`runner: ${runner}`);
     expect(workflow).toContain('node: 22');
     expect(workflow).toContain('node: 24');
+    expect(workflow).toContain('prepare-release-install.mjs');
+    expect(workflow).toContain('verify-installed-release.mjs');
     expect(workflow).toContain('configure-process-adapter.mjs');
     expect(workflow).toContain('bun test conformance/src/index.test.ts conformance/src/worker-protocol-spec.test.ts');
     expect(workflow).toContain('conformance/evidence/platform/');
     for (const variable of [
+      'SAFESCRIPT_RELEASE_INSTALL_ROOT',
       'SAFESCRIPT_CONFORMANCE_NODE_PATH',
       'SAFESCRIPT_CONFORMANCE_WORKER_ENTRY',
       'SAFESCRIPT_CONFORMANCE_WORKER_DIGEST',

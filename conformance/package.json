@@ -1,15 +1,40 @@
 {
   "name": "@safescript/conformance",
-  "version": "0.0.0",
-  "private": true,
+  "version": "2.0.0",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./protocol/v1/manifest": "./worker-protocol/v1/manifest.json",
+    "./protocol/v1/fixtures": "./worker-protocol/v1/fixtures.json"
+  },
+  "files": [
+    "dist/index.d.ts",
+    "dist/index.js",
+    "dist/authoring.d.ts",
+    "dist/authoring.js",
+    "dist/references.d.ts",
+    "dist/references.js",
+    "dist/resources.d.ts",
+    "dist/resources.js",
+    "worker-protocol/v1",
+    "evidence/release"
+  ],
+  "engines": {
+    "node": ">=22 <25"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
-    "@safescript/contracts": "*"
+    "@safescript/contracts": "^2.0.0"
   },
   "devDependencies": {
-    "@safescript/engine": "*",
-    "@safescript/sdk": "*",
-    "@safescript/worker": "*"
+    "@safescript/engine": "2.0.0",
+    "@safescript/sdk": "2.0.0",
+    "@safescript/worker": "2.0.0"
   },
   "nx": {
     "tags": [

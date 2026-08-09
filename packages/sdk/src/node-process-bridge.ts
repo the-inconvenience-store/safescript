@@ -17,8 +17,8 @@ import {
 const SHA256 = /^[0-9a-f]{64}$/;
 const FEATURE = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9_]*)+$/;
 const ZERO_DIGEST = '0'.repeat(64);
-const BUNDLED_PACKAGE_VERSION = '1.0.0';
-const BUNDLED_WORKER_BUILD_DIGEST = 'b10cd555e3e895fd1c52db26d9bf82ec8dae7f0a1df44a5c8dabca4d55a28ab1';
+const BUNDLED_PACKAGE_VERSION = '2.0.0';
+const BUNDLED_WORKER_BUILD_DIGEST = '002244f67f1f137a320b4e0753c9dc215b13bd8d0f500d3c94f919fdcac6ff5b';
 
 interface WorkerBuildManifest {
   readonly schema: 1;
@@ -157,7 +157,7 @@ function hello(options: NodeProcessRuntimeBridgeOptions): WorkerProtocolSessionH
       options.override?.requiredFeatures?.slice() ?? DEFAULT_PROCESS_WORKER_HELLO.required_features,
     ),
     expected_worker: Object.freeze({
-      package_version: Object.freeze({ major: 1n, minor: 0n, patch: 0n }),
+      package_version: Object.freeze({ major: 2n, minor: 0n, patch: 0n }),
       build_digest:
         options.override?.digestAllowlist?.[0] ?? (options.override ? ZERO_DIGEST : BUNDLED_WORKER_BUILD_DIGEST),
       override: options.override !== undefined,

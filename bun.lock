@@ -17,21 +17,21 @@
     },
     "apps/cli": {
       "name": "@safescript/cli",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "dependencies": {
-        "@safescript/sdk": "*",
+        "@safescript/sdk": "^2.0.0",
       },
     },
     "conformance": {
       "name": "@safescript/conformance",
-      "version": "0.0.0",
+      "version": "2.0.0",
       "dependencies": {
-        "@safescript/contracts": "*",
+        "@safescript/contracts": "^2.0.0",
       },
       "devDependencies": {
-        "@safescript/engine": "*",
-        "@safescript/sdk": "*",
-        "@safescript/worker": "*",
+        "@safescript/engine": "2.0.0",
+        "@safescript/sdk": "2.0.0",
+        "@safescript/worker": "2.0.0",
       },
     },
     "examples/crm": {
@@ -44,34 +44,34 @@
     },
     "packages/contracts": {
       "name": "@safescript/contracts",
-      "version": "1.0.0",
+      "version": "2.0.0",
     },
     "packages/engine": {
       "name": "@safescript/engine",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "dependencies": {
-        "@safescript/contracts": "^1.0.0",
+        "@safescript/contracts": "^2.0.0",
         "typescript": "6.0.3",
       },
     },
     "packages/sdk": {
       "name": "@safescript/sdk",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "dependencies": {
-        "@safescript/contracts": "^1.0.0",
-        "@safescript/engine": "^1.0.0",
-        "@safescript/worker": "1.0.0",
+        "@safescript/contracts": "^2.0.0",
+        "@safescript/engine": "^2.0.0",
+        "@safescript/worker": "2.0.0",
       },
     },
     "packages/worker": {
       "name": "@safescript/worker",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "bin": {
         "safescript-worker": "./dist/entry.js",
       },
       "dependencies": {
-        "@safescript/contracts": "1.0.0",
-        "@safescript/engine": "1.0.0",
+        "@safescript/contracts": "2.0.0",
+        "@safescript/engine": "2.0.0",
       },
     },
   },

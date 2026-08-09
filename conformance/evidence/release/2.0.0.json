@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "releaseVersion": "2.0.0",
+  "protocolVersion": "1.0",
+  "fixtureSchemaVersion": "1.0.0",
+  "actionAbiVersion": "2.0",
+  "packages": [
+    "@safescript/contracts",
+    "@safescript/engine",
+    "@safescript/worker",
+    "@safescript/sdk",
+    "@safescript/cli",
+    "@safescript/conformance"
+  ],
+  "freeze": {
+    "manifestSha256": "2853533d84360392ca708d4c62d71199bdd026101c27b44d004db3aa7cacb03d",
+    "fixturesSha256": "f88ba332f688540e21c114c9c0665331512a5b7eaea6d30746967738cd332294",
+    "schemaSha256": "2a8bbd981d481b676e0c19614369884dc9b93de4f0d97bebb1c4ca158c0a967e",
+    "failureCatalogSha256": "445adf19f6a5bf8728f8e60df92d64dfa0957daa2ac4b31774410a9943e384d3"
+  },
+  "securityReview": {
+    "fixedPoint": "997c558cea7c6b7b4efa84834b57556eb026c026",
+    "reviewedAt": "2026-08-09",
+    "criticalFindings": 0,
+    "openCriticalFindings": 0,
+    "dependencyAudit": "bun audit --json: clean"
+  },
+  "compatibilityReview": {
+    "supportedNodeMajors": [22, 24],
+    "upgradeEvidence": "conformance/evidence/release/v1-to-v2-upgrade.json",
+    "canonicalMessageVectors": 16,
+    "openCriticalFindings": 0
+  },
+  "registryPublication": {
+    "registry": "https://registry.npmjs.org/",
+    "status": "pending-authentication"
+  },
+  "result": "passed"
+}

@@ -12,6 +12,7 @@ SafeScript v2 makes the supervised local [runtime worker](../../CONTEXT.md#runti
 - [Runtime worker distribution and SDK behavior](distribution-and-sdk.md)
 - [Compatibility and migration](migration.md)
 - [Conformance](conformance.md)
+- [SafeScript 2.0.0 release record](release-2.0.0.md)
 - [CDDL schema](worker-protocol-1.0.cddl)
 - [Fixture manifest](../../conformance/worker-protocol/v1/manifest.json)
 - [Golden and hostile fixtures](../../conformance/worker-protocol/v1/fixtures.json)

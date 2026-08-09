@@ -1,15 +1,28 @@
 {
   "name": "@safescript/cli",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "bin": {
-    "safescript": "./src/index.ts"
+    "safescript": "./dist/index.js"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/index.d.ts",
+    "dist/index.js"
+  ],
+  "engines": {
+    "node": ">=22 <25"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
-    "@safescript/sdk": "^1.0.0"
+    "@safescript/sdk": "^2.0.0"
   },
   "nx": {
     "tags": [

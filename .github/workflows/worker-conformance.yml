@@ -36,9 +36,13 @@ jobs:
       - run: bun run build
       - name: Finalize the self-contained worker bundle
         run: bunx nx run @safescript/worker:build --skip-nx-cache
-      - name: Select the matrix Node executable and built worker
+      - name: Pack and install the coordinated release set
+        run: node conformance/scripts/prepare-release-install.mjs
+      - name: Verify the installed public packages
+        run: node conformance/scripts/verify-installed-release.mjs
+      - name: Select the matrix Node executable and installed worker
         run: node conformance/scripts/configure-process-adapter.mjs
-      - run: bun test conformance/src/index.test.ts conformance/src/worker-protocol-spec.test.ts
+      - run: bun test conformance/src/index.test.ts conformance/src/worker-protocol-spec.test.ts conformance/src/release.test.ts
       - run: node conformance/scripts/write-platform-evidence.mjs
         env:
           EVIDENCE_FILE: conformance/evidence/platform/${{ matrix.name }}.json

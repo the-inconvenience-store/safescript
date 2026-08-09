@@ -39,11 +39,11 @@ const ZERO_DIGEST = '0'.repeat(64);
 export const DEFAULT_PROCESS_WORKER_HELLO: WorkerProtocolSessionHello = Object.freeze({
   protocol: Object.freeze({ major: 1n, min_minor: 0n, max_minor: 0n }),
   sdk: Object.freeze({
-    version: Object.freeze({ major: 1n, minor: 0n, patch: 0n }),
+    version: Object.freeze({ major: 2n, minor: 0n, patch: 0n }),
     build: 'safescript-sdk-process-bridge',
   }),
   expected_worker: Object.freeze({
-    package_version: Object.freeze({ major: 1n, minor: 0n, patch: 0n }),
+    package_version: Object.freeze({ major: 2n, minor: 0n, patch: 0n }),
     build_digest: ZERO_DIGEST,
     override: false,
   }),

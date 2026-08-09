@@ -1,4 +1,6 @@
 {
+  "releaseVersion": "2.0.0",
+  "fixtureSchemaVersion": "1.0.0",
   "protocol": { "major": 1, "minor": 0 },
   "index": "docs/v2/README.md",
   "normativeDocuments": [

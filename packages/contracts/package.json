@@ -1,9 +1,28 @@
 {
   "name": "@safescript/contracts",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/index.d.ts",
+    "dist/index.js",
+    "dist/worker-framing.d.ts",
+    "dist/worker-framing.js",
+    "dist/worker-handshake.d.ts",
+    "dist/worker-handshake.js",
+    "dist/worker-protocol.d.ts",
+    "dist/worker-protocol.js"
+  ],
+  "engines": {
+    "node": ">=22 <25"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "nx": {
     "tags": [

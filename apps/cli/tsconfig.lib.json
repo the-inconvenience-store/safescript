@@ -4,7 +4,7 @@
     "outDir": "dist",
     "rootDir": "src",
     "tsBuildInfoFile": "dist/tsconfig.lib.tsbuildinfo",
-    "types": ["bun"]
+    "types": ["node", "bun"]
   },
   "include": ["src/**/*.ts"],
   "references": [{ "path": "../../packages/sdk/tsconfig.lib.json" }]

@@ -1,12 +1,17 @@
 import { createHash } from 'node:crypto';
 import { appendFile, readFile, writeFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const githubEnvironment = process.env.GITHUB_ENV;
 if (!githubEnvironment) throw new Error('GITHUB_ENV is required');
 
-const manifestUrl = new URL('../../packages/worker/dist/build-manifest.json', import.meta.url);
-const entryUrl = new URL('../../packages/worker/dist/entry.js', import.meta.url);
+const installedRoot = process.env.SAFESCRIPT_RELEASE_INSTALL_ROOT;
+const workerRoot = installedRoot
+  ? pathToFileURL(resolve(installedRoot, 'node_modules/@safescript/worker/')).href
+  : new URL('../../packages/worker/', import.meta.url).href;
+const manifestUrl = new URL('dist/build-manifest.json', workerRoot);
+const entryUrl = new URL('dist/entry.js', workerRoot);
 const manifest = JSON.parse(await readFile(manifestUrl, 'utf8'));
 const entry = await readFile(entryUrl);
 const buildDigest = createHash('sha256').update(entry).digest('hex');

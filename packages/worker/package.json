@@ -1,9 +1,12 @@
 {
   "name": "@safescript/worker",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "exports": {
-    ".": "./dist/index.js",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
     "./entry": "./dist/entry.js",
     "./manifest": "./dist/build-manifest.json",
     "./package.json": "./package.json"
@@ -24,9 +27,12 @@
   "engines": {
     "node": ">=22 <25"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
-    "@safescript/contracts": "1.0.0",
-    "@safescript/engine": "1.0.0"
+    "@safescript/contracts": "2.0.0",
+    "@safescript/engine": "2.0.0"
   },
   "nx": {
     "tags": [

@@ -32,7 +32,7 @@ export const DEFAULT_WORKER_HANDSHAKE_SUPPORT: WorkerProtocolHandshakeSupport = 
   protocol: Object.freeze({ major: 1n, min_minor: 0n, max_minor: 0n }),
   features: Object.freeze([]),
   worker: Object.freeze({
-    package_version: Object.freeze({ major: 1n, minor: 0n, patch: 0n }),
+    package_version: Object.freeze({ major: 2n, minor: 0n, patch: 0n }),
     compiler: Object.freeze({
       version: Object.freeze({ major: 0n, minor: 2n, patch: 0n }),
       build: 'typed-ir-language-1-1',

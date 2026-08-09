@@ -8,3 +8,4 @@ docs/SafeScript.md
 node_modules/
 dist/
 .nx/
+.release/

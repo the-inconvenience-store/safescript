@@ -5,9 +5,16 @@ import { dirname } from 'node:path';
 const output = process.env.EVIDENCE_FILE;
 if (!output) throw new Error('EVIDENCE_FILE is required');
 
+const installedRoot = process.env.SAFESCRIPT_RELEASE_INSTALL_ROOT;
+const workerPackagePath = installedRoot
+  ? `${installedRoot}/node_modules/@safescript/worker/package.json`
+  : new URL('../../packages/worker/package.json', import.meta.url);
+const workerManifestPath = installedRoot
+  ? `${installedRoot}/node_modules/@safescript/worker/dist/build-manifest.json`
+  : new URL('../../packages/worker/dist/build-manifest.json', import.meta.url);
 const [workerPackage, workerManifest, fixtures] = await Promise.all([
-  readFile(new URL('../../packages/worker/package.json', import.meta.url), 'utf8').then(JSON.parse),
-  readFile(new URL('../../packages/worker/dist/build-manifest.json', import.meta.url), 'utf8').then(JSON.parse),
+  readFile(workerPackagePath, 'utf8').then(JSON.parse),
+  readFile(workerManifestPath, 'utf8').then(JSON.parse),
   readFile(new URL('../worker-protocol/v1/fixtures.json', import.meta.url), 'utf8').then(JSON.parse),
 ]);
 
@@ -20,7 +27,8 @@ const evidence = {
   workerBuildDigest: workerManifest.buildDigest,
   protocolVersion: fixtures.protocol,
   fixtureSchemaVersion: fixtures.schemaVersion,
-  testCommand: 'bun test conformance/src/index.test.ts conformance/src/worker-protocol-spec.test.ts',
+  testCommand:
+    'node conformance/scripts/verify-installed-release.mjs && bun test conformance/src/index.test.ts conformance/src/worker-protocol-spec.test.ts conformance/src/release.test.ts',
   result: 'passed',
 };
 
