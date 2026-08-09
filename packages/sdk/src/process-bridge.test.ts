@@ -30,7 +30,13 @@ import {
   RuntimeWorkerServer,
 } from '@safescript/worker';
 
-import { SupervisedProcessRuntimeBridge, createSafeScript, defineContract, type ContractType } from './index.js';
+import {
+  SupervisedProcessRuntimeBridge,
+  createNodeProcessRuntimeBridge,
+  createSafeScript,
+  defineContract,
+  type ContractType,
+} from './index.js';
 import { DEFAULT_PROCESS_WORKER_HELLO, ProcessRuntimeBridge, type ProcessWorkerTransport } from './process-bridge.js';
 
 const digest = '0'.repeat(64);
@@ -308,6 +314,72 @@ class StderrTransport extends ScriptedTransport {
 }
 
 describe('process RuntimeBridge state machine', () => {
+  it('rejects an override outside its digest allow-list before launch', async () => {
+    const bridge = createNodeProcessRuntimeBridge({
+      override: {
+        entryPath: new URL('process-bridge.ts', import.meta.url).pathname,
+        nodePath: process.execPath,
+        digestAllowlist: ['f'.repeat(64)],
+      },
+    });
+
+    expect(await bridge.check(checkRequest)).toEqual({
+      status: 'bridge_error',
+      error: { code: 'worker_identity_mismatch', phase: 'check' },
+    });
+    expect(await bridge.close()).toEqual({ status: 'closed' });
+  });
+
+  it('builds and launches the pinned worker artifact without ambient discovery', async () => {
+    const workerDirectory = new URL('../../worker/', import.meta.url).pathname;
+    const build = Bun.spawn([process.execPath, 'scripts/build.ts'], {
+      cwd: workerDirectory,
+      stdout: 'ignore',
+      stderr: 'pipe',
+    });
+    expect(await build.exited).toBe(0);
+    const nodePath = Bun.which('node');
+    if (!nodePath) throw new Error('test requires the supported Node runtime');
+
+    const bridge = createNodeProcessRuntimeBridge({ nodePath });
+    expect(
+      await bridge.cancel({ abiVersion: { major: 2, minor: 0 }, invocationId: actionRequest.invocationId }),
+    ).toEqual({ status: 'not_active' });
+    expect(await bridge.close()).toEqual({ status: 'closed' });
+  });
+
+  it('applies explicit override feature requirements during negotiation', async () => {
+    const workerDirectory = new URL('../../worker/', import.meta.url).pathname;
+    const build = Bun.spawn([process.execPath, 'scripts/build.ts'], {
+      cwd: workerDirectory,
+      stdout: 'ignore',
+      stderr: 'pipe',
+    });
+    expect(await build.exited).toBe(0);
+    const manifest = (await Bun.file(new URL('../../worker/dist/build-manifest.json', import.meta.url)).json()) as {
+      buildDigest: string;
+    };
+    const nodePath = Bun.which('node');
+    if (!nodePath) throw new Error('test requires the supported Node runtime');
+    const bridge = createNodeProcessRuntimeBridge({
+      override: {
+        entryPath: new URL('../../worker/dist/entry.js', import.meta.url).pathname,
+        nodePath,
+        digestAllowlist: [manifest.buildDigest],
+        requiredFeatures: ['worker.test.unsupported'],
+      },
+      handshakeTimeoutMs: 1_000,
+    });
+
+    expect(
+      await bridge.cancel({ abiVersion: { major: 2, minor: 0 }, invocationId: actionRequest.invocationId }),
+    ).toEqual({
+      status: 'bridge_error',
+      error: { code: 'worker_start_failed', phase: 'cancel' },
+    });
+    expect(await bridge.close()).toEqual({ status: 'closed' });
+  });
+
   it('expires partial frames and retains only the selected stderr tail', async () => {
     const hello = {
       ...DEFAULT_PROCESS_WORKER_HELLO,

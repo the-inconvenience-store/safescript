@@ -3,9 +3,21 @@
   "version": "1.0.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./entry": "./src/entry.ts"
+    ".": "./dist/index.js",
+    "./entry": "./dist/entry.js",
+    "./manifest": "./dist/build-manifest.json",
+    "./package.json": "./package.json"
   },
+  "files": [
+    "dist/build-manifest.json",
+    "dist/entry.js",
+    "dist/index.d.ts",
+    "dist/index.js",
+    "dist/protocol.d.ts",
+    "dist/protocol.js",
+    "dist/server.d.ts",
+    "dist/server.js"
+  ],
   "bin": {
     "safescript-worker": "./dist/entry.js"
   },
@@ -26,7 +38,7 @@
         "options": {
           "commands": [
             "tsc -b tsconfig.lib.json",
-            "bun build src/entry.ts --outfile dist/entry.js --target=node --packages=bundle"
+            "bun scripts/build.ts"
           ],
           "cwd": "packages/worker",
           "parallel": false

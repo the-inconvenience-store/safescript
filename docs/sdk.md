@@ -10,6 +10,8 @@ Call `defineContract` with stable types, operations, and slots, then pass the re
 
 `createSafeScript` requires exactly one handler for every operation. Lifecycle hooks are optional. By default it creates an independent direct in-process engine bridge; a host can inject another conforming bridge. `ProcessRuntimeBridge` owns one already-created worker connection, enforces the negotiated codec, credit, queue, partial-frame, and stderr limits, and exposes its bounded operator-only stderr tail through `capturedStderr()`. `SupervisedProcessRuntimeBridge` adds lazy shared readiness, bounded restart and close policy, and no-replay recovery for later work.
 
+`createNodeProcessRuntimeBridge()` adds the concrete local-process boundary. Its default path resolves the exact `@safescript/worker` dependency, verifies the package metadata, generated build manifest, and pinned bundle digest before spawn, then launches the entry with the current Node executable, an empty environment, three pipe handles, and `shell: false`. A non-Node host supplies an absolute `nodePath`. An explicit override requires an absolute entry path, remains handshake-negotiated, and may require a sorted SHA-256 digest allow-list and protocol features.
+
 ```ts
 const safe = createSafeScript({
   contract,

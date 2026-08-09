@@ -1771,6 +1771,7 @@ export type BridgeErrorCode =
   | 'unsupported_version'
   | 'worker_close_timeout'
   | 'worker_crash_loop'
+  | 'worker_identity_mismatch'
   | 'worker_lost'
   | 'worker_start_failed'
   | 'worker_start_timeout';
@@ -2468,7 +2469,7 @@ export interface FailureCatalogEntry {
  * breaking and requires a major version. Removal first requires a deprecated entry and replacement path; message text
  * is deliberately outside this contract.
  */
-export const DIAGNOSTIC_CATALOG_VERSION: SemVer = Object.freeze({ major: 1, minor: 3, patch: 0 });
+export const DIAGNOSTIC_CATALOG_VERSION: SemVer = Object.freeze({ major: 1, minor: 4, patch: 0 });
 
 const COMPILER_DIAGNOSTIC_MEANINGS = Object.freeze([
   'ambient authority access',
@@ -2800,6 +2801,14 @@ export const DIAGNOSTIC_CATALOG: readonly FailureCatalogEntry[] = Object.freeze(
       'bridge',
       'runtime_bridge',
       'worker restart rate capacity is exhausted',
+      ['phase'],
+      'not_applicable',
+    ),
+    catalogEntry(
+      'worker_identity_mismatch',
+      'bridge',
+      'runtime_bridge',
+      'worker package or build identity does not match launch policy',
       ['phase'],
       'not_applicable',
     ),

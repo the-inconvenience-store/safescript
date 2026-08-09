@@ -53,7 +53,7 @@ export const DEFAULT_PROCESS_WORKER_HELLO: WorkerProtocolSessionHello = Object.f
     abi: Object.freeze([Object.freeze({ major: 2n, minor: 0n })]),
     language: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
     ir: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
-    diagnostic_catalog: Object.freeze([Object.freeze({ major: 1n, minor: 3n, patch: 0n })]),
+    diagnostic_catalog: Object.freeze([Object.freeze({ major: 1n, minor: 4n, patch: 0n })]),
     artifact: Object.freeze([Object.freeze({ major: 1n, minor: 0n })]),
     authoring_bundle: Object.freeze([Object.freeze({ major: 1n, minor: 0n, patch: 0n })]),
   }),
@@ -635,7 +635,16 @@ interface SupervisedConnection {
 }
 
 type DeadlineResult<T> =
-  Readonly<{ status: 'completed'; value: T }> | Readonly<{ status: 'failed' }> | Readonly<{ status: 'timeout' }>;
+  | Readonly<{ status: 'completed'; value: T }>
+  | Readonly<{ status: 'failed'; error: unknown }>
+  | Readonly<{ status: 'timeout' }>;
+
+export class WorkerStartError extends Error {
+  constructor(readonly code: Extract<BridgeError['code'], 'worker_start_failed' | 'worker_identity_mismatch'>) {
+    super(code);
+    this.name = 'WorkerStartError';
+  }
+}
 
 function withDeadline<T>(promise: Promise<T>, milliseconds: number): Promise<DeadlineResult<T>> {
   return new Promise((resolve) => {
@@ -652,11 +661,11 @@ function withDeadline<T>(promise: Promise<T>, milliseconds: number): Promise<Dea
         clearTimeout(timer);
         resolve({ status: 'completed', value });
       },
-      () => {
+      (error: unknown) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        resolve({ status: 'failed' });
+        resolve({ status: 'failed', error });
       },
     );
   });
@@ -792,7 +801,11 @@ export class SupervisedProcessRuntimeBridge implements RuntimeBridge {
       );
       return Object.freeze({ ok: false, code: 'worker_start_timeout' });
     }
-    if (spawned.status === 'failed') return Object.freeze({ ok: false, code: 'worker_start_failed' });
+    if (spawned.status === 'failed')
+      return Object.freeze({
+        ok: false,
+        code: spawned.error instanceof WorkerStartError ? spawned.error.code : 'worker_start_failed',
+      });
     const transport = spawned.value;
     let bridge: ProcessRuntimeBridge;
     try {

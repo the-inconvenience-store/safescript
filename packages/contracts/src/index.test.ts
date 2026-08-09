@@ -304,6 +304,7 @@ describe('stable failure catalog', () => {
       'unsupported_version',
       'worker_close_timeout',
       'worker_crash_loop',
+      'worker_identity_mismatch',
       'worker_lost',
       'worker_start_failed',
       'worker_start_timeout',
@@ -318,7 +319,7 @@ describe('stable failure catalog', () => {
     expect([...COMPILER_DIAGNOSTIC_CODES]).toEqual(
       [...COMPILER_DIAGNOSTIC_CODES].sort((left, right) => left.localeCompare(right)),
     );
-    expect(DIAGNOSTIC_CATALOG_VERSION).toEqual({ major: 1, minor: 3, patch: 0 });
+    expect(DIAGNOSTIC_CATALOG_VERSION).toEqual({ major: 1, minor: 4, patch: 0 });
     for (const entry of DIAGNOSTIC_CATALOG) {
       expect(Object.isFrozen(entry)).toBe(true);
       expect(Object.isFrozen(entry.fields)).toBe(true);

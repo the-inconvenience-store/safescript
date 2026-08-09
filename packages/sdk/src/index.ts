@@ -13,6 +13,8 @@ export {
   ProcessRuntimeBridge,
   SupervisedProcessRuntimeBridge,
 } from './process-bridge.js';
+export { createNodeProcessRuntimeBridge } from './node-process-bridge.js';
+export type { NodeProcessRuntimeBridgeOptions, NodeWorkerOverride } from './node-process-bridge.js';
 export type {
   ProcessRuntimeBridgeOptions,
   ProcessWorkerTransport,
