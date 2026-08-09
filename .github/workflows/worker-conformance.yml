@@ -34,6 +34,8 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: bun install --frozen-lockfile
       - run: bun run build
+      - name: Finalize the self-contained worker bundle
+        run: bunx nx run @safescript/worker:build --skip-nx-cache
       - name: Select the matrix Node executable and built worker
         run: node conformance/scripts/configure-process-adapter.mjs
       - run: bun test conformance/src/index.test.ts conformance/src/worker-protocol-spec.test.ts

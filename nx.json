@@ -3,6 +3,7 @@
   "targetDefaults": {
     "build": {
       "executor": "nx:run-commands",
+      "dependsOn": ["^build"],
       "options": {
         "command": "tsc -b tsconfig.lib.json",
         "cwd": "{projectRoot}"
