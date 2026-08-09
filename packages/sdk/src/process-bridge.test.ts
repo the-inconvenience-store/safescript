@@ -3,24 +3,102 @@ import { describe, expect, it } from 'bun:test';
 import {
   decodeWorkerProtocolEnvelope,
   decodeWorkerProtocolFrame,
+  decodeCanonical,
+  derivedActionSiteId,
   encodeWorkerProtocolEnvelope,
   encodeWorkerProtocolFrame,
   encodeWorkerProtocolPayload,
+  hash,
+  ids,
   negotiateWorkerProtocolHandshake,
+  resultSchema,
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
   WORKER_PROTOCOL_SESSION_WELCOME_PAYLOAD,
   type ActionRequest,
   type CheckRequest,
+  type IrDigest,
   type RuntimeBridge,
+  type RuntimeBridgeHost,
   type WorkerProtocolEnvelope,
   type WorkerProtocolMessageKind,
 } from '@safescript/contracts';
-import { DEFAULT_WORKER_HANDSHAKE_SUPPORT, encodeWorkerBridgePayload, RuntimeWorkerServer } from '@safescript/worker';
+import {
+  DEFAULT_WORKER_HANDSHAKE_SUPPORT,
+  decodeWorkerBridgePayload,
+  encodeWorkerBridgePayload,
+  RuntimeWorkerServer,
+} from '@safescript/worker';
 
+import { createSafeScript, defineContract, type ContractType } from './index.js';
 import { DEFAULT_PROCESS_WORKER_HELLO, ProcessRuntimeBridge, type ProcessWorkerTransport } from './process-bridge.js';
 
 const digest = '0'.repeat(64);
+const gatewayInputType: ContractType<{ readonly value: bigint }> = {
+  id: ids.type('type:test.process-gateway.input'),
+  schema: { kind: 'record', fields: [{ name: 'value', schema: { kind: 'int64' } }] },
+};
+const gatewayOutputType: ContractType<string> = {
+  id: ids.type('type:test.process-gateway.output'),
+  schema: { kind: 'string' },
+};
+const gatewayErrorType: ContractType<string> = {
+  id: ids.type('type:test.process-gateway.error'),
+  schema: { kind: 'string' },
+};
+const gatewayEffect = ids.effect('effect:test.process-gateway.read');
+const gatewayCapability = ids.capability('capability:test.process-gateway.read');
+const gatewayOperationId = ids.operation('operation:test.process-gateway.read');
+const gatewaySlotId = ids.slot('slot:test.process-gateway.main');
+const gatewayContract = defineContract({
+  id: ids.contract('contract:test.process-gateway'),
+  version: { major: 1, minor: 0, patch: 0 },
+  operations: {
+    read: {
+      id: gatewayOperationId,
+      input: gatewayInputType,
+      output: gatewayOutputType,
+      error: gatewayErrorType,
+      effect: gatewayEffect,
+      capability: gatewayCapability,
+      effectCost: 1,
+      idempotency: 'none',
+    },
+  },
+  slots: {
+    main: {
+      id: gatewaySlotId,
+      input: gatewayInputType,
+      output: gatewayOutputType,
+      languageVersion: { major: 1, minor: 1 },
+      effects: [gatewayEffect],
+      capabilities: [gatewayCapability],
+      compileLimits: { sourceBytes: 1_000 },
+      executionLimits: { fuel: 1_000, hostCalls: 1 },
+    },
+  },
+});
+type GatewayContext = Readonly<{ actor: string }>;
+type GatewayOperations = typeof gatewayContract.operations;
+type GatewaySlots = typeof gatewayContract.slots;
+
+function gatewayAction(request: Parameters<RuntimeBridge['execute']>[0]): ActionRequest {
+  return {
+    abiVersion: { major: 2, minor: 0 },
+    contractId: gatewayContract.id,
+    requiredContractVersion: gatewayContract.version,
+    irDigest: hash('ir', Uint8Array.of(1)) as unknown as IrDigest,
+    invocationId: request.invocationId,
+    requestId: ids.request(request.invocationId, 0),
+    slotId: gatewaySlotId,
+    operationId: gatewayOperationId,
+    effectId: gatewayEffect,
+    capabilityId: gatewayCapability,
+    actionSiteId: derivedActionSiteId(Uint8Array.of(1)),
+    source: { module: ids.module('module:test.process-gateway'), start: 0, end: 1 },
+    input: request.input,
+  };
+}
 const checkRequest = {
   abiVersion: { major: 2, minor: 0 },
   languageVersion: { major: 1, minor: 1 },
@@ -121,6 +199,16 @@ class FakeBridge implements RuntimeBridge {
   }
 }
 
+class GatewayBridge extends FakeBridge {
+  readonly outcomes: Awaited<ReturnType<RuntimeBridgeHost['handleAction']>>[] = [];
+
+  override async execute(request: Parameters<RuntimeBridge['execute']>[0], host: RuntimeBridgeHost) {
+    this.calls.push(`execute:${request.invocationId}`);
+    this.outcomes.push(await host.handleAction(gatewayAction(request)));
+    return { status: 'bridge_error' as const, error: { code: 'adapter_failure' as const, phase: 'execute' as const } };
+  }
+}
+
 function decodeFrame(frame: Uint8Array): WorkerProtocolEnvelope {
   const decodedFrame = decodeWorkerProtocolFrame(frame);
   if (!decodedFrame.ok) throw new Error(decodedFrame.failure.code);
@@ -201,6 +289,178 @@ class ScriptedTransport implements ProcessWorkerTransport {
 }
 
 describe('process RuntimeBridge state machine', () => {
+  it('routes a worker action through SDK hooks without exposing host-local diagnostics to the worker', async () => {
+    const workerBridge = new GatewayBridge();
+    const { process } = connectedPair(workerBridge);
+    const order: string[] = [];
+    let handlerCalls = 0;
+    const invocationId = ids.invocation('invocation:22222222222222222222222222222222');
+    const safe = createSafeScript<GatewayContext, GatewayOperations, GatewaySlots>({
+      contract: gatewayContract,
+      bridge: process,
+      handlers: {
+        read: () => {
+          handlerCalls++;
+          return { tag: 'ok', value: 'handled' };
+        },
+      },
+      hooks: {
+        beforeAction: ({ input, context }) => {
+          order.push(`before:${input.value}:${context.actor}`);
+          return { status: 'stop', error: 'denied' };
+        },
+        afterAction: ({ outcome }) => {
+          order.push(`after:${outcome.result.tag}`);
+          throw new Error('SECRET_AFTER_ACTION');
+        },
+      },
+    });
+
+    const result = await safe.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 7n },
+      context: { actor: 'sam' },
+      invocationId,
+    });
+
+    expect(handlerCalls).toBe(0);
+    expect(order).toEqual(['before:7:sam', 'after:completed']);
+    expect(workerBridge.outcomes).toHaveLength(1);
+    const outcome = workerBridge.outcomes[0];
+    expect(outcome?.result.tag).toBe('completed');
+    if (outcome?.result.tag !== 'completed') throw new Error('expected completed declared error');
+    expect(
+      decodeCanonical(
+        resultSchema(gatewayOutputType.schema, gatewayErrorType.schema),
+        Uint8Array.from(outcome.result.value),
+      ),
+    ).toEqual({ ok: true, value: { tag: 'error', value: 'denied' } });
+    expect(result).toMatchObject({
+      status: 'bridge_error',
+      hookDiagnostics: [{ code: 'hook_fault', point: 'after_action', invocationId }],
+    });
+    expect(JSON.stringify(workerBridge.outcomes)).not.toContain('SECRET_AFTER_ACTION');
+    expect(await safe.close()).toEqual({ status: 'closed' });
+  });
+
+  it('dispatches a worker action once and preserves unknown effect state for a throwing handler', async () => {
+    const workerBridge = new GatewayBridge();
+    const { process } = connectedPair(workerBridge);
+    const observed: string[] = [];
+    let handlerCalls = 0;
+    const safe = createSafeScript<GatewayContext, GatewayOperations, GatewaySlots>({
+      contract: gatewayContract,
+      bridge: process,
+      handlers: {
+        read: () => {
+          handlerCalls++;
+          throw new Error('SECRET_HANDLER_FAILURE');
+        },
+      },
+      hooks: {
+        beforeAction: () => {
+          observed.push('before');
+          return { status: 'continue' } as const;
+        },
+        afterAction: ({ outcome }) => {
+          observed.push(
+            outcome.result.tag === 'failed'
+              ? `after:${outcome.result.value.failure.code}:${outcome.result.value.effectState}`
+              : `after:${outcome.result.tag}`,
+          );
+        },
+      },
+    });
+
+    await safe.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 8n },
+      context: { actor: 'sam' },
+      invocationId: ids.invocation('invocation:33333333333333333333333333333333'),
+    });
+
+    expect(handlerCalls).toBe(1);
+    expect(observed).toEqual(['before', 'after:handler_fault:unknown']);
+    expect(workerBridge.outcomes).toMatchObject([
+      { result: { tag: 'failed', value: { effectState: 'unknown', failure: { code: 'handler_fault' } } } },
+    ]);
+    expect(JSON.stringify(workerBridge.outcomes)).not.toContain('SECRET_HANDLER_FAILURE');
+    expect(await safe.close()).toEqual({ status: 'closed' });
+  });
+
+  it('keeps a correlated but invalid worker action away from SDK hooks and handlers', async () => {
+    const transport = new ScriptedTransport();
+    const process = new ProcessRuntimeBridge({ transport });
+    let hookCalls = 0;
+    let handlerCalls = 0;
+    const invocationId = ids.invocation('invocation:44444444444444444444444444444444');
+    const safe = createSafeScript<GatewayContext, GatewayOperations, GatewaySlots>({
+      contract: gatewayContract,
+      bridge: process,
+      handlers: {
+        read: () => {
+          handlerCalls++;
+          return { tag: 'ok', value: 'handled' };
+        },
+      },
+      hooks: {
+        beforeAction: () => {
+          hookCalls++;
+          return { status: 'continue' } as const;
+        },
+        afterAction: () => {
+          hookCalls++;
+        },
+      },
+    });
+
+    const execution = safe.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 9n },
+      context: { actor: 'sam' },
+      invocationId,
+    });
+    const executeEnvelope = await transport.request('bridge.execute.request');
+    const executeRequest = decodeWorkerBridgePayload('bridge.execute.request', executeEnvelope.payload);
+    if (!executeRequest.ok) throw new Error(executeRequest.failure.code);
+    const invalidAction = {
+      ...gatewayAction(executeRequest.value),
+      operationId: ids.operation('operation:test.process-gateway.missing'),
+    };
+    const actionPayload = encodeWorkerBridgePayload('action.request', {
+      executeId: executeEnvelope.id,
+      request: invalidAction,
+    });
+    if (!actionPayload.ok) throw new Error(actionPayload.failure.code);
+    transport.emit('action.request', null, actionPayload.value);
+
+    const actionOutcomeEnvelope = await transport.request('action.outcome');
+    const actionOutcome = decodeWorkerBridgePayload('action.outcome', actionOutcomeEnvelope.payload);
+    expect(actionOutcome).toMatchObject({
+      ok: true,
+      value: {
+        outcome: {
+          result: { tag: 'failed', value: { effectState: 'not_performed', failure: { code: 'gateway_fault' } } },
+        },
+      },
+    });
+    const executionPayload = encodeWorkerBridgePayload('bridge.execute.result', {
+      status: 'bridge_error',
+      error: { code: 'adapter_failure', phase: 'execute' },
+    });
+    if (!executionPayload.ok) throw new Error(executionPayload.failure.code);
+    transport.emit('bridge.execute.result', executeEnvelope.id, executionPayload.value);
+
+    expect(await execution).toMatchObject({ status: 'bridge_error' });
+    expect(hookCalls).toBe(0);
+    expect(handlerCalls).toBe(0);
+    transport.close();
+    expect(await safe.close()).toMatchObject({ status: 'bridge_error' });
+  });
+
   it('correlates every operation and routes worker actions only to the owning execute host', async () => {
     const fake = new FakeBridge();
     const { process } = connectedPair(fake);

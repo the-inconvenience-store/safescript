@@ -57,7 +57,7 @@ The canonical fact that an invocation has proposed one typed host operation. It 
 _Avoid_: Command execution, permission grant
 
 **Action outcome**:
-The terminal resolution of an action request as a completed declared result, a current-policy rejection, or a host failure with explicit effect state.
+The terminal ABI 2.0 resolution of an action request as a completed declared result or a host failure with explicit effect state. A host hook that stops an action supplies the operation's declared error rather than a protocol-level policy rejection.
 _Avoid_: Host response, success flag
 
 **Effect state**:
