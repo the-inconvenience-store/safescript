@@ -14,7 +14,6 @@ export { SdkConfigurationError } from './types.js';
 export type {
   AbortSignal,
   ActionContext,
-  AuthorisationDecision,
   CheckRequest,
   CreateSafeScriptOptions,
   ExecuteRequest,
@@ -39,7 +38,6 @@ export type {
   InstantValue,
   InvocationId,
   ModuleId,
-  PolicyError,
   Result,
   RuntimeBridge,
   Schema,

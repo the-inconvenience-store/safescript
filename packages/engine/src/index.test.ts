@@ -147,6 +147,7 @@ const operation = ids.operation('operation:tasks.create');
 const slot = ids.slot('slot:deal.updated');
 const fingerprint = (value: number) => hash('contract', Uint8Array.of(value));
 const registry: ContractRegistry = {
+  abiVersion: { major: 2, minor: 0 },
   id: ids.contract('contract:crm'),
   version: { major: 1, minor: 0, patch: 0 },
   digest: fingerprint(20),
@@ -189,7 +190,7 @@ const registry: ContractRegistry = {
 };
 const moduleId = ids.module('module:crm/handler');
 const checkRequest = {
-  abiVersion: { major: 1, minor: 0 },
+  abiVersion: { major: 2, minor: 0 },
   languageVersion: { major: 1, minor: 0 },
   registry,
   slotId: slot,
@@ -220,7 +221,7 @@ function executeRequest(
   limits = STANDARD_EXECUTION_LIMITS,
 ): ExecuteRequest {
   return {
-    abiVersion: { major: 1, minor: 0 },
+    abiVersion: { major: 2, minor: 0 },
     registry,
     slotId: slot,
     invocationId: ids.invocation(`invocation:${crypto.randomUUID().replaceAll('-', '')}`),
@@ -273,7 +274,7 @@ describe('direct RuntimeBridge walking skeleton', () => {
             value: { relatedDealId: 'deal-1', title: 'Review Acme', workspaceId: 'workspace-1' },
           });
           return {
-            abiVersion: { major: 1, minor: 0 },
+            abiVersion: { major: 2, minor: 0 },
             requestId: request.requestId,
             result: {
               tag: 'completed',
@@ -359,7 +360,7 @@ describe('direct RuntimeBridge walking skeleton', () => {
         expect(request.operationId).toBe(operation);
         expect(request.idempotencyKey).toMatch(/^[0-9a-f]{64}$/);
         return {
-          abiVersion: { major: 1, minor: 0 },
+          abiVersion: { major: 2, minor: 0 },
           requestId: request.requestId,
           result: {
             tag: 'completed',
@@ -383,7 +384,7 @@ describe('direct RuntimeBridge walking skeleton', () => {
     }
   });
 
-  it('takes no-action paths and maps policy rejection into the typed result', async () => {
+  it('takes no-action paths and fails closed on a legacy policy rejection', async () => {
     const bridge = createDirectRuntimeBridge();
     let calls = 0;
     const below = await bridge.execute(executeRequest({ kind: 'source', source: checkRequest }, event('open', 1n)), {
@@ -400,18 +401,15 @@ describe('direct RuntimeBridge walking skeleton', () => {
     });
     expect([below.status, alreadyWon.status, calls]).toEqual(['completed', 'completed', 0]);
     const rejected = await bridge.execute(executeRequest({ kind: 'source', source: checkRequest }), {
-      handleAction: async (request) => ({
-        abiVersion: { major: 1, minor: 0 },
-        requestId: request.requestId,
-        result: { tag: 'rejected', value: { code: 'denied', detail: 'safe detail' } },
-      }),
+      handleAction: async (request) =>
+        ({
+          abiVersion: { major: 1, minor: 0 },
+          requestId: request.requestId,
+          result: { tag: 'rejected', value: { code: 'denied', detail: 'safe detail' } },
+        }) as never,
     });
-    expect(rejected.status).toBe('completed');
-    if (rejected.status === 'completed')
-      expect(decodeCanonicalResult(rejected.output)).toEqual({
-        tag: 'error',
-        value: { tag: 'policy', value: { code: 'denied' } },
-      });
+    expect(rejected.status).toBe('failed');
+    if (rejected.status === 'failed') expect(rejected.error.code).toBe('action_outcome_invalid');
   });
 
   it('fails closed before dispatch for source, artifact, and resource violations', async () => {
@@ -438,6 +436,15 @@ describe('direct RuntimeBridge walking skeleton', () => {
     const artifactText = decodeCanonical({ kind: 'string' }, Uint8Array.from(checked.artifact));
     if (!artifactText.ok || typeof artifactText.value !== 'string')
       throw new Error('artifact envelope is not canonical');
+    const legacyAbi = encodeCanonical({ kind: 'string' }, artifactText.value.replace('"abi":[2,0]', '"abi":[1,0]'));
+    if (!legacyAbi.ok) throw new Error('could not encode legacy artifact');
+    const legacyResult = await bridge.execute(executeRequest({ kind: 'artifact', bytes: [...legacyAbi.value] }), {
+      handleAction: async () => {
+        throw new Error('unreachable');
+      },
+    });
+    expect(legacyResult.status).toBe('not_started');
+    if (legacyResult.status === 'not_started') expect(legacyResult.error?.code).toBe('artifact_verification_failed');
     const invalidCfg = encodeCanonical({ kind: 'string' }, artifactText.value.replace('b1:if-true', 'b999:missing'));
     if (!invalidCfg.ok) throw new Error('could not encode tampered artifact');
     expect(
@@ -473,7 +480,7 @@ describe('direct RuntimeBridge walking skeleton', () => {
       handleAction: async (request) => {
         malformedCalls++;
         return {
-          abiVersion: { major: 1, minor: 0 },
+          abiVersion: { major: 2, minor: 0 },
           requestId: request.requestId,
           result: { tag: 'completed', value: [0] },
         };
@@ -500,7 +507,7 @@ describe('direct RuntimeBridge walking skeleton', () => {
             dispatched = request;
             release = () =>
               resolve({
-                abiVersion: { major: 1, minor: 0 },
+                abiVersion: { major: 2, minor: 0 },
                 requestId: request.requestId,
                 result: { tag: 'failed', value: { effectState: 'unknown', failure: { code: 'cancelled' } } },
               });
@@ -508,7 +515,7 @@ describe('direct RuntimeBridge walking skeleton', () => {
       },
     );
     while (!dispatched) await Promise.resolve();
-    expect(await bridge.cancel({ abiVersion: { major: 1, minor: 0 }, invocationId })).toEqual({ status: 'accepted' });
+    expect(await bridge.cancel({ abiVersion: { major: 2, minor: 0 }, invocationId })).toEqual({ status: 'accepted' });
     const cancelled = await pending;
     expect(cancelled.status).toBe('cancelled');
     if (cancelled.status === 'cancelled') {
@@ -981,7 +988,7 @@ export async function onDealUpdated(`,
           return new Promise<ActionOutcome>((resolve) => {
             releases.push((task) =>
               resolve({
-                abiVersion: { major: 1, minor: 0 },
+                abiVersion: { major: 2, minor: 0 },
                 requestId: action.requestId,
                 result: {
                   tag: 'completed',
@@ -1196,7 +1203,9 @@ export async function onDealUpdated(`,
 
   it('rejects invalid request envelopes and compile ceilings before parsing', async () => {
     const bridge = createDirectRuntimeBridge();
-    expect((await bridge.check({ ...checkRequest, abiVersion: { major: 2, minor: 0 } })).status).toBe('bridge_error');
+    expect((await bridge.check({ ...checkRequest, abiVersion: { major: 1, minor: 0 } as never })).status).toBe(
+      'bridge_error',
+    );
     expect(
       (
         await bridge.check({
@@ -1309,7 +1318,7 @@ describe('inspection and bridge lifecycle', () => {
     expect(
       (
         await bridge.cancel({
-          abiVersion: { major: 1, minor: 0 },
+          abiVersion: { major: 2, minor: 0 },
           invocationId: ids.invocation(`invocation:${'c'.repeat(32)}`),
         })
       ).status,
@@ -1319,8 +1328,10 @@ describe('inspection and bridge lifecycle', () => {
   it('reports unsupported and inactive cancellation requests', async () => {
     const bridge = createDirectRuntimeBridge();
     const invocationId = ids.invocation(`invocation:${'a'.repeat(32)}`);
-    expect((await bridge.cancel({ abiVersion: { major: 2, minor: 0 }, invocationId })).status).toBe('bridge_error');
-    expect(await bridge.cancel({ abiVersion: { major: 1, minor: 0 }, invocationId })).toEqual({ status: 'not_active' });
+    expect((await bridge.cancel({ abiVersion: { major: 1, minor: 0 } as never, invocationId })).status).toBe(
+      'bridge_error',
+    );
+    expect(await bridge.cancel({ abiVersion: { major: 2, minor: 0 }, invocationId })).toEqual({ status: 'not_active' });
   });
 });
 
@@ -1330,7 +1341,10 @@ describe('execution validation, limits, and host outcomes', () => {
     expect(
       (
         await bridge.execute(
-          { ...executeRequest({ kind: 'source', source: checkRequest }), abiVersion: { major: 2, minor: 0 } },
+          {
+            ...executeRequest({ kind: 'source', source: checkRequest }),
+            abiVersion: { major: 1, minor: 0 } as never,
+          },
           unreachableHost,
         )
       ).status,
@@ -1371,7 +1385,7 @@ describe('execution validation, limits, and host outcomes', () => {
           new Promise<ActionOutcome>((resolve) => {
             release = () =>
               resolve({
-                abiVersion: { major: 1, minor: 0 },
+                abiVersion: { major: 2, minor: 0 },
                 requestId: ids.request(invocationId, 0),
                 result: { tag: 'failed', value: { effectState: 'unknown', failure: { code: 'cancelled' } } },
               });
@@ -1384,7 +1398,7 @@ describe('execution validation, limits, and host outcomes', () => {
       unreachableHost,
     );
     expect(duplicate.status).toBe('not_started');
-    await bridge.cancel({ abiVersion: { major: 1, minor: 0 }, invocationId });
+    await bridge.cancel({ abiVersion: { major: 2, minor: 0 }, invocationId });
     release?.();
     await pending;
   });
@@ -1394,7 +1408,7 @@ describe('execution validation, limits, and host outcomes', () => {
     [
       'mismatched request',
       async () => ({
-        abiVersion: { major: 1, minor: 0 } as const,
+        abiVersion: { major: 2, minor: 0 } as const,
         requestId: ids.request(ids.invocation(`invocation:${'f'.repeat(32)}`), 0),
         result: {
           tag: 'failed' as const,
@@ -1406,7 +1420,7 @@ describe('execution validation, limits, and host outcomes', () => {
     [
       'explicit failure',
       async (request: ActionRequest) => ({
-        abiVersion: { major: 1, minor: 0 } as const,
+        abiVersion: { major: 2, minor: 0 } as const,
         requestId: request.requestId,
         result: {
           tag: 'failed' as const,
@@ -1446,11 +1460,3 @@ describe('execution validation, limits, and host outcomes', () => {
     }
   });
 });
-
-function decodeCanonicalResult(bytes: readonly number[]) {
-  const result = decodeCanonical(resultSchema({ kind: 'unit' }, ref(typeIds.taskError)), Uint8Array.from(bytes), {
-    registry: registry.schemas,
-  });
-  if (!result.ok) throw new Error(result.failure.code);
-  return result.value;
-}

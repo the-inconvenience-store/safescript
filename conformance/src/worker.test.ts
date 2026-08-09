@@ -51,7 +51,7 @@ const hello: WorkerProtocolSessionHello = Object.freeze({
   required_features: Object.freeze([]),
   optional_features: Object.freeze([]),
   versions: Object.freeze({
-    abi: Object.freeze([Object.freeze({ major: 1n, minor: 0n })]),
+    abi: Object.freeze([Object.freeze({ major: 2n, minor: 0n })]),
     language: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
     ir: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
     diagnostic_catalog: Object.freeze([Object.freeze({ major: 1n, minor: 0n, patch: 0n })]),
@@ -69,7 +69,7 @@ function encode(schema: Schema, value: unknown): readonly number[] {
 
 function executionRequest(reference: ReferenceIntegration, digit: string): ExecuteRequest {
   return {
-    abiVersion: { major: 1, minor: 0 },
+    abiVersion: { major: 2, minor: 0 },
     registry: referenceRegistry,
     slotId: referenceTypes.slotId,
     invocationId: ids.invocation(`invocation:${digit.repeat(32)}`),
@@ -89,7 +89,7 @@ function completedAction(request: ActionRequest): ActionOutcome {
       ? '{"ids":["sam","alex"],"next":"page-2"}'
       : String(request.operationId);
   return {
-    abiVersion: { major: 1, minor: 0 },
+    abiVersion: { major: 2, minor: 0 },
     requestId: request.requestId,
     result: {
       tag: 'completed',

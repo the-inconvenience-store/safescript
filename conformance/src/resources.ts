@@ -149,7 +149,7 @@ export async function measureV1ReferenceResourceLedgers(
     try {
       const result = await bridge.execute(
         {
-          abiVersion: { major: 1, minor: 0 },
+          abiVersion: { major: 2, minor: 0 },
           registry: referenceRegistry,
           slotId: referenceTypes.slotId,
           invocationId: ids.invocation(`invocation:${String(index + 1).repeat(32)}`),
@@ -168,7 +168,7 @@ export async function measureV1ReferenceResourceLedgers(
                 ? '{"ids":["sam","alex"],"next":"page-2"}'
                 : String(request.operationId);
             return {
-              abiVersion: { major: 1, minor: 0 },
+              abiVersion: { major: 2, minor: 0 },
               requestId: request.requestId,
               result: {
                 tag: 'completed',

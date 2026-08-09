@@ -95,7 +95,7 @@ describe('SafeScript CLI', () => {
     const exit = await runCli(['check', '--contract', 'contract.json'], memory.io);
 
     const contract = directContract();
-    const safe = createSafeScript({ contract, handlers: {}, authorise: () => ({ status: 'allowed' }) });
+    const safe = createSafeScript({ contract, handlers: {} });
     const direct = await safe.check({
       slot: 'main',
       source: {
@@ -152,7 +152,7 @@ describe('SafeScript CLI', () => {
     expect(cliExecution).toMatchObject({ status: 'not_started' });
 
     const contract = directContract();
-    const safe = createSafeScript({ contract, handlers: {}, authorise: () => ({ status: 'allowed' }) });
+    const safe = createSafeScript({ contract, handlers: {} });
     const directExecution = await safe.execute({
       slot: 'main',
       program: {

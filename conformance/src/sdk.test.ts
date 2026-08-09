@@ -58,7 +58,6 @@ const contract = defineContract({
       capability,
       effectCost: 1,
       idempotency: 'required' as const,
-      resourceScope: (input: Input) => ({ value: String(input.value) }),
     },
   },
   slots: {
@@ -90,7 +89,7 @@ const usage = Object.freeze({
 });
 
 describe('public SDK conformance', () => {
-  it('encodes requests, reauthorises, dispatches a typed action, and decodes output through an injected bridge', async () => {
+  it('encodes requests, dispatches a typed action, and decodes output through an injected bridge', async () => {
     let bridgeRequestInput: readonly number[] = [];
     let observedAction: ActionRequest | undefined;
     const facts: ExecutionFacts = {
@@ -123,7 +122,7 @@ describe('public SDK conformance', () => {
         });
         if (!key.ok) throw new Error(key.failure.code);
         const action: ActionRequest = {
-          abiVersion: { major: 1, minor: 0 },
+          abiVersion: { major: 2, minor: 0 },
           contractId: contract.id,
           requiredContractVersion: contract.version,
           irDigest,
@@ -162,10 +161,6 @@ describe('public SDK conformance', () => {
       contract,
       bridge,
       createInvocationId: () => invocationId,
-      authorise: (context) => {
-        events.push(`authorise:${context.resourceScope.value}`);
-        return { status: 'allowed' };
-      },
       handlers: {
         read: (input, context) => {
           events.push(`handle:${context.context.tenant}:${input.value}`);
@@ -185,7 +180,7 @@ describe('public SDK conformance', () => {
     });
     expect(result.status).toBe('completed');
     if (result.status === 'completed') expect(result.output).toBe('done');
-    expect(events).toEqual(['authorise:7', 'handle:acme:7']);
+    expect(events).toEqual(['handle:acme:7']);
     expect(observedAction?.invocationId).toBe(invocationId);
     const encodedInput = encodeCanonical(inputType.schema, { value: 7n });
     expect(encodedInput.ok).toBe(true);

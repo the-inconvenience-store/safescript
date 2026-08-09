@@ -130,6 +130,7 @@ const capabilities = operationDefinitions.map((operation, index) => ({
 const slotId = ids.slot('slot:reference.run');
 
 export const referenceRegistry: ContractRegistry = {
+  abiVersion: { major: 2, minor: 0 },
   id: ids.contract('contract:reference.integrations'),
   version: { major: 1, minor: 1, patch: 0 },
   digest: fingerprint(20),
@@ -306,7 +307,7 @@ export const referenceInput = Object.freeze({
 
 export function referenceCheckRequest(reference: ReferenceIntegration) {
   return {
-    abiVersion: { major: 1, minor: 0 } as const,
+    abiVersion: { major: 2, minor: 0 } as const,
     languageVersion: { major: 1, minor: 1 } as const,
     registry: referenceRegistry,
     slotId,

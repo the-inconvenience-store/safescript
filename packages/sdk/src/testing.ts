@@ -82,13 +82,6 @@ export function createScriptedHost<O extends Operations, S extends Slots>(
         mismatches.push(mismatch(`actions[${index - 1}].input`, script.input, action.input));
         return fail();
       }
-      if (script.authorisation?.status === 'rejected') {
-        return freeze({
-          abiVersion: ABI_VERSION,
-          requestId: action.requestId,
-          result: { tag: 'rejected', value: script.authorisation.error },
-        });
-      }
       if ('status' in script.outcome && script.outcome.status === 'failed') {
         return freeze({
           abiVersion: ABI_VERSION,

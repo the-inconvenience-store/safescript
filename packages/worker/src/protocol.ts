@@ -45,6 +45,10 @@ const version = record([
   { name: 'major', schema: uint() },
   { name: 'minor', schema: uint() },
 ]);
+const actionAbiVersion = record([
+  { name: 'major', schema: { kind: 'uint', minimum: 2n, maximum: 2n } },
+  { name: 'minor', schema: { kind: 'uint', minimum: 0n, maximum: 0n } },
+]);
 const semver = record([
   { name: 'major', schema: uint() },
   { name: 'minor', schema: uint() },
@@ -210,6 +214,7 @@ const slotDefinition = record([
   { name: 'fingerprint', schema: text(64) },
 ]);
 const registry = record([
+  { name: 'abi_version', schema: actionAbiVersion },
   { name: 'id', schema: text() },
   { name: 'version', schema: semver },
   { name: 'digest', schema: text(64) },
@@ -233,7 +238,7 @@ const sourceProgram = record([
   },
 ]);
 const checkRequest = record([
-  { name: 'abi_version', schema: version },
+  { name: 'abi_version', schema: actionAbiVersion },
   { name: 'language_version', schema: version },
   { name: 'registry', schema: registry },
   { name: 'slot_id', schema: text() },
@@ -251,7 +256,7 @@ const inspectRequest = record([
   { name: 'graph_limits', schema: graphLimits, optional: true },
 ]);
 const executeRequest = record([
-  { name: 'abi_version', schema: version },
+  { name: 'abi_version', schema: actionAbiVersion },
   { name: 'registry', schema: registry },
   { name: 'slot_id', schema: text() },
   { name: 'invocation_id', schema: text() },
@@ -276,7 +281,7 @@ const executeRequest = record([
   { name: 'trace', schema: oneOf(literal('none'), literal('summary'), literal('semantic')) },
 ]);
 const cancelRequest = record([
-  { name: 'abi_version', schema: version },
+  { name: 'abi_version', schema: actionAbiVersion },
   { name: 'invocation_id', schema: text() },
 ]);
 
@@ -351,7 +356,7 @@ const inspectResult = oneOf(
 );
 
 const actionRequest = record([
-  { name: 'abi_version', schema: version },
+  { name: 'abi_version', schema: actionAbiVersion },
   { name: 'contract_id', schema: text() },
   { name: 'required_contract_version', schema: semver },
   { name: 'ir_digest', schema: text(64) },
@@ -367,11 +372,22 @@ const actionRequest = record([
   { name: 'idempotency_key', schema: text(64), optional: true },
 ]);
 const hostFailure = record([
-  { name: 'code', schema: text() },
-  { name: 'detail', schema: text(), optional: true },
+  {
+    name: 'code',
+    schema: oneOf(
+      literal('cancelled'),
+      literal('gateway_fault'),
+      literal('handler_fault'),
+      literal('invalid_result'),
+      literal('timeout'),
+      literal('transport_lost'),
+      literal('unavailable'),
+    ),
+  },
+  { name: 'detail', schema: text(160), optional: true },
 ]);
 const actionOutcome = record([
-  { name: 'abi_version', schema: version },
+  { name: 'abi_version', schema: actionAbiVersion },
   { name: 'request_id', schema: text() },
   {
     name: 'result',
@@ -379,16 +395,6 @@ const actionOutcome = record([
       record([
         { name: 'tag', schema: literal('completed') },
         { name: 'value', schema: bytes() },
-      ]),
-      record([
-        { name: 'tag', schema: literal('rejected') },
-        {
-          name: 'value',
-          schema: record([
-            { name: 'code', schema: text() },
-            { name: 'detail', schema: text(), optional: true },
-          ]),
-        },
       ]),
       record([
         { name: 'tag', schema: literal('failed') },

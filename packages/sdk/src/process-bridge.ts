@@ -48,7 +48,7 @@ export const DEFAULT_PROCESS_WORKER_HELLO: WorkerProtocolSessionHello = Object.f
   required_features: Object.freeze([]),
   optional_features: Object.freeze([]),
   versions: Object.freeze({
-    abi: Object.freeze([Object.freeze({ major: 1n, minor: 0n })]),
+    abi: Object.freeze([Object.freeze({ major: 2n, minor: 0n })]),
     language: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
     ir: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
     diagnostic_catalog: Object.freeze([Object.freeze({ major: 1n, minor: 0n, patch: 0n })]),

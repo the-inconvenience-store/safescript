@@ -1,5 +1,5 @@
 /**
- * Current-authorisation and typed host-operation adapter for runtime action requests.
+ * Typed host-operation adapter for runtime action requests.
  * @packageDocumentation
  */
 import {
@@ -15,13 +15,12 @@ import {
   type ExecutionLimits,
   type InvocationId,
   type OperationId,
-  type PolicyError,
   type RuntimeBridgeHost,
 } from '@safescript/contracts';
 
 import type { Operations, Slot, Slots } from './contract.js';
 import { ABI_VERSION, freeze } from './shared.js';
-import type { AbortSignal, ActionContext, AuthorisationDecision, CreateSafeScriptOptions } from './types.js';
+import type { AbortSignal, ActionContext, CreateSafeScriptOptions } from './types.js';
 
 /**
  * Host-local association between an ergonomic handler key and its stable operation definition.
@@ -31,13 +30,13 @@ export type OperationEntry<O extends Operations> = {
   [K in keyof O]: Readonly<{ key: K; operation: O[K] }>;
 }[keyof O];
 
-class InvocationGateway<C, O extends Operations, S extends Slots, E extends PolicyError> {
+class InvocationGateway<C, O extends Operations, S extends Slots> {
   private sequence = 0;
   private attemptedCalls = 0;
   private activeCalls = 0;
 
   constructor(
-    private readonly options: CreateSafeScriptOptions<C, O, S, E>,
+    private readonly options: CreateSafeScriptOptions<C, O, S>,
     private readonly operationsById: ReadonlyMap<OperationId, OperationEntry<O>>,
     private readonly context: C,
     private readonly slot: Slot<unknown, unknown>,
@@ -52,22 +51,13 @@ class InvocationGateway<C, O extends Operations, S extends Slots, E extends Poli
     this.sequence++;
     const decoded = this.decodeInput(request, entry);
     if (!decoded.ok) return this.fail(request, 'not_performed', 'gateway_fault');
-    const scope = this.resourceScope(entry, decoded.value);
-    if (!scope) return this.fail(request, 'not_performed', 'gateway_fault');
-    const context = this.actionContext(request, scope);
+    const context = this.actionContext(request);
     if (this.signal.aborted) return this.fail(request, 'not_performed', 'cancelled');
-    // Consume the attempted-call budget and reserve concurrency before current
-    // authorisation. A denial is still an attempted effect and cannot be used to
-    // evade the invocation budget.
     if (this.attemptedCalls + 1 > this.limits.hostCalls || this.activeCalls + 1 > this.limits.concurrentActions)
       return this.fail(request, 'not_performed', 'gateway_fault');
     this.attemptedCalls++;
     this.activeCalls++;
     try {
-      const decision = await this.authorise(request, context);
-      if ('result' in decision) return decision;
-      if (decision.status === 'rejected') return this.rejection(request, decision);
-      if (decision.status !== 'allowed') return this.fail(request, 'not_performed', 'gateway_fault');
       if (this.signal.aborted) return this.fail(request, 'not_performed', 'cancelled');
       return this.invoke(request, entry, decoded.value, context);
     } finally {
@@ -132,65 +122,14 @@ class InvocationGateway<C, O extends Operations, S extends Slots, E extends Poli
     return decoded.ok ? { ok: true, value: decoded.value } : { ok: false };
   }
 
-  private resourceScope(entry: OperationEntry<O>, input: unknown): Readonly<Record<string, string>> | undefined {
-    try {
-      const resourceScope = entry.operation.resourceScope as unknown as (
-        value: unknown,
-      ) => Readonly<Record<string, string>>;
-      const extracted: unknown = resourceScope(input);
-      if (extracted === null || typeof extracted !== 'object' || Array.isArray(extracted)) return undefined;
-      const scope = freeze({ ...(extracted as Readonly<Record<string, unknown>>) });
-      return Object.values(scope).every((value) => typeof value === 'string')
-        ? (scope as Readonly<Record<string, string>>)
-        : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
-  private actionContext(request: ActionRequest, scope: Readonly<Record<string, string>>): ActionContext<C> {
+  private actionContext(request: ActionRequest): ActionContext<C> {
     return freeze({
       invocationId: request.invocationId,
       context: this.context,
       request,
-      resourceScope: scope,
       ...(request.idempotencyKey === undefined ? {} : { idempotencyKey: request.idempotencyKey }),
       signal: this.signal,
     });
-  }
-
-  private async authorise(
-    request: ActionRequest,
-    context: ActionContext<C>,
-  ): Promise<AuthorisationDecision<E> | ActionOutcome> {
-    try {
-      const decision: unknown = await this.options.authorise(context);
-      if (decision === null || typeof decision !== 'object')
-        return this.fail(request, 'not_performed', 'gateway_fault');
-      const candidate = decision as Partial<AuthorisationDecision<E>>;
-      if (candidate.status === 'allowed') return freeze({ status: 'allowed' });
-      if (candidate.status === 'rejected') return freeze({ status: 'rejected', error: candidate.error as E });
-      return this.fail(request, 'not_performed', 'gateway_fault');
-    } catch {
-      return this.fail(request, 'not_performed', 'gateway_fault');
-    }
-  }
-
-  private rejection(
-    request: ActionRequest,
-    decision: Extract<AuthorisationDecision<E>, { status: 'rejected' }>,
-  ): ActionOutcome {
-    return typeof decision.error?.code === 'string' &&
-      decision.error.code.length > 0 &&
-      decision.error.code.length <= 64 &&
-      (decision.error.detail === undefined ||
-        (typeof decision.error.detail === 'string' && decision.error.detail.length <= 160))
-      ? freeze({
-          abiVersion: ABI_VERSION,
-          requestId: request.requestId,
-          result: { tag: 'rejected', value: decision.error },
-        })
-      : this.fail(request, 'not_performed', 'gateway_fault');
   }
 
   private async invoke(
@@ -257,12 +196,11 @@ class InvocationGateway<C, O extends Operations, S extends Slots, E extends Poli
 /**
  * Creates the single live action adapter for one invocation.
  *
- * @remarks Every request is independently validated and authorised. The adapter consumes request sequence numbers
- * before policy evaluation so rejected requests cannot be replayed within the invocation.
+ * @remarks Every request is independently validated and consumes its sequence number before handler dispatch.
  * @internal
  */
-export function createGateway<C, O extends Operations, S extends Slots, E extends PolicyError = PolicyError>(
-  options: CreateSafeScriptOptions<C, O, S, E>,
+export function createGateway<C, O extends Operations, S extends Slots>(
+  options: CreateSafeScriptOptions<C, O, S>,
   operationsById: ReadonlyMap<OperationId, OperationEntry<O>>,
   context: C,
   slot: Slot<unknown, unknown>,

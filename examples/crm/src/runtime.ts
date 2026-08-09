@@ -60,14 +60,6 @@ export function createCrm(store = new CrmStore(), options: CrmOptions = {}) {
   const safe = createSafeScript({
     contract: crmContract,
     handlers,
-    authorise: ({ context, request, resourceScope }) =>
-      context.workspaceIds.includes(resourceScope.workspaceId ?? '') &&
-      !context.deniedOperations?.includes(request.operationId)
-        ? { status: 'allowed' as const }
-        : {
-            status: 'rejected' as const,
-            error: { code: 'crm_forbidden', detail: `actor ${context.actorId} cannot access this CRM resource` },
-          },
     createInvocationId: () => ids.invocation(`invocation:${(++invocation).toString(16).padStart(32, '0')}`),
   });
 

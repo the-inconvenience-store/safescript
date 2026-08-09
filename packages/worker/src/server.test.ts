@@ -25,7 +25,7 @@ import { RuntimeWorkerServer } from './server.js';
 
 const digest = '0'.repeat(64);
 const versions = Object.freeze({
-  abi: Object.freeze([Object.freeze({ major: 1n, minor: 0n })]),
+  abi: Object.freeze([Object.freeze({ major: 2n, minor: 0n })]),
   language: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
   ir: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
   diagnostic_catalog: Object.freeze([Object.freeze({ major: 1n, minor: 0n, patch: 0n })]),
@@ -47,9 +47,10 @@ const hello: WorkerProtocolSessionHello = Object.freeze({
 });
 
 const checkRequest = {
-  abiVersion: { major: 1, minor: 0 },
+  abiVersion: { major: 2, minor: 0 },
   languageVersion: { major: 1, minor: 1 },
   registry: {
+    abiVersion: { major: 2, minor: 0 },
     id: 'contract:test.worker',
     version: { major: 1, minor: 0, patch: 0 },
     digest,
@@ -66,7 +67,7 @@ const checkRequest = {
 } as unknown as CheckRequest;
 
 const actionRequest = {
-  abiVersion: { major: 1, minor: 0 },
+  abiVersion: { major: 2, minor: 0 },
   contractId: 'contract:test.worker',
   requiredContractVersion: { major: 1, minor: 0, patch: 0 },
   irDigest: digest,
@@ -135,6 +136,19 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 }
 
 describe('standalone runtime worker server', () => {
+  it('refuses to encode legacy v1 action outcomes', () => {
+    expect(
+      encodeWorkerBridgePayload('action.outcome', {
+        request: 1n,
+        outcome: {
+          abiVersion: { major: 1, minor: 0 },
+          requestId: actionRequest.requestId,
+          result: { tag: 'rejected', value: { code: 'denied' } },
+        },
+      } as never).ok,
+    ).toBe(false);
+  });
+
   it('round-trips bridge projections without leaking JavaScript numeric or byte representations', () => {
     const encoded = encodeWorkerBridgePayload('bridge.check.request', checkRequest);
     expect(encoded.ok).toBe(true);
@@ -172,7 +186,7 @@ describe('standalone runtime worker server', () => {
       views: ['semantic_graph'],
     });
     const executePayload = encodeWorkerBridgePayload('bridge.execute.request', {
-      abiVersion: { major: 1, minor: 0 },
+      abiVersion: { major: 2, minor: 0 },
       registry: checkRequest.registry,
       slotId: checkRequest.slotId,
       invocationId: 'invocation:test.worker' as never,
@@ -195,7 +209,7 @@ describe('standalone runtime worker server', () => {
     const outcome = encodeWorkerBridgePayload('action.outcome', {
       request: actionEnvelope.id,
       outcome: {
-        abiVersion: { major: 1, minor: 0 },
+        abiVersion: { major: 2, minor: 0 },
         requestId: actionRequest.requestId,
         result: { tag: 'completed', value: [0xf6] },
       },
@@ -205,7 +219,7 @@ describe('standalone runtime worker server', () => {
     await server.drain();
 
     const cancelPayload = encodeWorkerBridgePayload('bridge.cancel.request', {
-      abiVersion: { major: 1, minor: 0 },
+      abiVersion: { major: 2, minor: 0 },
       invocationId: 'invocation:test.worker' as never,
     });
     const closePayload = encodeWorkerBridgePayload('session.close.request', {});

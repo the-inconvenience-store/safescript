@@ -53,7 +53,7 @@ export const crmActionErrorType: ContractType<CrmActionError> = {
   schema: errorSchema,
 };
 
-/** Defines one SDK operation and its effect, capability, cost, and resource scope. */
+/** Defines one SDK operation and its effect, capability, and cost. */
 const defineCrmAction = (name: string, effectCost = 1) => ({
   id: ids.operation(`operation:${name}`),
   input: inputType,
@@ -63,7 +63,6 @@ const defineCrmAction = (name: string, effectCost = 1) => ({
   capability: ids.capability(`capability:${name}`),
   effectCost,
   idempotency: 'required' as const,
-  resourceScope: (input: CrmActionInput) => ({ workspaceId: input.workspaceId, entityId: input.entityId }),
 });
 
 /** These keys become the typed methods available under `ctx` in automation scripts. */

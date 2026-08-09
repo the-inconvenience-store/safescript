@@ -75,7 +75,7 @@ function executionRequest(
   digit = '1',
 ) {
   return {
-    abiVersion: { major: 1, minor: 0 } as const,
+    abiVersion: { major: 2, minor: 0 } as const,
     registry: referenceRegistry,
     slotId: referenceTypes.slotId,
     invocationId: invocation(digit),
@@ -99,7 +99,7 @@ function completedAction(
       ? '{"ids":["sam","alex"],"next":"page-2"}'
       : String(request.operationId);
   return {
-    abiVersion: { major: 1, minor: 0 },
+    abiVersion: { major: 2, minor: 0 },
     requestId: request.requestId,
     result: {
       tag: 'completed',
@@ -329,7 +329,7 @@ describe('runtime bridge conformance corpus', () => {
     const supported = {
       language: { major: 1, minor: 1 },
       ir: { major: 1, minor: 1 },
-      abi: { major: 1, minor: 0 },
+      abi: { major: 2, minor: 0 },
       contractId: referenceRegistry.id,
       contract: referenceRegistry.version,
     };
@@ -499,24 +499,24 @@ describe('runtime bridge conformance corpus', () => {
         }),
     });
     while (!release) await Promise.resolve();
-    expect(await bridge.cancel({ abiVersion: { major: 1, minor: 0 }, invocationId: request.invocationId })).toEqual({
+    expect(await bridge.cancel({ abiVersion: { major: 2, minor: 0 }, invocationId: request.invocationId })).toEqual({
       status: 'accepted',
     });
     release();
     const result = await execution;
     expect(result.status).toBe('cancelled');
-    expect(await bridge.cancel({ abiVersion: { major: 1, minor: 0 }, invocationId: request.invocationId })).toEqual({
+    expect(await bridge.cancel({ abiVersion: { major: 2, minor: 0 }, invocationId: request.invocationId })).toEqual({
       status: 'not_active',
     });
   });
 
-  it('resumes typed policy rejection but fails closed for host and malformed outcomes', async () => {
+  it('resumes a completed declared error but fails closed for host and malformed outcomes', async () => {
     const reference = walkingSkeletonReference;
     const request = executionRequest(reference, { kind: 'source', source: referenceCheckRequest(reference) }, '7');
     const actionSchema = resultSchema(ref(referenceTypes.actionOutput), ref(referenceTypes.actionError));
     const rejected = await factory().execute(request, {
       handleAction: async (action) => ({
-        abiVersion: { major: 1, minor: 0 },
+        abiVersion: { major: 2, minor: 0 },
         requestId: action.requestId,
         result: {
           tag: 'completed',
@@ -542,7 +542,7 @@ describe('runtime bridge conformance corpus', () => {
       { ...request, invocationId: invocation('8') },
       {
         handleAction: async (action) => ({
-          abiVersion: { major: 1, minor: 0 },
+          abiVersion: { major: 2, minor: 0 },
           requestId: action.requestId,
           result: { tag: 'failed', value: { effectState: 'unknown', failure: { code: 'unavailable' } } },
         }),
@@ -555,7 +555,7 @@ describe('runtime bridge conformance corpus', () => {
       { ...request, invocationId: invocation('9') },
       {
         handleAction: async (action) => ({
-          abiVersion: { major: 1, minor: 0 },
+          abiVersion: { major: 2, minor: 0 },
           requestId: action.requestId,
           result: { tag: 'completed', value: [0] },
         }),

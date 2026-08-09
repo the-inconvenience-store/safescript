@@ -4,13 +4,14 @@
  * @packageDocumentation
  */
 import {
+  ACTION_ABI_VERSION,
   decodeCanonical,
   deriveIdempotencyKey,
   encodeCanonical,
   diagnosticRepair,
   ids,
   languageProfile,
-  policyErrorValue,
+  isActionOutcome,
   resultSchema,
   type ActionOutcome,
   type ActionRequest,
@@ -56,7 +57,7 @@ import { verifyProgram, type IrTerminator } from './ir.js';
 import { structuredActions } from './structured-ir.js';
 import { deriveSemanticGraph } from './semantic-graph.js';
 
-const ABI_VERSION = Object.freeze({ major: 1, minor: 0 });
+const ABI_VERSION = ACTION_ABI_VERSION;
 const COMPILER = Object.freeze({
   version: Object.freeze({ major: 0, minor: 2, patch: 0 }),
   build: 'typed-ir-language-1-1',
@@ -161,6 +162,7 @@ function findType(registry: ContractRegistry, id: TypeId): Schema | undefined {
 }
 
 function validateRegistry(registry: ContractRegistry, slotId: CheckRequest['slotId']): SlotDefinition | string {
+  if (!sameVersion(registry.abiVersion, ABI_VERSION)) return 'contract registry action ABI is unsupported';
   const slot = registry.slots.find((candidate) => candidate.id === slotId);
   if (!slot) return 'unknown extension slot';
   if (!findType(registry, slot.input) || !findType(registry, slot.output)) return 'slot references an unknown schema';
@@ -333,51 +335,6 @@ function failedOutcome(
     requestId,
     result: Object.freeze({ tag: 'failed', value: Object.freeze({ effectState, failure: Object.freeze({ code }) }) }),
   });
-}
-
-function matchingOutcome(
-  value: unknown,
-  requestId: ActionOutcome['requestId'],
-  maxBytes: number,
-): value is ActionOutcome {
-  if (value === null || typeof value !== 'object') return false;
-  const outcome = value as Partial<ActionOutcome>;
-  if (
-    !outcome.abiVersion ||
-    !sameVersion(outcome.abiVersion, ABI_VERSION) ||
-    outcome.requestId !== requestId ||
-    !outcome.result
-  )
-    return false;
-  if (outcome.result.tag === 'completed')
-    return (
-      Array.isArray(outcome.result.value) &&
-      outcome.result.value.length <= maxBytes &&
-      isByteArray(outcome.result.value)
-    );
-  if (outcome.result.tag === 'rejected')
-    return (
-      typeof outcome.result.value?.code === 'string' &&
-      outcome.result.value.code.length > 0 &&
-      outcome.result.value.code.length <= 64 &&
-      (outcome.result.value.detail === undefined ||
-        (typeof outcome.result.value.detail === 'string' && outcome.result.value.detail.length <= 160))
-    );
-  if (outcome.result.tag !== 'failed') return false;
-  return (
-    (outcome.result.value?.effectState === 'not_performed' || outcome.result.value?.effectState === 'unknown') &&
-    [
-      'cancelled',
-      'timeout',
-      'unavailable',
-      'handler_fault',
-      'invalid_result',
-      'transport_lost',
-      'gateway_fault',
-    ].includes(outcome.result.value.failure?.code) &&
-    (outcome.result.value.failure?.detail === undefined ||
-      (typeof outcome.result.value.failure.detail === 'string' && outcome.result.value.failure.detail.length <= 160))
-  );
 }
 
 function emptyUsage(): MutableUsage {
@@ -717,7 +674,7 @@ class ActionDispatcher {
     operation: OperationDefinition,
     received: unknown,
   ): CanonicalValue {
-    if (!matchingOutcome(received, requestId, this.request.limits.maxBytes)) {
+    if (!isActionOutcome(received, requestId, this.request.limits.maxBytes)) {
       const outcome = failedOutcome(requestId, 'gateway_fault', 'unknown');
       this.records.push(Object.freeze({ phase: 'resolved', requestId, outcome }));
       throw new ExecutionFault('action_outcome_invalid');
@@ -726,26 +683,7 @@ class ActionDispatcher {
       this.records.push(Object.freeze({ phase: 'resolved', requestId, outcome: received }));
       throw new ExecutionFault(received.result.value.failure.code, received.result.value.effectState);
     }
-    if (received.result.tag === 'rejected') return this.policyRejection(requestId, operation, received);
     return this.completed(requestId, operation, received);
-  }
-
-  private policyRejection(
-    requestId: ActionOutcome['requestId'],
-    operation: OperationDefinition,
-    received: ActionOutcome,
-  ): CanonicalValue {
-    if (received.result.tag !== 'rejected') throw new ExecutionFault('invalid_ir', 'expected rejected outcome');
-    const error = policyErrorValue(schemaRef(operation.error), this.request.registry.schemas, received.result.value);
-    if (error === undefined) {
-      const outcome = failedOutcome(requestId, 'invalid_result', 'not_performed');
-      this.records.push(Object.freeze({ phase: 'resolved', requestId, outcome }));
-      throw new ExecutionFault('action_outcome_invalid', 'policy error does not match operation error schema');
-    }
-    const result = Object.freeze({ tag: 'error', value: error });
-    this.records.push(Object.freeze({ phase: 'resolved', requestId, outcome: received }));
-    this.meter.allocate(result);
-    return result;
   }
 
   private completed(

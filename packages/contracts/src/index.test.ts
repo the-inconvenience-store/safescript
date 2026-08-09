@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
+  ACTION_ABI_VERSION,
   COMPILER_DIAGNOSTIC_CODES,
   DIAGNOSTIC_CATALOG,
   DIAGNOSTIC_CATALOG_VERSION,
@@ -18,12 +19,43 @@ import {
   encodeCanonical,
   hash,
   ids,
+  isActionAbiVersion,
+  isActionOutcome,
+  isHookDiagnostics,
   optionSchema,
   resultSchema,
   type ContractFailureCode,
   type Schema,
   type TypeDefinition,
 } from './index.js';
+
+describe('action ABI 2.0 isolation', () => {
+  it('accepts only ABI 2.0 action outcomes and never translates v1 rejections', () => {
+    const requestId = ids.request(ids.invocation('invocation:0123456789abcdef0123456789abcdef'), 0);
+    expect(ACTION_ABI_VERSION).toEqual({ major: 2, minor: 0 });
+    expect(isActionAbiVersion(ACTION_ABI_VERSION)).toBe(true);
+    expect(isActionAbiVersion({ major: 1, minor: 0 })).toBe(false);
+    expect(
+      isActionOutcome({
+        abiVersion: ACTION_ABI_VERSION,
+        requestId,
+        result: { tag: 'completed', value: [0x82, 0x62, 0x6f, 0x6b, 0xf6] },
+      }),
+    ).toBe(true);
+    expect(
+      isActionOutcome({
+        abiVersion: { major: 1, minor: 0 },
+        requestId,
+        result: { tag: 'rejected', value: { code: 'denied' } },
+      }),
+    ).toBe(false);
+    expect(isHookDiagnostics([{ code: 'hook_fault', point: 'before_action', detail: 'safe' }])).toBe(true);
+    expect(isHookDiagnostics(Array.from({ length: 17 }, () => ({ code: 'hook_fault', point: 'before_action' })))).toBe(
+      false,
+    );
+    expect(isHookDiagnostics([{ code: 'hook_fault', point: 'before_action', detail: 'x'.repeat(161) }])).toBe(false);
+  });
+});
 
 const hex = (bytes: Uint8Array): string => Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 const encodedHex = (schema: Schema, value: unknown): string => {
@@ -208,14 +240,14 @@ describe('identities and compatibility', () => {
       {
         language: { major: 1, minor: 1 },
         ir: { major: 1, minor: 0 },
-        abi: { major: 1, minor: 0 },
+        abi: { major: 2, minor: 0 },
         contractId,
         contract: { major: 1, minor: 2, patch: 0 },
       },
       {
         language: { major: 1, minor: 2 },
         ir: { major: 2, minor: 0 },
-        abi: { major: 1, minor: 0 },
+        abi: { major: 2, minor: 0 },
         contractId,
         contract: { major: 1, minor: 1, patch: 0 },
       },
@@ -261,7 +293,7 @@ describe('stable failure catalog', () => {
     expect([...COMPILER_DIAGNOSTIC_CODES]).toEqual(
       [...COMPILER_DIAGNOSTIC_CODES].sort((left, right) => left.localeCompare(right)),
     );
-    expect(DIAGNOSTIC_CATALOG_VERSION).toEqual({ major: 1, minor: 0, patch: 0 });
+    expect(DIAGNOSTIC_CATALOG_VERSION).toEqual({ major: 1, minor: 1, patch: 0 });
     for (const entry of DIAGNOSTIC_CATALOG) {
       expect(Object.isFrozen(entry)).toBe(true);
       expect(Object.isFrozen(entry.fields)).toBe(true);

@@ -22,7 +22,6 @@ import {
   type InspectResult,
   type InvocationId,
   type OperationId,
-  type PolicyError,
   type RuntimeBridge,
   type RuntimeBridgeHost,
   type SourceProgram as BridgeSourceProgram,
@@ -53,8 +52,8 @@ function sourceProgram(source: SourceProgram): BridgeSourceProgram {
   });
 }
 
-function validateConfiguration<C, O extends Operations, S extends Slots, E extends PolicyError>(
-  options: CreateSafeScriptOptions<C, O, S, E>,
+function validateConfiguration<C, O extends Operations, S extends Slots>(
+  options: CreateSafeScriptOptions<C, O, S>,
 ): void {
   const operationEntries = Object.entries(options.contract.operations) as [keyof O, O[keyof O]][];
   const handlerKeys = Object.keys(options.handlers);
@@ -64,7 +63,6 @@ function validateConfiguration<C, O extends Operations, S extends Slots, E exten
     handlerKeys.some((key) => !(key in options.contract.operations))
   )
     throw new SdkConfigurationError('handlers must exactly match contract operations');
-  if (typeof options.authorise !== 'function') throw new SdkConfigurationError('authorise must be a function');
   try {
     completeLimits(STANDARD_COMPILE_LIMITS, options.defaultCompileLimits);
     completeLimits(STANDARD_EXECUTION_LIMITS, options.defaultExecutionLimits);
@@ -157,7 +155,7 @@ class RequestCodec<C, O extends Operations, S extends Slots> {
   }
 }
 
-class FacadeCoordinator<C, O extends Operations, S extends Slots, E extends PolicyError> {
+class FacadeCoordinator<C, O extends Operations, S extends Slots> {
   private readonly bridge: RuntimeBridge;
   private readonly createInvocationId: () => InvocationId;
   private readonly operationsById: ReadonlyMap<OperationId, OperationEntry<O>>;
@@ -168,7 +166,7 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots, E extends Poli
   private closing = false;
   private closePromise?: Promise<CloseResult>;
 
-  constructor(private readonly options: CreateSafeScriptOptions<C, O, S, E>) {
+  constructor(private readonly options: CreateSafeScriptOptions<C, O, S>) {
     const operationEntries = Object.entries(options.contract.operations) as [keyof O, O[keyof O]][];
     this.bridge = options.bridge ?? createDirectRuntimeBridge();
     this.createInvocationId =
@@ -390,14 +388,14 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots, E extends Poli
 }
 
 /**
- * Creates the host-facing SafeScript facade and binds current authorisation and operation handlers once.
+ * Creates the host-facing SafeScript facade and binds operation handlers once.
  *
  * @remarks The direct in-process bridge is used unless `options.bridge` is supplied. All asynchronous methods resolve
  * stable result unions; only invalid construction throws synchronously.
- * @throws SdkConfigurationError when handlers, authorisation, or default limits do not match the contract.
+ * @throws SdkConfigurationError when handlers or default limits do not match the contract.
  */
-export function createSafeScript<C, O extends Operations, S extends Slots, E extends PolicyError = PolicyError>(
-  options: CreateSafeScriptOptions<C, O, S, E>,
+export function createSafeScript<C, O extends Operations, S extends Slots>(
+  options: CreateSafeScriptOptions<C, O, S>,
 ): SafeScript<O, S, C> {
   validateConfiguration(options);
   const coordinator = new FacadeCoordinator(options);

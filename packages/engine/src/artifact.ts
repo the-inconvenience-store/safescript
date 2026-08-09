@@ -23,7 +23,7 @@ const ARTIFACT_SCHEMA: Schema = Object.freeze({ kind: 'string' });
 
 interface ArtifactRecord {
   readonly magic: 'SafeScript checked artifact';
-  readonly abi: readonly [1, 0];
+  readonly abi: readonly [2, 0];
   readonly language: readonly [number, number];
   readonly ir: readonly [1, 0 | 1];
   readonly compiler: string;
@@ -88,7 +88,7 @@ function isRecord(value: unknown): value is ArtifactRecord {
   return (
     record.magic === 'SafeScript checked artifact' &&
     Array.isArray(record.abi) &&
-    record.abi[0] === 1 &&
+    record.abi[0] === 2 &&
     record.abi[1] === 0 &&
     Array.isArray(record.language) &&
     record.language.length === 2 &&
@@ -129,7 +129,7 @@ export function createArtifact(
   const version = request.registry.version;
   const record: ArtifactRecord = {
     magic: 'SafeScript checked artifact',
-    abi: [1, 0],
+    abi: [2, 0],
     language: [request.languageVersion.major, request.languageVersion.minor],
     ir: program.program.version,
     compiler,

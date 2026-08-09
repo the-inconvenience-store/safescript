@@ -52,8 +52,6 @@ interface CliContractOperation {
   readonly capability: string;
   readonly effectCost: number;
   readonly idempotency: 'none' | 'required';
-  /** Maps an authorisation fact name to a dot-separated path in the decoded operation input. */
-  readonly resourceScope?: Readonly<Record<string, string>>;
 }
 
 interface CliContractSlot {
@@ -178,15 +176,6 @@ async function readInput(path: string, name: string, io: CliIo): Promise<unknown
   }
 }
 
-function atPath(input: unknown, path: string): unknown {
-  let value = input;
-  for (const segment of path.split('.')) {
-    if (typeof value !== 'object' || value === null || !(segment in value)) return undefined;
-    value = (value as JsonObject)[segment];
-  }
-  return value;
-}
-
 function asContract(value: unknown): CliContract {
   const input = object(value, 'contract');
   if (!Array.isArray(input.types)) throw new CliError('invalid_contract', 'contract.types must be an array');
@@ -212,21 +201,6 @@ function buildContract(input: CliContract) {
         input: type(operation.input),
         output: type(operation.output),
         error: type(operation.error),
-        resourceScope: (value: unknown): Readonly<Record<string, string>> =>
-          Object.fromEntries(
-            Object.entries(operation.resourceScope ?? {}).map(([key, path]) => {
-              const fact = atPath(value, path);
-              if (
-                typeof fact !== 'string' &&
-                typeof fact !== 'number' &&
-                typeof fact !== 'bigint' &&
-                typeof fact !== 'boolean'
-              ) {
-                throw new TypeError(`resource scope ${key} is not scalar`);
-              }
-              return [key, String(fact)];
-            }),
-          ),
       },
     ]),
   );
@@ -304,15 +278,6 @@ function createFacade(contract: ReturnType<typeof buildContract>, actionScripts:
   return createSafeScript({
     contract,
     handlers: handlers as never,
-    authorise: (context) => {
-      const script = actionScripts[actionIndex];
-      const scriptedOperation = script && (operations[String(script.operation)]?.id ?? script.operation);
-      if (script?.authorisation?.status === 'rejected' && context.request.operationId === scriptedOperation) {
-        actionIndex++;
-        return script.authorisation as never;
-      }
-      return { status: 'allowed' };
-    },
   });
 }
 

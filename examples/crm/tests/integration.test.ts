@@ -123,23 +123,6 @@ describe('CRM example integration', () => {
     expect(html).toContain('Acme Research');
   });
 
-  it('reauthorises at runtime and exposes a typed policy error without mutating the CRM', async () => {
-    const crm = example();
-    const result = await crm.run(automationAt(0), {
-      context: { actorId: 'outsider', workspaceIds: [] },
-    });
-    expect(result.status).toBe('completed');
-    expect(result.status === 'completed' && result.output).toEqual({
-      tag: 'error',
-      value: {
-        tag: 'policy',
-        value: { code: 'crm_forbidden', detail: 'actor outsider cannot access this CRM resource' },
-      },
-    });
-    expect(crm.store.effectCount()).toBe(0);
-    expect(crm.store.snapshot().deals['deal-100']?.stage).toBe('qualified');
-  });
-
   it('enforces a host-call limit between two real effects', async () => {
     const crm = example();
     const escalation = automationNamed('high-value-escalation');

@@ -22,9 +22,10 @@ import { DEFAULT_PROCESS_WORKER_HELLO, ProcessRuntimeBridge, type ProcessWorkerT
 
 const digest = '0'.repeat(64);
 const checkRequest = {
-  abiVersion: { major: 1, minor: 0 },
+  abiVersion: { major: 2, minor: 0 },
   languageVersion: { major: 1, minor: 1 },
   registry: {
+    abiVersion: { major: 2, minor: 0 },
     id: 'contract:test.process-bridge',
     version: { major: 1, minor: 0, patch: 0 },
     digest,
@@ -44,7 +45,7 @@ const checkRequest = {
 } as unknown as CheckRequest;
 
 const actionRequest = {
-  abiVersion: { major: 1, minor: 0 },
+  abiVersion: { major: 2, minor: 0 },
   contractId: 'contract:test.process-bridge',
   requiredContractVersion: { major: 1, minor: 0, patch: 0 },
   irDigest: digest,
@@ -212,7 +213,7 @@ describe('process RuntimeBridge state machine', () => {
     expect(
       await process.execute(
         {
-          abiVersion: { major: 1, minor: 0 },
+          abiVersion: { major: 2, minor: 0 },
           registry: checkRequest.registry,
           slotId: checkRequest.slotId,
           invocationId: actionRequest.invocationId,
@@ -234,7 +235,7 @@ describe('process RuntimeBridge state machine', () => {
       ),
     ).toMatchObject({ status: 'bridge_error' });
     expect(
-      await process.cancel({ abiVersion: { major: 1, minor: 0 }, invocationId: actionRequest.invocationId }),
+      await process.cancel({ abiVersion: { major: 2, minor: 0 }, invocationId: actionRequest.invocationId }),
     ).toEqual({ status: 'not_active' });
     expect(await process.close()).toEqual({ status: 'closed' });
     expect(hostCalls).toEqual([actionRequest.requestId]);

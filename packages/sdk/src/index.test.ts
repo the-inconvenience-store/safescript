@@ -66,7 +66,6 @@ const contract = defineContract({
       capability,
       effectCost: 1,
       idempotency: 'none',
-      resourceScope: (input: { readonly value: bigint }) => ({ value: String(input.value) }),
     },
   },
   slots: {
@@ -132,7 +131,7 @@ class FakeBridge implements RuntimeBridge {
 
 function action(request: BridgeExecuteRequest): ActionRequest {
   return {
-    abiVersion: { major: 1, minor: 0 },
+    abiVersion: { major: 2, minor: 0 },
     contractId: contract.id,
     requiredContractVersion: contract.version,
     irDigest: hash('ir', Uint8Array.of(1)) as unknown as IrDigest,
@@ -152,6 +151,8 @@ describe('defineContract', () => {
   it('derives one frozen registry, declarations, fingerprints, and codecs', () => {
     expect(Object.isFrozen(contract)).toBe(true);
     expect(Object.isFrozen(contract.registry)).toBe(true);
+    expect(contract.abiVersion).toEqual({ major: 2, minor: 0 });
+    expect(contract.registry.abiVersion).toEqual(contract.abiVersion);
     expect(contract.registry.digest).toBe(contract.fingerprint);
     expect(contract.declarations).toContain('export type TestInput');
     expect(contract.declarations).toContain('readonly test: Readonly<{ readonly read:');
@@ -173,7 +174,7 @@ describe('defineContract', () => {
     ).toThrow(ContractDefinitionError);
   });
 
-  it('rejects declarations with colliding generated type names and errors without a policy member', () => {
+  it('rejects colliding generated names while accepting arbitrary declared error schemas', () => {
     expect(() =>
       defineContract({
         id: ids.contract('contract:test.colliding'),
@@ -197,7 +198,7 @@ describe('defineContract', () => {
         slots: {},
       }),
     ).toThrow(ContractDefinitionError);
-    expect(() =>
+    expect(
       defineContract({
         id: ids.contract('contract:test.no-policy'),
         version: { major: 1, minor: 0, patch: 0 },
@@ -208,8 +209,8 @@ describe('defineContract', () => {
           },
         },
         slots: contract.slots,
-      }),
-    ).toThrow(ContractDefinitionError);
+      }).registry.operations[0]?.error,
+    ).toBe(ids.type('type:test.plain-error'));
   });
 
   it.each([
@@ -240,14 +241,6 @@ describe('defineContract', () => {
         defineContract({
           ...contract,
           operations: { read: { ...contract.operations.read, idempotency: 'sometimes' as 'none' } },
-        }),
-    ],
-    [
-      'missing resource scope',
-      () =>
-        defineContract({
-          ...contract,
-          operations: { read: { ...contract.operations.read, resourceScope: undefined as never } },
         }),
     ],
     [
@@ -330,19 +323,17 @@ describe('defineContract', () => {
 });
 
 describe('createSafeScript', () => {
-  it('validates configuration and runs current authorisation before one typed handler dispatch', async () => {
+  it('validates configuration and performs one typed handler dispatch', async () => {
     expect(() =>
       createSafeScript({
         contract,
         handlers: {} as never,
-        authorise: () => ({ status: 'allowed' }),
         bridge: new FakeBridge(),
       }),
     ).toThrow(SdkConfigurationError);
     const direct = createSafeScript({
       contract,
       handlers: { read: () => ({ tag: 'error', value: { tag: 'domain', value: 'unused' } }) as const },
-      authorise: () => ({ status: 'allowed' }),
     });
     expect(await direct.close()).toEqual({ status: 'closed' });
     const bridge = new FakeBridge();
@@ -368,14 +359,10 @@ describe('createSafeScript', () => {
       contract,
       bridge,
       handlers: {
-        read: async (input, context) => {
-          order.push(`handler:${context.resourceScope.value}`);
+        read: async (input) => {
+          order.push(`handler:${input.value}`);
           return { tag: 'ok', value: `value:${input.value}` };
         },
-      },
-      authorise: (context: { readonly resourceScope: Readonly<Record<string, string>> }) => {
-        order.push(`authorise:${context.resourceScope.value}`);
-        return { status: 'allowed' };
       },
       createInvocationId: () => invocationId,
     });
@@ -389,7 +376,7 @@ describe('createSafeScript', () => {
     expect(result.status === 'completed' && result.output).toBe('done');
     expect(result.status === 'completed' && result.facts.invocationId).toBe(invocationId);
     expect(result.status === 'completed' && result.facts.preparation).toEqual(facts.preparation);
-    expect(order).toEqual(['authorise:3', 'handler:3']);
+    expect(order).toEqual(['handler:3']);
     expect(bridge.actions[0]?.result.tag).toBe('completed');
   });
 
@@ -412,10 +399,6 @@ describe('createSafeScript', () => {
           throw new Error('secret');
         },
       },
-      authorise: () => {
-        productionCalls++;
-        return { status: 'allowed' };
-      },
     });
     await safe.execute({ slot: 'main', program: { kind: 'artifact', bytes: [] }, input: { value: 1n }, context: {} });
     expect(bridge.actions[0]?.result).toEqual({
@@ -431,7 +414,7 @@ describe('createSafeScript', () => {
       expect: { status: 'completed', output: 'done' },
     });
     expect(report.passed).toBe(true);
-    expect(productionCalls).toBe(2);
+    expect(productionCalls).toBe(1);
     expect(await safe.close()).toEqual({ status: 'closed' });
     expect(
       (
@@ -449,40 +432,8 @@ describe('createSafeScript', () => {
     );
   });
 
-  it('returns current policy rejection without dispatching the operation handler', async () => {
-    const bridge = new FakeBridge();
-    let handlers = 0;
-    bridge.executeResult = async (request, host) => {
-      bridge.actions.push(await host.handleAction(action(request)));
-      const output = encodeCanonical({ kind: 'string' }, 'done');
-      if (!output.ok) throw new Error('fixture encoding failed');
-      return { status: 'completed', output: [...output.value], facts };
-    };
-    const safe = createSafeScript({
-      contract,
-      bridge,
-      handlers: {
-        read: () => {
-          handlers++;
-          return { tag: 'ok', value: 'unreachable' } as const;
-        },
-      },
-      authorise: () => ({ status: 'rejected', error: { code: 'denied' } }) as const,
-      createInvocationId: () => invocationId,
-    });
-    await safe.execute({
-      slot: 'main',
-      program: { kind: 'artifact', bytes: [] },
-      input: { value: 1n },
-      context: {},
-    });
-    expect(bridge.actions[0]?.result).toEqual({ tag: 'rejected', value: { code: 'denied' } });
-    expect(handlers).toBe(0);
-  });
-
   it('rejects uncorrelated bridge actions and accepts compatible contract requirements', async () => {
     const bridge = new FakeBridge();
-    let authorisations = 0;
     let handlers = 0;
     bridge.executeResult = async (request, host) => {
       bridge.actions.push(await host.handleAction(action(request)));
@@ -498,10 +449,6 @@ describe('createSafeScript', () => {
           handlers++;
           return { tag: 'ok', value: 'handled' } as const;
         },
-      },
-      authorise: () => {
-        authorisations++;
-        return { status: 'allowed' };
       },
       createInvocationId: () => invocationId,
     });
@@ -529,7 +476,7 @@ describe('createSafeScript', () => {
       await safe.execute({ slot: 'main', program: { kind: 'artifact', bytes: [] }, input: { value: 1n }, context: {} });
     }
     expect(bridge.actions.map((outcome) => outcome.result.tag)).toEqual(['failed', 'failed', 'failed', 'failed']);
-    expect([authorisations, handlers]).toEqual([0, 0]);
+    expect(handlers).toBe(0);
 
     bridge.executeResult = async (request, host) => {
       const compatible = {
@@ -543,24 +490,15 @@ describe('createSafeScript', () => {
     };
     await safe.execute({ slot: 'main', program: { kind: 'artifact', bytes: [] }, input: { value: 1n }, context: {} });
     expect(bridge.actions.slice(-2).map((outcome) => outcome.result.tag)).toEqual(['completed', 'failed']);
-    expect([authorisations, handlers]).toEqual([1, 1]);
+    expect(handlers).toBe(1);
   });
 
-  it('validates authorisation and default limit configuration', () => {
+  it('validates default limit configuration', () => {
     expect(() =>
       createSafeScript({
         contract,
         bridge: new FakeBridge(),
         handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
-        authorise: undefined as never,
-      }),
-    ).toThrow(SdkConfigurationError);
-    expect(() =>
-      createSafeScript({
-        contract,
-        bridge: new FakeBridge(),
-        handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
-        authorise: () => ({ status: 'allowed' }),
         defaultCompileLimits: { sourceBytes: STANDARD_COMPILE_LIMITS.sourceBytes + 1 },
       }),
     ).toThrow(SdkConfigurationError);
@@ -578,7 +516,6 @@ describe('createSafeScript', () => {
       contract,
       bridge,
       handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
-      authorise: () => ({ status: 'allowed' }),
       defaultExecutionLimits: { fuel: 700 },
     });
     const result = await safe.execute({
@@ -603,7 +540,6 @@ describe('createSafeScript', () => {
       contract,
       bridge,
       handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
-      authorise: () => ({ status: 'allowed' }),
     });
     const source = {
       entryModule: ids.module('module:main'),
@@ -626,7 +562,6 @@ describe('createSafeScript', () => {
       contract,
       bridge,
       handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
-      authorise: () => ({ status: 'allowed' }),
       createInvocationId: () => 'invocation:invalid' as typeof invocationId,
     });
     expect(
@@ -653,7 +588,6 @@ describe('createSafeScript', () => {
       contract,
       bridge,
       handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
-      authorise: () => ({ status: 'allowed' }),
       createInvocationId: () => invocationId,
     });
     expect(
@@ -690,7 +624,6 @@ describe('createSafeScript', () => {
       contract,
       bridge,
       handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
-      authorise: () => ({ status: 'allowed' }),
       createInvocationId: () => invocationId,
     });
     const result = await safe.execute({
@@ -710,7 +643,6 @@ describe('createSafeScript', () => {
       contract,
       bridge,
       handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
-      authorise: () => ({ status: 'allowed' }),
       createInvocationId: () => invocationId,
     });
     bridge.executeResult = async () => ({ status: 'completed', output: [0xff], facts });
@@ -753,66 +685,16 @@ describe('createSafeScript', () => {
     ).toBe('bridge_error');
   });
 
-  it('maps gateway scope, authorisation, and handler failures without leaking throws', async () => {
+  it('maps invalid handler results without leaking throws', async () => {
     const bridge = new FakeBridge();
     bridge.executeResult = async (request, host) => {
       bridge.actions.push(await host.handleAction(action(request)));
       return { status: 'completed', output: [100, 111, 110, 101], facts };
     };
-    const throwingScopeContract = defineContract({
-      ...contract,
-      operations: {
-        read: {
-          ...contract.operations.read,
-          resourceScope: () => {
-            throw new Error('scope');
-          },
-        },
-      },
-    });
-    const scopeSafe = createSafeScript({
-      contract: throwingScopeContract,
-      bridge,
-      handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
-      authorise: () => ({ status: 'allowed' }),
-      createInvocationId: () => invocationId,
-    });
-    await scopeSafe.execute({
-      slot: 'main',
-      program: { kind: 'artifact', bytes: [] },
-      input: { value: 1n },
-      context: {},
-    });
-    expect(bridge.actions.at(-1)?.result).toMatchObject({
-      tag: 'failed',
-      value: { failure: { code: 'gateway_fault' } },
-    });
-
-    const authoritySafe = createSafeScript({
-      contract,
-      bridge,
-      handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
-      authorise: () => {
-        throw new Error('authority');
-      },
-      createInvocationId: () => invocationId,
-    });
-    await authoritySafe.execute({
-      slot: 'main',
-      program: { kind: 'artifact', bytes: [] },
-      input: { value: 1n },
-      context: {},
-    });
-    expect(bridge.actions.at(-1)?.result).toMatchObject({
-      tag: 'failed',
-      value: { failure: { code: 'gateway_fault' } },
-    });
-
     const invalidHandler = createSafeScript({
       contract,
       bridge,
       handlers: { read: () => ({}) as never },
-      authorise: () => ({ status: 'allowed' }),
       createInvocationId: () => invocationId,
     });
     await invalidHandler.execute({
@@ -846,7 +728,6 @@ describe('createSafeScript', () => {
             failure: { code: 'unavailable', detail: 'bounded' },
           }) as const,
       },
-      authorise: () => ({ status: 'allowed' }),
       createInvocationId: () => invocationId,
     });
     await declared.execute({
@@ -865,7 +746,6 @@ describe('createSafeScript', () => {
       handlers: {
         read: () => ({ status: 'failed', effectState: 'performed', failure: {} }) as never,
       },
-      authorise: () => ({ status: 'allowed' }),
       createInvocationId: () => invocationId,
     });
     await malformed.execute({
@@ -886,7 +766,6 @@ describe('createSafeScript', () => {
       contract,
       bridge,
       handlers: { read: () => ({ tag: 'ok', value: 'production' }) as const },
-      authorise: () => ({ status: 'allowed' }),
     });
     const report = await safe.test({
       name: 'mismatches',
@@ -931,7 +810,6 @@ describe('createSafeScript', () => {
       contract,
       bridge,
       handlers: { read: () => ({ tag: 'ok', value: 'production' }) as const },
-      authorise: () => ({ status: 'allowed' }),
     });
     const report = await safe.test({
       name: 'diagnostics',
@@ -969,7 +847,6 @@ describe('createSafeScript', () => {
       contract,
       bridge,
       handlers: { read: () => ({ tag: 'ok', value: 'production' }) as const },
-      authorise: () => ({ status: 'allowed' }),
     });
     const report = await safe.test({
       name: String(_name),
@@ -981,7 +858,7 @@ describe('createSafeScript', () => {
     expect(report.mismatches.some((item) => item.path === path)).toBe(true);
   });
 
-  it('detects duplicate scripted requests and maps scripted rejected and failed outcomes', async () => {
+  it('detects duplicate scripted requests and maps scripted failed outcomes', async () => {
     const bridge = new FakeBridge();
     const observed: ActionOutcome[] = [];
     bridge.executeResult = async (request, host) => {
@@ -995,7 +872,6 @@ describe('createSafeScript', () => {
       contract,
       bridge,
       handlers: { read: () => ({ tag: 'ok', value: 'production' }) as const },
-      authorise: () => ({ status: 'allowed' }),
     });
     const duplicate = await safe.test({
       name: 'duplicate',
@@ -1016,20 +892,6 @@ describe('createSafeScript', () => {
       return { status: 'completed', output: [...output.value], facts };
     };
     await safe.test({
-      name: 'rejected',
-      slot: 'main',
-      program: { kind: 'artifact', bytes: [] },
-      input: { value: 1n },
-      actions: [
-        {
-          operation: 'read',
-          input: { value: 1n },
-          authorisation: { status: 'rejected', error: { code: 'denied' } },
-          outcome: { tag: 'ok', value: 'unused' },
-        },
-      ],
-    });
-    await safe.test({
       name: 'failed',
       slot: 'main',
       program: { kind: 'artifact', bytes: [] },
@@ -1042,7 +904,7 @@ describe('createSafeScript', () => {
         },
       ],
     });
-    expect(observed.slice(-2).map((item) => item.result.tag)).toEqual(['rejected', 'failed']);
+    expect(observed.at(-1)?.result.tag).toBe('failed');
   });
 
   it('closes and cancels idempotently even when the bridge throws', async () => {
@@ -1057,7 +919,6 @@ describe('createSafeScript', () => {
       contract,
       bridge,
       handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
-      authorise: () => ({ status: 'allowed' }),
     });
     expect((await safe.cancel(invocationId)).status).toBe('bridge_error');
     const first = safe.close();

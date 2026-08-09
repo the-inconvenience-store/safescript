@@ -1,5 +1,5 @@
 /**
- * Public SDK requests, results, handlers, authorisation, and deterministic-test interfaces.
+ * Public SDK requests, results, handlers, and deterministic-test interfaces.
  * @packageDocumentation
  */
 import {
@@ -20,7 +20,6 @@ import {
   type InvocationId,
   type ModuleId,
   type OperationId,
-  type PolicyError,
   type Result,
   type RuntimeBridge,
   type SemanticGraphLimits,
@@ -46,19 +45,15 @@ export interface AbortSignal {
   removeEventListener(type: 'abort', listener: () => void): void;
 }
 
-/** Validated invocation and request facts supplied to authorisation and one operation handler. */
+/** Validated invocation and request facts supplied to one operation handler. */
 export interface ActionContext<C> {
   readonly invocationId: InvocationId;
   readonly context: C;
   readonly request: ActionRequest;
-  readonly resourceScope: Readonly<Record<string, string>>;
   readonly idempotencyKey?: Sha256Digest;
   readonly signal: AbortSignal;
 }
 
-/** Point-in-time host decision made immediately before operation dispatch. */
-export type AuthorisationDecision<E extends PolicyError = PolicyError> =
-  Readonly<{ status: 'allowed' }> | Readonly<{ status: 'rejected'; error: E }>;
 /** Explicit infrastructure failure returned by a trusted operation handler. */
 export type HandlerFailure = Readonly<{ status: 'failed'; effectState: EffectState; failure: HostFailure }>;
 /** Typed implementation of one registered host operation. */
@@ -135,7 +130,6 @@ export type ExecutionResult<O> =
 export interface ScriptedAction<O extends Operations = Operations> {
   readonly operation: keyof O | OperationId;
   readonly input: unknown;
-  readonly authorisation?: AuthorisationDecision;
   readonly outcome: Result<unknown, unknown> | HandlerFailure;
 }
 
@@ -181,15 +175,9 @@ export interface TestReport<O> {
 }
 
 /** Dependencies and defaults bound to one {@link SafeScript} facade. */
-export interface CreateSafeScriptOptions<
-  C,
-  O extends Operations,
-  S extends Slots,
-  E extends PolicyError = PolicyError,
-> {
+export interface CreateSafeScriptOptions<C, O extends Operations, S extends Slots> {
   readonly contract: Contract<O, S>;
   readonly handlers: HandlerTable<O, C>;
-  readonly authorise: (context: ActionContext<C>) => AuthorisationDecision<E> | Promise<AuthorisationDecision<E>>;
   readonly bridge?: RuntimeBridge;
   readonly defaultCompileLimits?: Partial<CompileLimits>;
   readonly defaultExecutionLimits?: Partial<ExecutionLimits>;

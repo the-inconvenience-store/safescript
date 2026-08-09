@@ -3,6 +3,7 @@
  * @packageDocumentation
  */
 import {
+  ACTION_ABI_VERSION,
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
   decodeCanonical,
@@ -10,7 +11,6 @@ import {
   encodeCanonical,
   hash,
   ids,
-  supportsPolicyError,
   type CanonicalBytes,
   type CapabilityDefinition,
   type CapabilityId,
@@ -48,12 +48,7 @@ export interface ContractType<T> {
   readonly _type?: T;
 }
 
-/**
- * Declarative host-operation contract.
- *
- * @remarks `resourceScope` must be synchronous and pure. It extracts stable strings used for current authorisation;
- * it must not perform I/O or make a policy decision.
- */
+/** Declarative host-operation contract. */
 export interface Operation<I, O, E> {
   readonly id: OperationId;
   readonly input: ContractType<I>;
@@ -63,7 +58,6 @@ export interface Operation<I, O, E> {
   readonly capability: CapabilityId;
   readonly effectCost: number;
   readonly idempotency: 'none' | 'required';
-  readonly resourceScope: (input: I) => Readonly<Record<string, string>>;
 }
 
 /** Host-defined execution point with fixed input/output types, permissions, language, and ceiling limits. */
@@ -79,13 +73,7 @@ export interface Slot<I, O> {
 }
 
 /** Internal generic constraint for a named operation table. */
-export type Operations = Readonly<
-  Record<
-    string,
-    Omit<Operation<unknown, unknown, unknown>, 'resourceScope'> &
-      Readonly<{ resourceScope: (input: never) => Readonly<Record<string, string>> }>
-  >
->;
+export type Operations = Readonly<Record<string, Operation<unknown, unknown, unknown>>>;
 /** Internal generic constraint for a named extension-slot table. */
 export type Slots = Readonly<Record<string, Slot<unknown, unknown>>>;
 
@@ -106,6 +94,7 @@ export interface Codec<T> {
 
 /** Validated, deeply immutable result of {@link defineContract}. */
 export interface Contract<O extends Operations, S extends Slots> {
+  readonly abiVersion: typeof ACTION_ABI_VERSION;
   readonly id: ContractId;
   readonly version: SemVer;
   readonly registry: ContractRegistry;
@@ -168,7 +157,7 @@ interface DerivedOperations {
   readonly capabilities: ReadonlyMap<CapabilityId, CapabilityDefinition>;
 }
 
-function defineOperations<O extends Operations>(source: O, schemas: SchemaRegistry): DerivedOperations {
+function defineOperations<O extends Operations>(source: O): DerivedOperations {
   const effects = new Map<EffectId, EffectDefinition>();
   const capabilities = new Map<CapabilityId, CapabilityDefinition>();
   const operations = Object.values(source)
@@ -180,10 +169,6 @@ function defineOperations<O extends Operations>(source: O, schemas: SchemaRegist
         throw new TypeError(`invalid effect cost for ${operation.id}`);
       if (operation.idempotency !== 'none' && operation.idempotency !== 'required')
         throw new TypeError(`invalid idempotency for ${operation.id}`);
-      if (typeof operation.resourceScope !== 'function')
-        throw new TypeError(`missing resource scope for ${operation.id}`);
-      if (!supportsPolicyError(operation.error.schema, schemas))
-        throw new TypeError(`operation error must include policy for ${operation.id}`);
       effects.set(operation.effect, { id: operation.effect, fingerprint: fingerprint('contract', operation.effect) });
       capabilities.set(operation.capability, {
         id: operation.capability,
@@ -290,9 +275,8 @@ function defineCodecs(
 /**
  * Validates one host definition and derives every compiler, runtime, editor, and codec artifact from it.
  *
- * @remarks JavaScript handlers and resource-scope functions remain host-local and are deliberately omitted from the
- * serialisable registry.
- * @throws {@link ContractDefinitionError} if identities, schemas, permissions, versions, policy errors, limits, or
+ * @remarks JavaScript handlers remain host-local and are deliberately omitted from the serialisable registry.
+ * @throws {@link ContractDefinitionError} if identities, schemas, permissions, versions, limits, or
  * generated declaration names are inconsistent.
  */
 export function defineContract<const O extends Operations, const S extends Slots>(
@@ -304,7 +288,7 @@ export function defineContract<const O extends Operations, const S extends Slots
     const uniqueTypes = referencedTypes(definition);
     const typeDefinitions = defineTypes(uniqueTypes);
     const schemas = defineSchemaRegistry(typeDefinitions);
-    const derived = defineOperations(definition.operations, schemas);
+    const derived = defineOperations(definition.operations);
     const operations = derived.operations;
     const slots = defineSlots(definition.slots, derived.effects, derived.capabilities);
     const sortedEffects = sortedDefinitions(derived.effects.values());
@@ -312,8 +296,14 @@ export function defineContract<const O extends Operations, const S extends Slots
     const definitions = [...typeDefinitions, ...sortedEffects, ...sortedCapabilities, ...operations, ...slots].map(
       ({ id, fingerprint: value }) => ({ id, fingerprint: value }),
     );
-    const digest = fingerprint('contract', { id: definition.id, version: definition.version, definitions });
+    const digest = fingerprint('contract', {
+      abiVersion: ACTION_ABI_VERSION,
+      id: definition.id,
+      version: definition.version,
+      definitions,
+    });
     const registry: ContractRegistry = freeze({
+      abiVersion: ACTION_ABI_VERSION,
       id: definition.id,
       version: definition.version,
       digest,
@@ -327,6 +317,7 @@ export function defineContract<const O extends Operations, const S extends Slots
     const codecs = defineCodecs(uniqueTypes, schemas);
     const declarations = generateDeclarations(typeDefinitions, operations);
     return freeze({
+      abiVersion: ACTION_ABI_VERSION,
       id: definition.id,
       version: definition.version,
       registry,

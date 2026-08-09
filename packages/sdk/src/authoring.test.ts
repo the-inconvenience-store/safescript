@@ -41,7 +41,6 @@ const contract = defineContract({
       capability: allowedCapability,
       effectCost: 1,
       idempotency: 'none' as const,
-      resourceScope: (input: Value) => ({ value: input.value }),
     },
     denied: {
       id: ids.operation('operation:authoring.denied'),
@@ -52,7 +51,6 @@ const contract = defineContract({
       capability: deniedCapability,
       effectCost: 1,
       idempotency: 'none' as const,
-      resourceScope: (input: Value) => ({ value: input.value }),
     },
   },
   slots: {

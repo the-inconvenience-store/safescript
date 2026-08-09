@@ -190,7 +190,7 @@ const LANGUAGE_1_0: LanguageProfile = {
     'Submit exactly one named exported async handler with typed event and Context parameters.',
     'Import host values and types from host:api and Result, Ok, and Err from safescript:prelude.',
     'Call host operations only through direct ctx paths and await every action exactly once.',
-    'Use immutable values and handle every Result tag; runtime authorisation is always checked again by the host.',
+    'Use immutable values and handle every Result tag; host policy remains outside the source program.',
   ],
 };
 
@@ -1765,74 +1765,61 @@ export interface BridgeError {
 export type BridgeErrorCode =
   'adapter_failure' | 'artifact_verification_failed' | 'bridge_closed' | 'invalid_request' | 'unsupported_version';
 
-/** Current host-policy rejection that extension code may handle as a declared error. */
-export interface PolicyError {
-  /** Contract-defined program-visible code; intentionally not part of the SafeScript-owned diagnostic catalog. */
-  readonly code: string;
+/** The only action ABI emitted or accepted by the v2 SDK, runtime, and worker protocol. */
+export const ACTION_ABI_VERSION = Object.freeze({ major: 2, minor: 0 } as const);
+export type ActionAbiVersion = typeof ACTION_ABI_VERSION;
+/** Explicit legacy marker used only to identify and reject v1 values without translation. */
+export type LegacyActionAbiVersion = Readonly<{ major: 1; minor: 0 }>;
+
+function exactDataRecord(value: unknown, keys: readonly string[]): value is Readonly<Record<string, unknown>> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  try {
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const expected = [...keys].sort();
+    const actual = Object.keys(descriptors).sort();
+    return (
+      actual.length === expected.length &&
+      actual.every((key, index) => key === expected[index]) &&
+      actual.every((key) => descriptors[key] && 'value' in descriptors[key])
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Returns whether a value names the exact action ABI supported by this release. */
+export function isActionAbiVersion(value: unknown): value is ActionAbiVersion {
+  return (
+    exactDataRecord(value, ['major', 'minor']) &&
+    value.major === ACTION_ABI_VERSION.major &&
+    value.minor === ACTION_ABI_VERSION.minor
+  );
+}
+
+/** Lifecycle point associated with a bounded hook failure diagnostic. */
+export type HookLifecyclePoint = 'before_execute' | 'after_execute' | 'before_action' | 'after_action';
+export const MAX_HOOK_DIAGNOSTICS = 16;
+/** Stable, bounded hook failure safe to return across SDK and worker boundaries. */
+export interface HookDiagnostic {
+  readonly code: 'hook_fault';
+  readonly point: HookLifecyclePoint;
   readonly detail?: string;
 }
 
-function resolvePolicySchema(schema: Schema, registry: SchemaRegistry, seen = new Set<TypeId>()): Schema | undefined {
-  if (schema.kind !== 'ref') return schema;
-  if (seen.has(schema.type)) return undefined;
-  const target = registry.types.find((type) => type.id === schema.type)?.schema;
-  return target ? resolvePolicySchema(target, registry, new Set(seen).add(schema.type)) : undefined;
-}
-
-/**
- * Projects a host {@link PolicyError} into the registered program-visible error schema.
- *
- * @returns The canonical error value, or `undefined` when the schema cannot represent the policy error.
- */
-export function policyErrorValue(
-  schema: Schema,
-  registry: SchemaRegistry,
-  error: PolicyError,
-  seen = new Set<TypeId>(),
-): CanonicalValue | undefined {
-  if (schema.kind === 'ref') {
-    if (seen.has(schema.type)) return undefined;
-    const target = registry.types.find((type) => type.id === schema.type)?.schema;
-    return target ? policyErrorValue(target, registry, error, new Set(seen).add(schema.type)) : undefined;
-  }
-  if (schema.kind === 'brand') return policyErrorValue(schema.base, registry, error, seen);
-  if (schema.kind === 'unit') return null;
-  if (schema.kind === 'string') return error.detail ?? error.code;
-  if (schema.kind === 'variant') {
-    const variant = schema.variants.find((candidate) => /policy/i.test(candidate.tag));
-    if (!variant) return undefined;
-    const value = policyErrorValue(variant.schema, registry, error, seen);
-    return value === undefined ? undefined : { tag: variant.tag, value };
-  }
-  if (schema.kind === 'record') {
-    const value: Record<string, CanonicalValue> = {};
-    for (const field of schema.fields) {
-      const fieldSchema = resolvePolicySchema(field.schema, registry);
-      if (fieldSchema?.kind === 'string' || (fieldSchema?.kind === 'brand' && fieldSchema.base.kind === 'string')) {
-        value[field.name] = /detail|message|reason/i.test(field.name) ? (error.detail ?? error.code) : error.code;
-      } else {
-        const child = policyErrorValue(field.schema, registry, error, seen);
-        if (child === undefined) return undefined;
-        value[field.name] = child;
-      }
-    }
-    return value;
-  }
-  return undefined;
-}
-
-/** Returns whether an operation error schema contains the required canonical `policy` member. */
-export function supportsPolicyError(schema: Schema, registry: SchemaRegistry): boolean {
-  const error = resolvePolicySchema(schema, registry);
-  if (error?.kind !== 'variant') return false;
-  const policy = error.variants.find((variant) => variant.tag === 'policy')?.schema;
-  const payload = policy && resolvePolicySchema(policy, registry);
-  if (payload?.kind !== 'record') return false;
-  const code = payload.fields.find((field) => field.name === 'code')?.schema;
-  const resolvedCode = code && resolvePolicySchema(code, registry);
-  return Boolean(
-    (resolvedCode?.kind === 'string' || (resolvedCode?.kind === 'brand' && resolvedCode.base.kind === 'string')) &&
-    policyErrorValue(schema, registry, { code: 'policy', detail: 'detail' }) !== undefined,
+/** Fail-closed validator for a bounded set of lifecycle hook diagnostics. */
+export function isHookDiagnostics(value: unknown): value is readonly HookDiagnostic[] {
+  const points: readonly HookLifecyclePoint[] = ['before_execute', 'after_execute', 'before_action', 'after_action'];
+  return (
+    Array.isArray(value) &&
+    value.length <= MAX_HOOK_DIAGNOSTICS &&
+    value.every(
+      (item) =>
+        (exactDataRecord(item, ['code', 'point']) || exactDataRecord(item, ['code', 'detail', 'point'])) &&
+        item.code === 'hook_fault' &&
+        points.includes(item.point as HookLifecyclePoint) &&
+        (item.detail === undefined ||
+          (typeof item.detail === 'string' && item.detail.length <= MAX_FAILURE_DETAIL_LENGTH)),
+    )
   );
 }
 /** Closed infrastructure and host-adapter failures that terminate execution. */
@@ -1864,11 +1851,11 @@ export interface SourceProvenance {
 /**
  * Canonical request for one registered host operation.
  *
- * @remarks Recording this request proves only that the operation was proposed. The SDK gateway must validate the
- * envelope and current authority before dispatching a handler.
+ * @remarks Recording this request proves only that the operation was proposed. The SDK gateway validates the
+ * envelope before dispatching a handler; host lifecycle policy remains a separate concern.
  */
 export interface ActionRequest {
-  readonly abiVersion: Version;
+  readonly abiVersion: ActionAbiVersion;
   readonly contractId: ContractId;
   readonly requiredContractVersion: SemVer;
   readonly irDigest: IrDigest;
@@ -1886,13 +1873,56 @@ export interface ActionRequest {
 
 /** Terminal typed resolution of one action request. */
 export type ActionOutcome = Readonly<{
-  abiVersion: Version;
+  abiVersion: ActionAbiVersion;
   requestId: RequestId;
   result:
     | Readonly<{ tag: 'completed'; value: CanonicalBytes }>
-    | Readonly<{ tag: 'rejected'; value: PolicyError }>
     | Readonly<{ tag: 'failed'; value: Readonly<{ effectState: EffectState; failure: HostFailure }> }>;
 }>;
+
+/** Legacy v1 outcome retained solely so adapters can isolate it explicitly. */
+export type LegacyActionOutcome = Readonly<{
+  abiVersion: LegacyActionAbiVersion;
+  requestId: RequestId;
+  result:
+    | Readonly<{ tag: 'completed'; value: CanonicalBytes }>
+    | Readonly<{ tag: 'rejected'; value: Readonly<{ code: string; detail?: string }> }>
+    | Readonly<{ tag: 'failed'; value: Readonly<{ effectState: EffectState; failure: HostFailure }> }>;
+}>;
+
+/** Fail-closed structural validator for an ABI 2.0 terminal action outcome. */
+export function isActionOutcome(
+  value: unknown,
+  requestId?: RequestId,
+  maxBytes = Number.MAX_SAFE_INTEGER,
+): value is ActionOutcome {
+  if (!exactDataRecord(value, ['abiVersion', 'requestId', 'result'])) return false;
+  if (!isActionAbiVersion(value.abiVersion) || typeof value.requestId !== 'string') return false;
+  try {
+    ids.parseRequest(value.requestId);
+  } catch {
+    return false;
+  }
+  if (requestId !== undefined && value.requestId !== requestId) return false;
+  if (!exactDataRecord(value.result, ['tag', 'value'])) return false;
+  if (value.result.tag === 'completed')
+    return (
+      Array.isArray(value.result.value) &&
+      value.result.value.length <= maxBytes &&
+      value.result.value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255)
+    );
+  if (value.result.tag !== 'failed' || !exactDataRecord(value.result.value, ['effectState', 'failure'])) return false;
+  const effectState = value.result.value.effectState;
+  const failure = value.result.value.failure;
+  if (!exactDataRecord(failure, ['code']) && !exactDataRecord(failure, ['code', 'detail'])) return false;
+  return Boolean(
+    (effectState === 'not_performed' || effectState === 'unknown') &&
+    typeof failure.code === 'string' &&
+    (HOST_FAILURE_CODES as readonly string[]).includes(failure.code) &&
+    (failure.detail === undefined ||
+      (typeof failure.detail === 'string' && failure.detail.length <= MAX_FAILURE_DETAIL_LENGTH)),
+  );
+}
 
 /** Ordered in-memory fact distinguishing request creation from terminal resolution. */
 export type ActionRecord =
@@ -1942,9 +1972,10 @@ export interface SlotDefinition {
  * Canonical machine-readable authority derived from one host contract.
  *
  * @remarks The registry contains schemas and static eligibility metadata, never live handlers, credentials, or a
- * cached authorisation decision.
+ * cached runtime decision.
  */
 export interface ContractRegistry {
+  readonly abiVersion: ActionAbiVersion;
   readonly id: ContractId;
   readonly version: SemVer;
   readonly digest: Sha256Digest;
@@ -2073,7 +2104,7 @@ export interface CompilerProvenance {
 
 /** Complete transport-neutral inputs required to check source without ambient discovery. */
 export interface CheckRequest {
-  readonly abiVersion: Version;
+  readonly abiVersion: ActionAbiVersion;
   readonly languageVersion: Version;
   readonly registry: ContractRegistry;
   readonly slotId: SlotId;
@@ -2258,7 +2289,7 @@ export type ExecutableProgram =
   Readonly<{ kind: 'source'; source: CheckRequest }> | Readonly<{ kind: 'artifact'; bytes: CanonicalBytes }>;
 /** Complete transport-neutral execution inputs; host invocation context remains in the SDK. */
 export interface ExecuteRequest {
-  readonly abiVersion: Version;
+  readonly abiVersion: ActionAbiVersion;
   readonly registry: ContractRegistry;
   readonly slotId: SlotId;
   readonly invocationId: InvocationId;
@@ -2298,9 +2329,11 @@ export interface ExecutionFacts {
 export const EXECUTION_ERROR_CODES = Object.freeze([
   'action_outcome_invalid',
   'cancelled',
+  'execution_rejected',
   'fixed_instant_required',
   'gateway_fault',
   'handler_fault',
+  'hook_fault',
   'idempotency_key_invalid',
   'integer_overflow',
   'interpreter_fault',
@@ -2392,7 +2425,7 @@ export interface FailureCatalogEntry {
  * breaking and requires a major version. Removal first requires a deprecated entry and replacement path; message text
  * is deliberately outside this contract.
  */
-export const DIAGNOSTIC_CATALOG_VERSION: SemVer = Object.freeze({ major: 1, minor: 0, patch: 0 });
+export const DIAGNOSTIC_CATALOG_VERSION: SemVer = Object.freeze({ major: 1, minor: 1, patch: 0 });
 
 const COMPILER_DIAGNOSTIC_MEANINGS = Object.freeze([
   'ambient authority access',
@@ -2577,6 +2610,14 @@ export const DIAGNOSTIC_CATALOG: readonly FailureCatalogEntry[] = Object.freeze(
       'optional',
     ),
     catalogEntry(
+      'hook_fault',
+      'action',
+      'action_gateway',
+      'lifecycle hook failed closed',
+      ['detail', 'source'],
+      'optional',
+    ),
+    catalogEntry(
       'idempotency_key_invalid',
       'action',
       'action_gateway',
@@ -2623,6 +2664,14 @@ export const DIAGNOSTIC_CATALOG: readonly FailureCatalogEntry[] = Object.freeze(
       'invocation cancellation reached execution',
       ['source'],
       'optional',
+    ),
+    catalogEntry(
+      'execution_rejected',
+      'execution',
+      'runtime_bridge',
+      'host lifecycle hook rejected execution before it started',
+      ['detail'],
+      'not_applicable',
     ),
     catalogEntry(
       'resource_exhausted',
@@ -2691,7 +2740,13 @@ export const DIAGNOSTIC_CATALOG: readonly FailureCatalogEntry[] = Object.freeze(
 );
 /** Closed execution lifecycle result. Only `completed` contains a program output. */
 export type ExecutionResult =
-  | Readonly<{ status: 'not_started'; diagnostics?: readonly Diagnostic[]; error?: BridgeError; usage?: CompileUsage }>
+  | Readonly<{
+      status: 'not_started';
+      diagnostics?: readonly Diagnostic[];
+      hookDiagnostics?: readonly HookDiagnostic[];
+      error?: BridgeError | ExecutionError;
+      usage?: CompileUsage;
+    }>
   | Readonly<{ status: 'completed'; output: CanonicalBytes; facts: ExecutionFacts }>
   | Readonly<{ status: 'failed'; error: ExecutionError; facts: ExecutionFacts }>
   | Readonly<{ status: 'cancelled'; error: ExecutionError; facts: ExecutionFacts }>
@@ -2699,7 +2754,7 @@ export type ExecutionResult =
 
 /** Idempotent request to signal one active invocation. */
 export interface CancelRequest {
-  readonly abiVersion: Version;
+  readonly abiVersion: ActionAbiVersion;
   readonly invocationId: InvocationId;
 }
 /** Whether cancellation reached an active invocation or no live invocation matched. */
