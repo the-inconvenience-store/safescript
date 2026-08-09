@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'bun:test';
 
+import {
+  WorkerProtocolFrameDecoder,
+  decodeWorkerProtocolEnvelope,
+  decodeWorkerProtocolFrame,
+  encodeWorkerProtocolEnvelope,
+  encodeWorkerProtocolFrame,
+  type WorkerProtocolFailureCode,
+} from '@safescript/contracts';
+
 interface WorkerProtocolManifest {
   readonly protocol: Readonly<{ major: number; minor: number }>;
   readonly normativeDocuments: readonly string[];
@@ -22,11 +31,19 @@ interface WorkerProtocolFixtures {
   readonly hostile: readonly Readonly<{
     name: string;
     inputHex: string;
-    expected: Readonly<{ code: string; scope: string }>;
+    expected: Readonly<{ code: WorkerProtocolFailureCode; scope: string }>;
   }>[];
 }
 
 const repositoryRoot = new URL('../../', import.meta.url);
+
+function bytes(hex: string): Uint8Array {
+  return Uint8Array.from(hex.match(/../g)?.map((pair) => Number.parseInt(pair, 16)) ?? []);
+}
+
+function hex(value: Uint8Array): string {
+  return [...value].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
 
 describe('worker protocol 1.0 publication', () => {
   it('publishes one discoverable normative specification surface', async () => {
@@ -99,6 +116,55 @@ describe('worker protocol 1.0 publication', () => {
       inputHex: '00000000',
       expected: { code: 'frame_length_zero', scope: 'connection' },
     });
+  });
+
+  it('runs canonical fixture bytes through exact, split, and coalesced framing', async () => {
+    const fixtures = (await Bun.file(
+      new URL('conformance/worker-protocol/v1/fixtures.json', repositoryRoot),
+    ).json()) as WorkerProtocolFixtures;
+    const fixture = fixtures.valid[0];
+    if (!fixture) throw new Error('missing canonical fixture');
+    const frame = bytes(fixture.frameHex);
+    const decodedFrame = decodeWorkerProtocolFrame(frame);
+    expect(decodedFrame.ok).toBe(true);
+    if (!decodedFrame.ok) return;
+    expect(hex(decodedFrame.value)).toBe(fixture.envelopeHex);
+    const decodedEnvelope = decodeWorkerProtocolEnvelope(decodedFrame.value);
+    expect(decodedEnvelope.ok).toBe(true);
+    if (!decodedEnvelope.ok) return;
+    expect(hex(decodedEnvelope.value.payload)).toBe(fixture.payloadHex);
+    const encodedEnvelope = encodeWorkerProtocolEnvelope(decodedEnvelope.value);
+    expect(encodedEnvelope.ok).toBe(true);
+    if (!encodedEnvelope.ok) return;
+    const encodedFrame = encodeWorkerProtocolFrame(encodedEnvelope.value);
+    expect(encodedFrame.ok && hex(encodedFrame.value)).toBe(fixture.frameHex);
+
+    for (const splitAt of [1, 2, 3, 4, frame.length - 1]) {
+      const decoder = new WorkerProtocolFrameDecoder();
+      expect(decoder.push(frame.subarray(0, splitAt))).toEqual({ ok: true, value: [] });
+      const completed = decoder.push(frame.subarray(splitAt));
+      expect(completed.ok && completed.value.map(hex)).toEqual([fixture.envelopeHex]);
+      expect(decoder.finish()).toEqual({ ok: true, value: [] });
+    }
+
+    const decoder = new WorkerProtocolFrameDecoder();
+    const coalesced = new Uint8Array(frame.length * 2);
+    coalesced.set(frame);
+    coalesced.set(frame, frame.length);
+    const completed = decoder.push(coalesced);
+    expect(completed.ok && completed.value.map(hex)).toEqual([fixture.envelopeHex, fixture.envelopeHex]);
+  });
+
+  it('runs every hostile byte fixture through the bounded codecs', async () => {
+    const fixtures = (await Bun.file(
+      new URL('conformance/worker-protocol/v1/fixtures.json', repositoryRoot),
+    ).json()) as WorkerProtocolFixtures;
+
+    for (const fixture of fixtures.hostile) {
+      const decodedFrame = decodeWorkerProtocolFrame(bytes(fixture.inputHex));
+      const result = decodedFrame.ok ? decodeWorkerProtocolEnvelope(decodedFrame.value) : decodedFrame;
+      expect(result.ok ? undefined : result.failure.code, fixture.name).toBe(fixture.expected.code);
+    }
   });
 
   it('publishes hostile canonical-CBOR and closed-schema fixtures', async () => {
@@ -232,6 +298,32 @@ describe('worker protocol 1.0 publication', () => {
       '## Release gates',
     ])
       expect(conformance).toContain(heading);
+  });
+
+  it('runs the adapter-neutral corpus on every declared platform and records release evidence', async () => {
+    const [workflow, evidenceWriter] = await Promise.all([
+      Bun.file(new URL('.github/workflows/worker-conformance.yml', repositoryRoot)).text(),
+      Bun.file(new URL('conformance/scripts/write-platform-evidence.mjs', repositoryRoot)).text(),
+    ]);
+    for (const runner of ['ubuntu-24.04', 'ubuntu-24.04-arm', 'macos-15-intel', 'macos-15', 'windows-2025'])
+      expect(workflow).toContain(`runner: ${runner}`);
+    expect(workflow).toContain('node: 22');
+    expect(workflow).toContain('node: 24');
+    expect(workflow).toContain('SAFESCRIPT_CONFORMANCE_NODE_PATH=');
+    expect(workflow).toContain('bun test conformance/src/index.test.ts conformance/src/worker-protocol-spec.test.ts');
+    expect(workflow).toContain('conformance/evidence/platform/');
+    for (const field of [
+      'releaseVersion',
+      'nodeVersion',
+      'os',
+      'architecture',
+      'workerBuildDigest',
+      'protocolVersion',
+      'fixtureSchemaVersion',
+      'testCommand',
+      'result',
+    ])
+      expect(evidenceWriter).toContain(field);
   });
 
   it('defines one CDDL payload rule for every published message kind', async () => {

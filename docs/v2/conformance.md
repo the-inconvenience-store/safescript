@@ -49,6 +49,8 @@ The complete suite runs against every [supported Node/OS/architecture target](di
 
 Operational time tests assert ceilings and state invariants with platform-appropriate tolerance; they never require exact durations. Semantic byte and resource fixtures remain exact across platforms.
 
+The repository workflow `.github/workflows/worker-conformance.yml` runs the packaged Node process adapter on the complete declared Node/OS/architecture matrix. Each successful matrix job uploads a schema-versioned JSON record under `conformance/evidence/platform/` containing the release, runtime, platform, worker digest, protocol, fixture schema, command, and result. These generated records are release evidence rather than source-controlled claims about runs that have not occurred.
+
 ## Release gates
 
 Protocol foundation is complete when normative documents, CDDL, fixture corpus, and bounded codecs agree. The functional worker gate additionally requires every bridge method and action exchange plus direct/worker semantic equivalence. The operational gate requires supervision, flow control, limits, spawn hygiene, diagnostics, and hostile cases.

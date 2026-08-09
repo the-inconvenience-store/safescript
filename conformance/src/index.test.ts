@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import {
   STANDARD_EXECUTION_LIMITS,
@@ -12,6 +12,7 @@ import {
   type Schema,
 } from '@safescript/contracts';
 import { createDirectRuntimeBridge } from '@safescript/engine';
+import { createNodeProcessRuntimeBridge } from '@safescript/sdk';
 
 import { withRuntimeBridge } from './index.js';
 import { blindApplicationExtensionReference, blindDeviceRuleReference } from './authoring-fixtures.js';
@@ -32,7 +33,16 @@ import {
   type ReferenceIntegration,
 } from './references.js';
 
-const factory: RuntimeBridgeFactory = createDirectRuntimeBridge;
+const adapters: Array<Readonly<{ name: string; factory: RuntimeBridgeFactory }>> = [
+  { name: 'direct', factory: createDirectRuntimeBridge },
+  {
+    name: 'node-process',
+    factory: () =>
+      createNodeProcessRuntimeBridge({
+        nodePath: process.env.SAFESCRIPT_CONFORMANCE_NODE_PATH ?? process.execPath,
+      }),
+  },
+];
 const references: ReferenceIntegration[] = [
   walkingSkeletonReference,
   applicationExtensionReference,
@@ -111,7 +121,19 @@ function completedAction(
   };
 }
 
-describe('runtime bridge conformance corpus', () => {
+describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: adapterFactory }) => {
+  const bridges = new Set<ReturnType<RuntimeBridgeFactory>>();
+  const factory: RuntimeBridgeFactory = () => {
+    const bridge = adapterFactory();
+    bridges.add(bridge);
+    return bridge;
+  };
+
+  afterEach(async () => {
+    await Promise.all([...bridges].map((bridge) => bridge.close()));
+    bridges.clear();
+  });
+
   it('exercises an injected factory rather than an implementation singleton', () => {
     const first = withRuntimeBridge(factory, (bridge) => bridge);
     const second = withRuntimeBridge(factory, (bridge) => bridge);
@@ -498,7 +520,7 @@ describe('runtime bridge conformance corpus', () => {
           release = () => resolve(completedAction(action));
         }),
     });
-    while (!release) await Promise.resolve();
+    while (!release) await Bun.sleep(1);
     expect(await bridge.cancel({ abiVersion: { major: 2, minor: 0 }, invocationId: request.invocationId })).toEqual({
       status: 'accepted',
     });
@@ -560,6 +582,31 @@ describe('runtime bridge conformance corpus', () => {
     );
     expect(malformed.status).toBe('failed');
     if (malformed.status === 'failed') expect(malformed.error.code).toBe('action_outcome_invalid');
+  });
+
+  it('does not expose host exception or environment sentinels across the adapter boundary', async () => {
+    const exceptionSentinel = 'SAFESCRIPT_CONFORMANCE_EXCEPTION_SENTINEL_7f3a';
+    const environmentSentinel = 'SAFESCRIPT_CONFORMANCE_ENV_SENTINEL_91c2';
+    const previous = process.env.SAFESCRIPT_CONFORMANCE_SECRET;
+    process.env.SAFESCRIPT_CONFORMANCE_SECRET = environmentSentinel;
+    try {
+      const reference = walkingSkeletonReference;
+      const result = await factory().execute(
+        executionRequest(reference, { kind: 'source', source: referenceCheckRequest(reference) }, '0'),
+        {
+          handleAction: async () => {
+            throw new Error(exceptionSentinel);
+          },
+        },
+      );
+      expect(result.status).toBe('failed');
+      if (result.status === 'failed') expect(result.error.code).toBe('handler_fault');
+      expect(JSON.stringify(result)).not.toContain(exceptionSentinel);
+      expect(JSON.stringify(result)).not.toContain(environmentSentinel);
+    } finally {
+      if (previous === undefined) delete process.env.SAFESCRIPT_CONFORMANCE_SECRET;
+      else process.env.SAFESCRIPT_CONFORMANCE_SECRET = previous;
+    }
   });
 
   it('repeats fixed time, randomness, traces, outputs, and resource charges exactly', async () => {

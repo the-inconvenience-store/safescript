@@ -131,7 +131,7 @@ function failedResult(phase: BridgePhase, code: BridgeError['code'], detail?: st
   return Object.freeze({ status: 'bridge_error', error: bridgeError });
 }
 
-function gatewayFailure(request: ActionRequest): ActionOutcome {
+function handlerFailure(request: ActionRequest): ActionOutcome {
   return Object.freeze({
     abiVersion: request.abiVersion,
     requestId: request.requestId,
@@ -139,7 +139,7 @@ function gatewayFailure(request: ActionRequest): ActionOutcome {
       tag: 'failed' as const,
       value: Object.freeze({
         effectState: 'unknown' as const,
-        failure: Object.freeze({ code: 'gateway_fault' as const }),
+        failure: Object.freeze({ code: 'handler_fault' as const }),
       }),
     }),
   });
@@ -474,7 +474,7 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
     try {
       outcome = await host.handleAction(request);
     } catch {
-      outcome = gatewayFailure(request);
+      outcome = handlerFailure(request);
     }
     if (
       !exchange.actionIds.has(envelopeId) ||
