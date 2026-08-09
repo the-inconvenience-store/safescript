@@ -1,5 +1,5 @@
 import { appendFile, mkdir, rm, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -7,7 +7,10 @@ const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const releaseRoot = resolve(root, '.release');
 const packRoot = resolve(releaseRoot, 'packages');
 const installRoot = resolve(releaseRoot, 'install');
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const npm =
+  process.platform === 'win32'
+    ? { command: process.execPath, prefix: [resolve(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js')] }
+    : { command: 'npm', prefix: [] };
 const packages = [
   'packages/contracts',
   'packages/engine',
@@ -23,11 +26,15 @@ function run(command, args) {
   return result.stdout;
 }
 
+function runNpm(args) {
+  return run(npm.command, [...npm.prefix, ...args]);
+}
+
 await rm(releaseRoot, { recursive: true, force: true });
 await mkdir(packRoot, { recursive: true });
 const packed = [];
 for (const packageRoot of packages) {
-  const output = JSON.parse(run(npm, ['pack', resolve(root, packageRoot), '--json', '--pack-destination', packRoot]));
+  const output = JSON.parse(runNpm(['pack', resolve(root, packageRoot), '--json', '--pack-destination', packRoot]));
   const result = output[0];
   if (!result?.filename || !result?.integrity)
     throw new Error(`npm pack returned incomplete metadata for ${packageRoot}`);
@@ -46,7 +53,7 @@ for (const packageRoot of packages) {
   });
 }
 await mkdir(installRoot, { recursive: true });
-run(npm, [
+runNpm([
   'install',
   '--prefix',
   installRoot,
