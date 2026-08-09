@@ -2734,3 +2734,5 @@ export interface RuntimeBridge {
 
 /** Creates one independently closable runtime bridge adapter. */
 export type RuntimeBridgeFactory = () => RuntimeBridge;
+
+export * from './worker-protocol.js';
