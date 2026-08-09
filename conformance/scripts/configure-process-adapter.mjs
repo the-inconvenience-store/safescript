@@ -7,11 +7,12 @@ const githubEnvironment = process.env.GITHUB_ENV;
 if (!githubEnvironment) throw new Error('GITHUB_ENV is required');
 
 const installedRoot = process.env.SAFESCRIPT_RELEASE_INSTALL_ROOT;
-const workerRoot = installedRoot
-  ? pathToFileURL(resolve(installedRoot, 'node_modules/@safescript/worker/')).href
-  : new URL('../../packages/worker/', import.meta.url).href;
-const manifestUrl = new URL('dist/build-manifest.json', workerRoot);
-const entryUrl = new URL('dist/entry.js', workerRoot);
+const manifestUrl = installedRoot
+  ? pathToFileURL(resolve(installedRoot, 'node_modules/@safescript/worker/dist/build-manifest.json'))
+  : new URL('../../packages/worker/dist/build-manifest.json', import.meta.url);
+const entryUrl = installedRoot
+  ? pathToFileURL(resolve(installedRoot, 'node_modules/@safescript/worker/dist/entry.js'))
+  : new URL('../../packages/worker/dist/entry.js', import.meta.url);
 const manifest = JSON.parse(await readFile(manifestUrl, 'utf8'));
 const entry = await readFile(entryUrl);
 const buildDigest = createHash('sha256').update(entry).digest('hex');
