@@ -12,6 +12,7 @@ Start here:
 Go deeper:
 
 - [SafeScript v2 specification](v2/README.md) defines the planned worker protocol, process boundary, compatibility, and conformance requirements.
+- [Optional execution and action hooks proposal](proposals/action-hooks.md) describes a proposed next-major replacement for mandatory SDK authorization. It is non-normative until implemented.
 - [Architecture and engine](engine.md) follows source through checking, typed IR, interpretation, and host actions.
 - [Contracts and values](contracts-and-values.md) explains schemas, stable identities, generated declarations, and canonical encoding.
 - [Security model](security.md) defines the trust boundary, action reauthorization, failure behavior, and non-goals.
