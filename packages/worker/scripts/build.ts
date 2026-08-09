@@ -1,14 +1,15 @@
 import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
 interface PackageManifest {
   readonly version: string;
 }
 
 const root = new URL('../', import.meta.url);
-process.chdir(root.pathname);
+process.chdir(fileURLToPath(root));
 const result = await Bun.build({
-  entrypoints: [new URL('src/entry.ts', root).pathname],
-  outdir: new URL('dist/', root).pathname,
+  entrypoints: [fileURLToPath(new URL('src/entry.ts', root))],
+  outdir: fileURLToPath(new URL('dist/', root)),
   naming: 'entry.js',
   target: 'node',
   packages: 'bundle',

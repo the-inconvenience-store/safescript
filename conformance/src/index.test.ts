@@ -37,10 +37,17 @@ const adapters: Array<Readonly<{ name: string; factory: RuntimeBridgeFactory }>>
   { name: 'direct', factory: createDirectRuntimeBridge },
   {
     name: 'node-process',
-    factory: () =>
-      createNodeProcessRuntimeBridge({
-        nodePath: process.env.SAFESCRIPT_CONFORMANCE_NODE_PATH ?? process.execPath,
-      }),
+    factory: () => {
+      const nodePath = process.env.SAFESCRIPT_CONFORMANCE_NODE_PATH ?? process.execPath;
+      const entryPath = process.env.SAFESCRIPT_CONFORMANCE_WORKER_ENTRY;
+      const buildDigest = process.env.SAFESCRIPT_CONFORMANCE_WORKER_DIGEST;
+      if ((entryPath === undefined) !== (buildDigest === undefined))
+        throw new Error('conformance worker entry and digest must be configured together');
+      return createNodeProcessRuntimeBridge({
+        nodePath,
+        ...(entryPath && buildDigest ? { override: { entryPath, nodePath, digestAllowlist: [buildDigest] } } : {}),
+      });
+    },
   },
 ];
 const references: ReferenceIntegration[] = [

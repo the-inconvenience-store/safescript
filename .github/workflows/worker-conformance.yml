@@ -25,17 +25,17 @@ jobs:
           - { name: windows-x64-node-24, runner: windows-2025, node: 24 }
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.10
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
       - run: bun install --frozen-lockfile
       - run: bun run build
-      - name: Select the matrix Node executable
-        run: node -e "require('node:fs').appendFileSync(process.env.GITHUB_ENV, 'SAFESCRIPT_CONFORMANCE_NODE_PATH=' + process.execPath + require('node:os').EOL)"
+      - name: Select the matrix Node executable and built worker
+        run: node conformance/scripts/configure-process-adapter.mjs
       - run: bun test conformance/src/index.test.ts conformance/src/worker-protocol-spec.test.ts
       - run: node conformance/scripts/write-platform-evidence.mjs
         env:

@@ -301,17 +301,24 @@ describe('worker protocol 1.0 publication', () => {
   });
 
   it('runs the adapter-neutral corpus on every declared platform and records release evidence', async () => {
-    const [workflow, evidenceWriter] = await Promise.all([
+    const [workflow, adapterConfiguration, evidenceWriter] = await Promise.all([
       Bun.file(new URL('.github/workflows/worker-conformance.yml', repositoryRoot)).text(),
+      Bun.file(new URL('conformance/scripts/configure-process-adapter.mjs', repositoryRoot)).text(),
       Bun.file(new URL('conformance/scripts/write-platform-evidence.mjs', repositoryRoot)).text(),
     ]);
     for (const runner of ['ubuntu-24.04', 'ubuntu-24.04-arm', 'macos-15-intel', 'macos-15', 'windows-2025'])
       expect(workflow).toContain(`runner: ${runner}`);
     expect(workflow).toContain('node: 22');
     expect(workflow).toContain('node: 24');
-    expect(workflow).toContain('SAFESCRIPT_CONFORMANCE_NODE_PATH=');
+    expect(workflow).toContain('configure-process-adapter.mjs');
     expect(workflow).toContain('bun test conformance/src/index.test.ts conformance/src/worker-protocol-spec.test.ts');
     expect(workflow).toContain('conformance/evidence/platform/');
+    for (const variable of [
+      'SAFESCRIPT_CONFORMANCE_NODE_PATH',
+      'SAFESCRIPT_CONFORMANCE_WORKER_ENTRY',
+      'SAFESCRIPT_CONFORMANCE_WORKER_DIGEST',
+    ])
+      expect(adapterConfiguration).toContain(variable);
     for (const field of [
       'releaseVersion',
       'nodeVersion',
