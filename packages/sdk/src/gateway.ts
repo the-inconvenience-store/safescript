@@ -3,6 +3,7 @@
  * @packageDocumentation
  */
 import {
+  MAX_HOOK_DIAGNOSTICS,
   checkCompatibility,
   decodeCanonical,
   encodeCanonical,
@@ -12,6 +13,7 @@ import {
   type ActionRequest,
   type EffectState,
   type HostFailure,
+  type HookDiagnostic,
   type ExecutionLimits,
   type InvocationId,
   type OperationId,
@@ -20,7 +22,29 @@ import {
 
 import type { Operations, Slot, Slots } from './contract.js';
 import { ABI_VERSION, freeze } from './shared.js';
-import type { AbortSignal, ActionContext, CreateSafeScriptOptions } from './types.js';
+import type {
+  AbortSignal,
+  ActionContext,
+  ActionHookContext,
+  BeforeActionDecision,
+  CreateSafeScriptOptions,
+} from './types.js';
+
+function validBeforeActionDecision(value: unknown): BeforeActionDecision<unknown> | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  try {
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Object.keys(descriptors).sort();
+    if (keys.some((key) => !('value' in (descriptors[key] as PropertyDescriptor)))) return undefined;
+    const record = value as Readonly<Record<string, unknown>>;
+    if (keys.length === 1 && keys[0] === 'status' && record.status === 'continue') return { status: 'continue' };
+    return keys.length === 2 && keys[0] === 'error' && keys[1] === 'status' && record.status === 'stop'
+      ? { status: 'stop', error: record.error }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Host-local association between an ergonomic handler key and its stable operation definition.
@@ -34,6 +58,7 @@ class InvocationGateway<C, O extends Operations, S extends Slots> {
   private sequence = 0;
   private attemptedCalls = 0;
   private activeCalls = 0;
+  private readonly diagnostics: HookDiagnostic[] = [];
 
   constructor(
     private readonly options: CreateSafeScriptOptions<C, O, S>,
@@ -51,18 +76,23 @@ class InvocationGateway<C, O extends Operations, S extends Slots> {
     this.sequence++;
     const decoded = this.decodeInput(request, entry);
     if (!decoded.ok) return this.fail(request, 'not_performed', 'gateway_fault');
-    const context = this.actionContext(request);
-    if (this.signal.aborted) return this.fail(request, 'not_performed', 'cancelled');
+    const context = this.actionContext(request, entry, decoded.value);
     if (this.attemptedCalls + 1 > this.limits.hostCalls || this.activeCalls + 1 > this.limits.concurrentActions)
       return this.fail(request, 'not_performed', 'gateway_fault');
     this.attemptedCalls++;
     this.activeCalls++;
+    let outcome: ActionOutcome;
     try {
-      if (this.signal.aborted) return this.fail(request, 'not_performed', 'cancelled');
-      return this.invoke(request, entry, decoded.value, context);
+      outcome = await this.dispatch(request, entry, decoded.value, context);
     } finally {
       this.activeCalls--;
     }
+    await this.observe(context, outcome);
+    return outcome;
+  }
+
+  hookDiagnostics(): readonly HookDiagnostic[] {
+    return freeze([...this.diagnostics]);
   }
 
   private validEnvelope(request: ActionRequest, entry: OperationEntry<O>): boolean {
@@ -122,14 +152,80 @@ class InvocationGateway<C, O extends Operations, S extends Slots> {
     return decoded.ok ? { ok: true, value: decoded.value } : { ok: false };
   }
 
-  private actionContext(request: ActionRequest): ActionContext<C> {
-    return freeze({
+  private actionContext(
+    request: ActionRequest,
+    entry: OperationEntry<O>,
+    input: unknown,
+  ): ActionHookContext<PropertyKey, unknown, C> {
+    const fixedRequest = freeze({ ...request, source: { ...request.source }, input: [...request.input] });
+    return Object.freeze({
+      operation: entry.key,
+      operationId: entry.operation.id,
+      input,
       invocationId: request.invocationId,
       context: this.context,
-      request,
+      request: fixedRequest,
       ...(request.idempotencyKey === undefined ? {} : { idempotencyKey: request.idempotencyKey }),
       signal: this.signal,
     });
+  }
+
+  private async dispatch(
+    request: ActionRequest,
+    entry: OperationEntry<O>,
+    input: unknown,
+    context: ActionHookContext<PropertyKey, unknown, C>,
+  ): Promise<ActionOutcome> {
+    if (this.signal.aborted) return this.fail(request, 'not_performed', 'cancelled');
+    const hook = this.options.hooks?.beforeAction;
+    if (hook) {
+      let decision: BeforeActionDecision<unknown> | undefined;
+      try {
+        decision = validBeforeActionDecision(
+          await (hook as unknown as (value: ActionHookContext<PropertyKey, unknown, C>) => unknown)(context),
+        );
+      } catch {
+        decision = undefined;
+      }
+      if (this.signal.aborted) return this.fail(request, 'not_performed', 'cancelled');
+      if (!decision) return this.fail(request, 'not_performed', 'gateway_fault');
+      if (decision.status === 'stop') return this.stop(request, entry, decision.error);
+    }
+    if (this.signal.aborted) return this.fail(request, 'not_performed', 'cancelled');
+    return this.invoke(request, entry, input, context);
+  }
+
+  private stop(request: ActionRequest, entry: OperationEntry<O>, error: unknown): ActionOutcome {
+    const encoded = encodeCanonical(
+      resultSchema({ kind: 'ref', type: entry.operation.output.id }, { kind: 'ref', type: entry.operation.error.id }),
+      { tag: 'error', value: error },
+      { registry: this.options.contract.registry.schemas },
+    );
+    return encoded.ok
+      ? freeze({
+          abiVersion: ABI_VERSION,
+          requestId: request.requestId,
+          result: { tag: 'completed', value: [...encoded.value] },
+        })
+      : this.fail(request, 'not_performed', 'gateway_fault');
+  }
+
+  private async observe(context: ActionHookContext<PropertyKey, unknown, C>, outcome: ActionOutcome): Promise<void> {
+    const hook = this.options.hooks?.afterAction;
+    if (!hook) return;
+    try {
+      await hook(Object.freeze({ ...context, outcome }) as never);
+    } catch {
+      if (this.diagnostics.length < MAX_HOOK_DIAGNOSTICS)
+        this.diagnostics.push(
+          freeze({
+            code: 'hook_fault',
+            point: 'after_action',
+            invocationId: context.invocationId,
+            requestId: context.request.requestId,
+          }),
+        );
+    }
   }
 
   private async invoke(
@@ -207,9 +303,10 @@ export function createGateway<C, O extends Operations, S extends Slots>(
   signal: AbortSignal,
   invocationId: InvocationId,
   limits: ExecutionLimits,
-): RuntimeBridgeHost {
+): Readonly<{ host: RuntimeBridgeHost; hookDiagnostics: () => readonly HookDiagnostic[] }> {
   const gateway = new InvocationGateway(options, operationsById, context, slot, signal, invocationId, limits);
-  return {
-    handleAction: (request) => gateway.handle(request),
-  };
+  return Object.freeze({
+    host: Object.freeze({ handleAction: (request: ActionRequest) => gateway.handle(request) }),
+    hookDiagnostics: () => gateway.hookDiagnostics(),
+  });
 }

@@ -14,6 +14,8 @@ export { SdkConfigurationError } from './types.js';
 export type {
   AbortSignal,
   ActionContext,
+  ActionHookContext,
+  BeforeActionDecision,
   BeforeExecuteDecision,
   CheckRequest,
   CreateSafeScriptOptions,

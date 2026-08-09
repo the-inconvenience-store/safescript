@@ -5,9 +5,11 @@ import {
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
   derivedActionSiteId,
+  decodeCanonical,
   encodeCanonical,
   hash,
   ids,
+  resultSchema,
   type ActionOutcome,
   type ActionRequest,
   type CancelResult,
@@ -129,14 +131,14 @@ class FakeBridge implements RuntimeBridge {
   }
 }
 
-function action(request: BridgeExecuteRequest): ActionRequest {
+function action(request: BridgeExecuteRequest, sequence = 0): ActionRequest {
   return {
     abiVersion: { major: 2, minor: 0 },
     contractId: contract.id,
     requiredContractVersion: contract.version,
     irDigest: hash('ir', Uint8Array.of(1)) as unknown as IrDigest,
     invocationId: request.invocationId,
-    requestId: ids.request(request.invocationId, 0),
+    requestId: ids.request(request.invocationId, sequence),
     slotId,
     operationId,
     effectId: effect,
@@ -491,6 +493,181 @@ describe('createSafeScript', () => {
     await safe.execute({ slot: 'main', program: { kind: 'artifact', bytes: [] }, input: { value: 1n }, context: {} });
     expect(bridge.actions.slice(-2).map((outcome) => outcome.result.tag)).toEqual(['completed', 'failed']);
     expect(handlers).toBe(1);
+  });
+
+  it('stops validated actions with declared errors and records afterAction faults without rewriting outcomes', async () => {
+    const bridge = new FakeBridge();
+    let handlers = 0;
+    let fixedOutcome: ActionOutcome | undefined;
+    bridge.executeResult = async (request, host) => {
+      fixedOutcome = await host.handleAction(action(request));
+      const output = encodeCanonical({ kind: 'string' }, 'done');
+      if (!output.ok) throw new Error('fixture encoding failed');
+      return { status: 'completed', output: [...output.value], facts };
+    };
+    const hostContext = { actor: 'a' };
+    const safe = createSafeScript({
+      contract,
+      bridge,
+      handlers: {
+        read: () => {
+          handlers++;
+          return { tag: 'ok', value: 'must not run' } as const;
+        },
+      },
+      createInvocationId: () => invocationId,
+      hooks: {
+        beforeAction: (context) => {
+          expect(context.operation).toBe('read');
+          expect(context.operationId).toBe(operationId);
+          expect(context.input).toEqual({ value: 1n });
+          expect(context.context).toBe(hostContext);
+          expect(Object.isFrozen(context)).toBe(true);
+          expect(Object.isFrozen(context.input)).toBe(true);
+          expect(Object.isFrozen(hostContext)).toBe(false);
+          return { status: 'stop', error: { tag: 'policy', value: { code: 'denied' } } } as const;
+        },
+        afterAction: ({ outcome }) => {
+          expect(outcome.result.tag).toBe('completed');
+          throw new Error('secret after action');
+        },
+      },
+    });
+    const result = await safe.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      context: hostContext,
+    });
+    expect(handlers).toBe(0);
+    expect(fixedOutcome?.result.tag).toBe('completed');
+    if (fixedOutcome?.result.tag === 'completed') {
+      const decoded = decodeCanonical(
+        resultSchema({ kind: 'string' }, errorType.schema),
+        Uint8Array.from(fixedOutcome.result.value),
+      );
+      expect(decoded.ok && decoded.value).toEqual({
+        tag: 'error',
+        value: { tag: 'policy', value: { code: 'denied' } },
+      });
+    }
+    expect(result.status).toBe('completed');
+    expect(result.hookDiagnostics).toEqual([
+      {
+        code: 'hook_fault',
+        point: 'after_action',
+        invocationId,
+        requestId: ids.request(invocationId, 0),
+      },
+    ]);
+    expect(JSON.stringify(result)).not.toContain('secret after action');
+  });
+
+  it('fails malformed action hooks closed and observes cancellation and handler failures', async () => {
+    for (const mode of ['malformed', 'cancelled', 'handler_fault'] as const) {
+      const controller = new AbortController();
+      const observed: ActionOutcome['result'][] = [];
+      const expected: ActionOutcome['result'] =
+        mode === 'handler_fault'
+          ? { tag: 'failed', value: { effectState: 'unknown', failure: { code: 'handler_fault' } } }
+          : {
+              tag: 'failed',
+              value: {
+                effectState: 'not_performed',
+                failure: { code: mode === 'cancelled' ? 'cancelled' : 'gateway_fault' },
+              },
+            };
+      const bridge = new FakeBridge();
+      bridge.executeResult = async (request, host) => {
+        const outcome = await host.handleAction(action(request));
+        observed.push(outcome.result);
+        const output = encodeCanonical({ kind: 'string' }, 'done');
+        if (!output.ok) throw new Error('fixture encoding failed');
+        return { status: 'completed', output: [...output.value], facts };
+      };
+      const beforeAction =
+        mode === 'malformed'
+          ? () => ({ bad: true }) as never
+          : mode === 'cancelled'
+            ? () => {
+                controller.abort();
+                return { status: 'continue' } as const;
+              }
+            : undefined;
+      const safe = createSafeScript({
+        contract,
+        bridge,
+        handlers: {
+          read: () => {
+            if (mode === 'handler_fault') throw new Error('handler secret');
+            return { tag: 'ok', value: 'unused' } as const;
+          },
+        },
+        createInvocationId: () => invocationId,
+        hooks: {
+          ...(beforeAction === undefined ? {} : { beforeAction }),
+          afterAction: ({ outcome }) => expect(outcome.result).toEqual(expected),
+        },
+      });
+      await safe.execute({
+        slot: 'main',
+        program: { kind: 'artifact', bytes: [] },
+        input: { value: 1n },
+        context: {},
+        signal: controller.signal,
+      });
+      expect(observed).toEqual([expected]);
+    }
+  });
+
+  it('keeps invalid and over-capacity actions away from hooks and handlers', async () => {
+    const bridge = new FakeBridge();
+    let hooks = 0;
+    let handlers = 0;
+    bridge.executeResult = async (request, host) => {
+      const invalid = { ...action(request), requestId: ids.request(request.invocationId, 3) };
+      const invalidOutcome = await host.handleAction(invalid);
+      const [first, second] = await Promise.all([
+        host.handleAction(action(request, 0)),
+        host.handleAction(action(request, 1)),
+      ]);
+      bridge.actions.push(invalidOutcome, first, second);
+      const output = encodeCanonical({ kind: 'string' }, 'done');
+      if (!output.ok) throw new Error('fixture encoding failed');
+      return { status: 'completed', output: [...output.value], facts };
+    };
+    const safe = createSafeScript({
+      contract,
+      bridge,
+      handlers: {
+        read: async () => {
+          handlers++;
+          await Promise.resolve();
+          return { tag: 'ok', value: 'ok' } as const;
+        },
+      },
+      createInvocationId: () => invocationId,
+      hooks: {
+        beforeAction: async () => {
+          hooks++;
+          await Promise.resolve();
+          return { status: 'continue' } as const;
+        },
+        afterAction: () => {
+          hooks++;
+        },
+      },
+    });
+    await safe.execute({
+      slot: 'main',
+      program: { kind: 'artifact', bytes: [] },
+      input: { value: 1n },
+      context: {},
+      limits: { concurrentActions: 1 },
+    });
+    expect(handlers).toBe(1);
+    expect(hooks).toBe(2);
+    expect(bridge.actions.map((outcome) => outcome.result.tag)).toEqual(['failed', 'completed', 'failed']);
   });
 
   it('validates default limit configuration', () => {

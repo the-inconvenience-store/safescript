@@ -6,6 +6,7 @@ import { randomBytes } from 'node:crypto';
 
 import {
   MAX_FAILURE_DETAIL_LENGTH,
+  MAX_HOOK_DIAGNOSTICS,
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
   decodeCanonical,
@@ -454,7 +455,7 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
       if ('code' in assembled) return freeze({ status: 'bridge_error', error: assembled });
       const context = this.requests.hookContext(slot, request.slot, request, assembled, controller.signal);
       if ('code' in context) return freeze({ status: 'bridge_error', error: context });
-      const host = createGateway(
+      const gateway = createGateway(
         this.options,
         this.operationsById,
         request.context,
@@ -487,12 +488,18 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
               },
             });
           } else {
-            result = await this.executeBridge(slot, request, host, invocationId, assembled);
+            result = await this.executeBridge(slot, request, gateway.host, invocationId, assembled);
           }
         }
       } else {
-        result = await this.executeBridge(slot, request, host, invocationId, assembled);
+        result = await this.executeBridge(slot, request, gateway.host, invocationId, assembled);
       }
+      const actionDiagnostics = gateway.hookDiagnostics();
+      if (actionDiagnostics.length)
+        result = freeze({
+          ...result,
+          hookDiagnostics: [...(result.hookDiagnostics ?? []), ...actionDiagnostics].slice(0, MAX_HOOK_DIAGNOSTICS),
+        }) as ExecutionResult<unknown>;
       return await this.afterExecute(context, result);
     } finally {
       try {
@@ -550,7 +557,10 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
         point: 'after_execute',
         invocationId: context.invocationId,
       });
-      return freeze({ ...fixed, hookDiagnostics: [diagnostic] }) as ExecutionResult<unknown>;
+      return freeze({
+        ...fixed,
+        hookDiagnostics: [...(fixed.hookDiagnostics ?? []), diagnostic].slice(0, MAX_HOOK_DIAGNOSTICS),
+      }) as ExecutionResult<unknown>;
     }
   }
 
