@@ -15,11 +15,11 @@ bun install
 bun run --cwd examples/crm demo
 ```
 
-Open <http://localhost:4317> to inspect and execute ten CRM automations. The example includes host operations, runtime authorization, checked artifacts, deterministic tests, and a visual projection of the program's semantic graph.
+Open <http://localhost:4317> to inspect and execute ten CRM automations. The example includes host operations, a host-owned action hook, checked artifacts, deterministic tests, and a visual projection of the program's semantic graph.
 
 ## Use the SDK
 
-A host defines one contract, provides one handler per operation, and authorizes every action when it is requested:
+A host defines one contract and provides one trusted handler per operation. Optional lifecycle hooks can enforce application policy or observe execution at the validated SDK boundary:
 
 ```ts
 import { createAuthoringBundle, createSafeScript } from '@safescript/sdk';
@@ -32,13 +32,15 @@ const safe = createSafeScript({
       value: await tasks.create(input),
     }),
   },
-  authorise: ({ context, resourceScope }) =>
-    context.workspaceIds.includes(resourceScope.workspaceId ?? '')
-      ? { status: 'allowed' }
-      : {
-          status: 'rejected',
-          error: { code: 'forbidden', detail: 'Workspace access denied' },
-        },
+  hooks: {
+    beforeAction: ({ context, input }) =>
+      context.workspaceIds.includes(input.workspaceId)
+        ? { status: 'continue' }
+        : {
+            status: 'stop',
+            error: { tag: 'access', value: { code: 'forbidden', detail: 'Workspace access denied' } },
+          },
+  },
 });
 
 const authoring = createAuthoringBundle(contract, 'automation');
@@ -54,7 +56,7 @@ if (checked.status === 'accepted') {
 }
 ```
 
-The authoring bundle contains the slot's generated types, allowed operations, language rules, limits, examples, and compiler-repair guidance. A checked artifact is only executable input: every host action is still validated and reauthorized at runtime.
+The authoring bundle contains the slot's generated types, allowed operations, language rules, limits, examples, and compiler-repair guidance. A checked artifact is only executable input: every host action is still validated by the gateway. The host decides whether authority is enforced in a hook, handler, downstream service, or several layers.
 
 See [getting started](docs/getting-started.md) for a complete contract and runnable integration.
 
@@ -139,11 +141,11 @@ The language and runtime stay the same. Each host supplies a different contract:
 | Devices and IoT  | Telemetry snapshot              | Set actuator, emit alert, record observation                    |
 | Agent code mode  | User request and tool context   | Fetch a permitted URL, enrich a profile, write a bounded result |
 
-Operations are application-specific and execute only after current host authorization. SafeScript does not provide generic network or database access.
+Operations are application-specific and dispatch only through the validated host gateway. SafeScript does not provide generic network or database access, and it does not claim that an action is authorized unless the host's own policy establishes that fact.
 
 ## What is included
 
-- `@safescript/sdk` — contracts, host integration, authorization gateway, authoring bundles, and deterministic tests
+- `@safescript/sdk` — contracts, host integration, validated action gateway, lifecycle hooks, authoring bundles, and deterministic tests
 - `@safescript/engine` — restricted TypeScript compiler, checked artifacts, semantic inspection, and bounded interpreter
 - `@safescript/contracts` — serializable schemas, IDs, limits, diagnostics, canonical codecs, and runtime bridge records
 - `@safescript/cli` — offline JSON commands for check, inspect, execute, and test

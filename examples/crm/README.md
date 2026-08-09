@@ -19,16 +19,16 @@ host action while the CRM state and activity panels update. **Reset CRM** restor
 The code is arranged in the order data travels through the application:
 
 1. [`src/actions.ts`](src/actions.ts) defines host operations such as `notes.create` and `followups.schedule`, including
-   their request/result schemas, effects, capabilities, costs, idempotency, and resource scope.
+   their request/result schemas, effects, capabilities, costs, and idempotency.
 2. [`src/contract.ts`](src/contract.ts) places those actions in the CRM automation slot and defines its event/result.
 3. [`src/scripts/index.ts`](src/scripts/index.ts) contains the canonical restricted TypeScript programs. Every action
    payload is written explicitly; there is no source-generating `mutation()` helper hiding what crosses the boundary.
 4. [`src/automations.ts`](src/automations.ts) is only the catalog connecting script bodies to names, events, and expected
    operations.
-5. [`src/runtime.ts`](src/runtime.ts) connects each contract operation to a trusted handler, reauthorises requests, and
-   creates the SafeScript facade.
+5. [`src/runtime.ts`](src/runtime.ts) connects each contract operation to a trusted handler, configures a host-owned
+   `beforeAction` access check, and creates the SafeScript facade.
 6. [`src/crm/model.ts`](src/crm/model.ts) describes the shared state and its baseline records;
-   [`src/crm/store.ts`](src/crm/store.ts) applies authorised effects to those records.
+   [`src/crm/store.ts`](src/crm/store.ts) applies the resulting trusted effects to those records.
 7. [`src/graph/project.ts`](src/graph/project.ts) derives readable, connected nodes from the public semantic graph.
 8. [`src/web/server.ts`](src/web/server.ts) exposes the page and run/reset endpoints. Page markup, browser behavior,
    and dark-mode styling are isolated in `dashboard.ts`, `client.ts`, and `styles.ts` beside it.

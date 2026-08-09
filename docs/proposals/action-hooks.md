@@ -1,5 +1,7 @@
 # Optional execution and action hooks
 
+> **Status: accepted and implemented.** The shipped behavior is documented in the [SDK guide](../sdk.md#host-policy-hook-composition-and-idempotency), [security model](../security.md#static-eligibility-versus-host-authority), [testing guide](../testing.md#deterministic-extension-tests), and [v2 migration guide](../v2/migration.md#host-migration-checklist). This page remains the detailed design record.
+
 Status: accepted for SafeScript v2
 
 Tracking issue: `safescript-eq6`

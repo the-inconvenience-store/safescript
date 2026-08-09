@@ -60,6 +60,14 @@ _Avoid_: Command execution, permission grant
 The terminal ABI 2.0 resolution of an action request as a completed declared result or a host failure with explicit effect state. A host hook that stops an action supplies the operation's declared error rather than a protocol-level policy rejection.
 _Avoid_: Host response, success flag
 
+**Lifecycle hook**:
+An optional host-local callback at `beforeExecute`, `afterExecute`, `beforeAction`, or `afterAction`. Before-hooks may stop work; after-hooks observe a fixed result and cannot rewrite it. Hooks never cross the runtime bridge.
+_Avoid_: Built-in authorization, worker callback, middleware registry
+
+**Validated interception point**:
+The SDK-owned boundary after public and action-envelope validation where a configured host hook may apply application policy before trusted work. It guarantees safe placement and fail-closed plumbing, not that the host has authorized the request.
+_Avoid_: Permission grant, policy engine
+
 **Effect state**:
 The knowledge attached to a failed action that its external effect was either provably not performed or is unknown. Unknown never means safe to retry.
 _Avoid_: Failure status, rollback status

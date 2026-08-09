@@ -13,7 +13,7 @@ export interface CrmActionOutput {
 }
 
 export type CrmActionError =
-  | Readonly<{ tag: 'policy'; value: Readonly<{ code: string; detail: string }> }>
+  | Readonly<{ tag: 'access'; value: Readonly<{ code: string; detail: string }> }>
   | Readonly<{ tag: 'domain'; value: string }>;
 
 const string = (maxBytes = 256): StringSchema => ({ kind: 'string', maxBytes });
@@ -36,7 +36,7 @@ const errorSchema: Schema = {
   kind: 'variant',
   variants: [
     {
-      tag: 'policy',
+      tag: 'access',
       schema: {
         kind: 'record',
         fields: [

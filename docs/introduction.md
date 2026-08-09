@@ -14,14 +14,14 @@ SafeScript changes the integration model:
 2. The compiler accepts only an explicit TypeScript subset and only registered modules.
 3. The runtime interprets verified IR and meters semantic work.
 4. Every host operation becomes a typed action request.
-5. The host validates and reauthorizes that request immediately before dispatch.
+5. The SDK gateway validates that request before optional host hooks and at-most-once handler dispatch.
 6. The result and ordered execution facts cross back as serializable values.
 
 Static effect and capability summaries answer “what might this program request?” They never answer “is this request allowed now?”
 
 ## The three participants
 
-The **host developer** integrates `@safescript/sdk`. They define the contract, trusted handlers, current authorization, and limits.
+The **host developer** integrates `@safescript/sdk`. They define the contract, trusted handlers, optional lifecycle hooks, host policy placement, and limits.
 
 The **extension author** writes restricted TypeScript against generated `host:api` declarations. They receive ordinary typed input and a `Context` containing only the operations allowed in that slot.
 
@@ -41,7 +41,7 @@ The current implementation is a TypeScript host SDK with a direct in-process run
 
 SafeScript does not persist invocations, schedule work, coordinate retries, collect approvals, or provide a workflow engine. Action records are in-memory execution facts, not a durable audit log. Artifact caching and storage are host concerns. A failed action whose effect state is `unknown` is never implicitly safe to retry.
 
-SafeScript also does not make trusted host code safe. Operation handlers and the authorization callback remain inside the trusted computing base and must protect credentials, validate their own service behavior, and enforce external idempotency where required.
+SafeScript also does not make trusted host code safe. Lifecycle hooks and operation handlers remain inside the trusted computing base and must protect credentials, validate service behavior, and enforce authority and external idempotency where required. Downstream services should retain their own checks when they are reachable outside SafeScript or defense in depth is needed.
 
 ## Where to go next
 

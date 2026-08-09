@@ -76,7 +76,7 @@ Host operations appear as methods under `ctx`, arranged from operation IDs. A ca
 
 `Promise.all([actionA, actionB])` is the only concurrent action form. The inputs must be statically known. Capacity and fuel for the whole group are reserved before any request is exposed; results preserve input order even when host completions arrive out of order. `Promise.race` and related competition are rejected.
 
-A policy rejection is converted to the operation's declared `policy` error and resumes extension code as `Result`. A malformed outcome or host failure terminates execution instead.
+A host may stop a validated action in `beforeAction` with any value from that operation's declared error schema. The interpreter resumes extension code with that ordinary `Result`. A malformed outcome or host failure terminates execution instead. The language does not expose hooks or define a universal authorization-error shape.
 
 ## Deterministic values and intrinsics
 

@@ -14,7 +14,7 @@ An accepted check returns canonical artifact bytes. The artifact binds the compi
 
 Artifacts are suitable for an optional host cache or store. Before every artifact execution, the engine treats the bytes as untrusted and revalidates canonical representation, all compatibility facts, referenced definitions, digest integrity, and typed IR. Any mismatch fails before interpretation.
 
-Artifact reuse never reuses current authorization. Actions still pass through the SDK gateway. Hosts should retain source as the canonical review and editing form and regenerate artifacts when compiler or compatibility policy changes.
+Artifact reuse never reuses a host policy decision. Actions still pass through the SDK gateway and the hooks and handlers configured for that invocation. Hosts should retain source as the canonical review and editing form and regenerate artifacts when compiler or compatibility policy changes.
 
 ## Program summaries
 

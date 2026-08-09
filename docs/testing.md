@@ -4,7 +4,7 @@ SafeScript has two complementary testing layers: the SDK's deterministic extensi
 
 ## Deterministic extension tests
 
-`safe.test` checks or verifies the requested program and executes it through the same runtime bridge as production. Instead of production authorization and handlers, it uses an ordered script of expected actions and outcomes.
+`safe.test` checks or verifies the requested program and executes it through the same runtime bridge as production. Instead of production hooks and handlers, it uses an ordered script of expected actions and outcomes.
 
 ```ts
 const report = await safe.test({
@@ -16,7 +16,6 @@ const report = await safe.test({
     {
       operation: 'createTask',
       input: { workspaceId: 'acme', title: 'Follow up' },
-      authorisation: { status: 'allowed' },
       outcome: { tag: 'ok', value: { id: 'task-1' } },
     },
   ],
@@ -37,7 +36,9 @@ const report = await safe.test({
 if (!report.passed) console.error(report.mismatches);
 ```
 
-The scripted host checks action order, operation, canonical input, authorization, request uniqueness, and declared outcomes. Missing, extra, duplicate, or mismatched actions become path-addressed mismatches. Production callbacks are never invoked.
+The scripted host checks action order, operation, canonical input, request uniqueness, and declared outcomes. Missing, extra, duplicate, or mismatched actions become path-addressed mismatches. Production hooks and handlers are never invoked.
+
+A scripted declared `Err` covers the extension-visible path of a production `beforeAction` stop. To test callers that handle a `beforeExecute` rejection, provide `execution: { status: "rejected", code, detail? }`. Test hook ordering, host policy, audit forwarding, and handler integration through the production SDK gateway rather than `safe.test`.
 
 Expectations may cover status, output, effects, action facts, diagnostics, and selected resource usage. The report always contains the observed execution, making failures inspectable without rerunning. Test mismatches do not throw.
 
@@ -49,7 +50,9 @@ At minimum, cover:
 
 - the successful path for every canonical extension;
 - no-action branches;
-- current-policy rejection without handler dispatch;
+- each configured before-hook continuing and stopping without unintended handler dispatch;
+- absent hooks preserving normal dispatch;
+- after-hooks observing fixed outcomes without rewriting them;
 - domain errors returned by handlers;
 - malformed/untrusted handler output failing closed;
 - host-call, fuel, output, and graph ceilings relevant to the product;
@@ -74,7 +77,7 @@ The current corpus covers:
 - language rejection cases and hostile atomic boundaries;
 - action capacity reservation, ordering, and no replay;
 - cancellation and late completion;
-- policy rejection versus host/malformed failures;
+- declared action errors versus host/malformed failures;
 - fixed time, seeded randomness, traces, outputs, and repeatable charges;
 - canonical value round trips and rejection of non-canonical bytes;
 - version compatibility and public package/release metadata.

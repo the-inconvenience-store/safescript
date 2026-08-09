@@ -177,6 +177,24 @@ describe('CRM example integration', () => {
     expect(crm.store.effectCount()).toBe(0);
   });
 
+  it('stops a validated action in the host hook with a declared error and no effect', async () => {
+    const crm = example();
+    const automation = automationAt(0);
+    const result = await crm.run(automation, {
+      context: { actorId: 'restricted-user', workspaceIds: [] },
+    });
+
+    expect(result.status).toBe('completed');
+    expect(result.status === 'completed' && result.output).toEqual({
+      tag: 'error',
+      value: {
+        tag: 'access',
+        value: { code: 'workspace_forbidden', detail: 'Workspace is not available to this invocation' },
+      },
+    });
+    expect(crm.store.effectCount()).toBe(0);
+  });
+
   it('covers canonical no-action branches and rejects ambient authority at compile time', async () => {
     const crm = example();
     const won = automationAt(0);

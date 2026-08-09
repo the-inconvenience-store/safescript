@@ -62,7 +62,7 @@ Compiler diagnostics have a stable `SS_...` code, source location, bounded messa
 
 Code and source provenance are the compatibility surface. Rendered message text is intentionally non-normative and capped, so integrations should branch on code rather than matching strings. `diagnosticRepair(code)` supplies a category and safe remediation action without exposing compiler internals.
 
-The closed diagnostic catalog also gives stable meanings and owners to validation, compatibility, artifact, inspection, execution, action, cancellation, and bridge failure codes. Host-defined policy and domain error codes remain contract-owned and are not part of that catalog.
+The closed diagnostic catalog also gives stable meanings and owners to validation, compatibility, artifact, inspection, execution, action, cancellation, hook, and bridge failure codes. Host-defined declared error codes remain contract-owned and are not part of that catalog.
 
 ## Result layers
 
@@ -74,7 +74,7 @@ Keep these result layers distinct:
 - A **not-started execution** means source preparation failed before interpretation.
 - A **failed execution** means interpretation started and ended with a stable runtime, action, or resource error.
 - A **cancelled execution** means cancellation reached started work; facts describe work observed up to termination.
-- A typed **policy/domain `Result`** is ordinary extension-level control flow and can still lead to a completed invocation.
+- A typed **declared `Result`** is ordinary extension-level control flow and can still lead to a completed invocation, including an error supplied by `beforeAction`.
 
 Raw implementation exceptions are never part of these records.
 

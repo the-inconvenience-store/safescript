@@ -50,8 +50,10 @@ large enough for realistic extension inputs while bounding hostile work to
 1 MiB values/output, 4 MiB cumulative allocation, and 10,000 collection items.
 
 The profile is a maximum: hosts and slots should lower individual dimensions to
-fit their domain. Effect/capability summaries do not authorise work, and current
-host policy still reauthorises every action.
+fit their domain. Effect/capability summaries do not authorise work. Under action
+ABI 2.0, the host decides whether current policy runs in a hook, handler,
+downstream service, or several layers; the historical ABI 1.0 SDK required
+reauthorisation at its gateway.
 
 ## Release rule
 

@@ -14,17 +14,18 @@ The repository currently implements:
 - checked artifact creation and fail-closed verification;
 - bounded IR interpretation with deterministic fuel and value/resource accounting;
 - sequential actions and bounded deterministic `Promise.all` groups;
-- typed action requests/outcomes, current SDK authorization, idempotency-key derivation, and at-most-once handler dispatch per request;
+- typed action ABI 2.0 requests/outcomes, optional execution/action lifecycle hooks, idempotency-key derivation, and at-most-once handler dispatch per request;
 - deterministic fixed time, seeded randomness, checked JSON/bytes/math/string/object/collection intrinsics, and bounded traces;
 - semantic graph inspection with stable semantic IDs and independent export limits;
 - host contract declaration/codecs/fingerprint derivation;
 - the six-method TypeScript facade and deterministic scripted-action tests;
 - slot-scoped agent/editor authoring bundles with repair guidance;
 - offline JSON CLI commands for check, inspect, execute, and test;
+- the worker protocol 1.0 specification, standalone runtime worker, and explicit process bridge adapter;
 - adapter-neutral conformance references, resource ledgers, hostile cases, release metadata, and authoring evidence;
 - an interactive CRM integration and read-only semantic-graph projection.
 
-The public TypeScript packages and CLI are version 1.0.0. The supported compatibility dimensions include language 1.0 and 1.1, IR 1.0 and 1.1, ABI 1.0, diagnostic catalog 1.0.0, and authoring bundle 1.0.0.
+The public TypeScript packages and CLI are version 1.0.0. The supported compatibility dimensions include language 1.0 and 1.1, IR 1.0 and 1.1, action ABI 2.0, worker protocol 1.0, diagnostic catalog 1.0.0, and authoring bundle 1.0.0.
 
 ## Host responsibilities, not missing runtime features
 
@@ -45,7 +46,7 @@ These concerns are outside SafeScript's core contract rather than implied automa
 
 The current repository does not yet provide:
 
-- process-based runtime adapters or a bundled standalone runtime protocol;
+- worker-backed default selection, production supervision policy, and platform hardening recipes;
 - Python, Go, Rust, Java, or C# host SDKs;
 - a WebAssembly execution backend;
 - artifact cache/storage/signing/export products;

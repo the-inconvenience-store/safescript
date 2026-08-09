@@ -37,7 +37,7 @@ Source execution compiles through the same check path and reports the newly crea
 
 Artifact execution treats bytes as untrusted. The engine rechecks canonical encoding, compiler identity, ABI/language/IR versions, contract identity and version, registry digest, referenced definition fingerprints, slot, IR digest, and the complete private IR verifier before interpreting anything. Artifact mode reports its verified IR digest in preparation facts.
 
-An artifact is a disposable optimization, not a permission token. It does not bypass input validation, resource limits, action authorization, or result validation.
+An artifact is a disposable optimization, not a permission token. It does not bypass input validation, resource limits, the action gateway, configured host hooks, handler dispatch, or result validation.
 
 ## Bounded interpretation
 

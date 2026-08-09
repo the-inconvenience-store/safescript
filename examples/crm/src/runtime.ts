@@ -60,6 +60,29 @@ export function createCrm(store = new CrmStore(), options: CrmOptions = {}) {
   const safe = createSafeScript({
     contract: crmContract,
     handlers,
+    hooks: {
+      beforeAction: ({ operationId, input, context }) => {
+        if (!context.workspaceIds.includes(input.workspaceId)) {
+          return {
+            status: 'stop',
+            error: {
+              tag: 'access',
+              value: { code: 'workspace_forbidden', detail: 'Workspace is not available to this invocation' },
+            },
+          };
+        }
+        if (context.deniedOperations?.includes(operationId)) {
+          return {
+            status: 'stop',
+            error: {
+              tag: 'access',
+              value: { code: 'operation_forbidden', detail: 'Operation is not available to this invocation' },
+            },
+          };
+        }
+        return { status: 'continue' };
+      },
+    },
     createInvocationId: () => ids.invocation(`invocation:${(++invocation).toString(16).padStart(32, '0')}`),
   });
 

@@ -58,12 +58,9 @@ An operation declares:
 - input, successful output, and error types;
 - an effect and capability;
 - non-negative semantic effect cost;
-- whether an idempotency key is required;
-- a synchronous, pure `resourceScope(input)` function.
+- whether an idempotency key is required.
 
-The resource scope extracts stable strings used by current authorization. It must not perform I/O or make the authorization decision itself.
-
-Every operation error type must include a `policy` variant whose record contains a string (or string brand) named `code`. This lets the gateway turn a current-policy rejection into the operation's declared error type without inventing an out-of-band exception.
+Operation error types are entirely contract-owned. They do not require a `policy` variant or any other universal wrapper. A configured `beforeAction` hook that stops dispatch must provide a value from the matched operation's declared error schema, so extension code receives an ordinary typed `Err`.
 
 ## Slots
 
@@ -86,6 +83,6 @@ An operation is statically eligible only when both its effect and capability occ
 - one canonical codec per named type;
 - the original typed operation and slot tables.
 
-The registry contains metadata and schemas, not live handlers, credentials, host context, or cached authorization. It is safe to send through the runtime bridge, but it is still validated at every trust seam.
+The registry contains metadata and schemas, not live handlers, hooks, credentials, host context, or cached policy decisions. It is safe to send through the runtime bridge, but it is still validated at every trust seam.
 
 The [SDK guide](sdk.md) shows how the derived products are used. The [artifacts guide](artifacts-and-inspection.md) explains definition compatibility and contract binding.

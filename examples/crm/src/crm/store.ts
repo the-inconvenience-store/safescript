@@ -64,7 +64,7 @@ export class CrmStore {
     );
   }
 
-  /** Executes one authorized host action against the CRM model. */
+  /** Executes one trusted host action after the application's configured gateway checks. */
   apply(kind: CrmMutationKind, mutation: Omit<CrmMutation, 'kind'>): string {
     const record = Object.freeze({ kind, ...mutation });
     switch (kind) {

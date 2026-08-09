@@ -28,9 +28,7 @@ interface CreatedTask {
   readonly id: string;
 }
 
-type TaskError =
-  | Readonly<{ tag: 'policy'; value: Readonly<{ code: string; detail: string }> }>
-  | Readonly<{ tag: 'domain'; value: string }>;
+type TaskError = Readonly<{ code: string; detail: string }>;
 
 type ExtensionResult = Readonly<{ tag: 'ok'; value: null }> | Readonly<{ tag: 'error'; value: TaskError }>;
 
@@ -55,19 +53,10 @@ const taskType: ContractType<CreatedTask> = {
 const errorType: ContractType<TaskError> = {
   id: ids.type('type:demo.task-error'),
   schema: {
-    kind: 'variant',
-    variants: [
-      {
-        tag: 'policy',
-        schema: {
-          kind: 'record',
-          fields: [
-            { name: 'code', schema: text },
-            { name: 'detail', schema: text },
-          ],
-        },
-      },
-      { tag: 'domain', schema: text },
+    kind: 'record',
+    fields: [
+      { name: 'code', schema: text },
+      { name: 'detail', schema: text },
     ],
   },
 };
@@ -93,7 +82,6 @@ const contract = defineContract({
       capability: createCapability,
       effectCost: 1,
       idempotency: 'required',
-      resourceScope: (input: Event) => ({ workspaceId: input.workspaceId }),
     },
   },
   slots: {
@@ -109,11 +97,11 @@ const contract = defineContract({
 });
 ```
 
-Operation error schemas must contain a canonical `policy` variant with a string `code`. SafeScript uses it to resume the program with a typed error after a current-policy rejection.
+Operation errors are entirely contract-owned. There is no required policy wrapper; this example uses one record that both the host hook and handler may return as a declared error.
 
 ## 3. Create the host facade
 
-The handler performs trusted work. The authorization callback runs for every action request immediately before that handler.
+The handler performs trusted work. This host also configures an optional `beforeAction` hook to enforce its workspace policy after the SDK has validated and decoded each action, immediately before handler dispatch.
 
 ```ts
 import { createSafeScript } from '@safescript/sdk';
@@ -130,17 +118,21 @@ const safe = createSafeScript<InvocationContext, typeof contract.operations, typ
       value: { id: `task-for-${input.workspaceId}` },
     }),
   },
-  authorise: ({ context, resourceScope }) =>
-    context.allowedWorkspaces.includes(resourceScope.workspaceId ?? '')
-      ? { status: 'allowed' }
-      : {
-          status: 'rejected',
-          error: { code: 'workspace_forbidden', detail: 'Workspace is not allowed' },
-        },
+  hooks: {
+    beforeAction: ({ context, input }) =>
+      context.allowedWorkspaces.includes(input.workspaceId)
+        ? { status: 'continue' }
+        : {
+            status: 'stop',
+            error: { code: 'workspace_forbidden', detail: 'Workspace is not allowed' },
+          },
+  },
 });
 ```
 
-The SDK requires exactly one handler for every operation. It validates action envelopes, decodes inputs, derives `resourceScope`, reauthorizes, dispatches at most once, and validates the declared outcome.
+The SDK requires exactly one handler for every operation. It validates action envelopes, decodes inputs, runs the configured hook, dispatches at most once after `continue`, and validates the declared outcome. A `stop` becomes the operation's ordinary declared `Err`; it is not a special policy outcome.
+
+Hooks are optional host integration points, not built-in authorization. If this operation can also be reached outside SafeScript, its handler or downstream task service should enforce authority as defense in depth. A host with several checks composes them inside its one `beforeAction` callback and owns their order.
 
 ## 4. Write the extension
 
@@ -198,7 +190,7 @@ if (checked.status !== 'accepted') {
 await safe.close();
 ```
 
-You can execute `{ kind: "source", source }` for the compile-and-run fast path or the accepted artifact bytes. Artifact execution revalidates compatibility and integrity; it does not bypass authorization.
+You can execute `{ kind: "source", source }` for the compile-and-run fast path or the accepted artifact bytes. Artifact execution revalidates compatibility and integrity and uses the same gateway, hooks, and handlers as source execution.
 
 ## Next steps
 
