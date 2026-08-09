@@ -2736,3 +2736,4 @@ export interface RuntimeBridge {
 export type RuntimeBridgeFactory = () => RuntimeBridge;
 
 export * from './worker-protocol.js';
+export * from './worker-framing.js';

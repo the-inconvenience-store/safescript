@@ -133,6 +133,10 @@ describe('worker protocol deterministic CBOR', () => {
 
   it('publishes the stable codec failure-code catalog', () => {
     expect(WORKER_PROTOCOL_FAILURE_CODES).toEqual([
+      'frame_length_zero',
+      'frame_too_large',
+      'truncated_frame',
+      'frame_timeout',
       'malformed_cbor',
       'noncanonical_cbor',
       'envelope_schema',

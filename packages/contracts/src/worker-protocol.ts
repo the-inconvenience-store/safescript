@@ -49,6 +49,10 @@ export const STANDARD_WORKER_PAYLOAD_LIMITS: WorkerProtocolCodecLimits = Object.
 
 /** Stable failures owned by the bounded envelope and payload codecs. */
 export const WORKER_PROTOCOL_FAILURE_CODES = Object.freeze([
+  'frame_length_zero',
+  'frame_too_large',
+  'truncated_frame',
+  'frame_timeout',
   'malformed_cbor',
   'noncanonical_cbor',
   'envelope_schema',
