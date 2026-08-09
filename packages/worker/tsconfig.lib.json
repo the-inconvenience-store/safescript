@@ -1,5 +1,5 @@
 {
-  "extends": "../tsconfig.base.json",
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
@@ -7,8 +7,5 @@
     "types": ["bun"]
   },
   "include": ["src/**/*.ts"],
-  "references": [
-    { "path": "../packages/contracts/tsconfig.lib.json" },
-    { "path": "../packages/worker/tsconfig.lib.json" }
-  ]
+  "references": [{ "path": "../contracts/tsconfig.lib.json" }, { "path": "../engine/tsconfig.lib.json" }]
 }

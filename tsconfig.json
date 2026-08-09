@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/contracts/tsconfig.lib.json" },
     { "path": "packages/engine/tsconfig.lib.json" },
+    { "path": "packages/worker/tsconfig.lib.json" },
     { "path": "packages/sdk/tsconfig.lib.json" },
     { "path": "apps/cli/tsconfig.lib.json" },
     { "path": "conformance/tsconfig.lib.json" }

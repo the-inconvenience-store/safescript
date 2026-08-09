@@ -28,6 +28,10 @@ export default [
               onlyDependOnLibsWithTags: ['layer:contracts'],
             },
             {
+              sourceTag: 'layer:worker',
+              onlyDependOnLibsWithTags: ['layer:engine', 'layer:contracts'],
+            },
+            {
               sourceTag: 'layer:sdk',
               onlyDependOnLibsWithTags: ['layer:engine', 'layer:contracts'],
             },
@@ -37,7 +41,7 @@ export default [
             },
             {
               sourceTag: 'layer:conformance',
-              onlyDependOnLibsWithTags: ['layer:contracts', 'layer:engine', 'layer:sdk'],
+              onlyDependOnLibsWithTags: ['layer:contracts', 'layer:engine', 'layer:worker', 'layer:sdk'],
             },
             {
               sourceTag: 'layer:example',

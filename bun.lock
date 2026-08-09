@@ -31,6 +31,7 @@
       "devDependencies": {
         "@safescript/engine": "*",
         "@safescript/sdk": "*",
+        "@safescript/worker": "*",
       },
     },
     "examples/crm": {
@@ -59,6 +60,17 @@
       "dependencies": {
         "@safescript/contracts": "^1.0.0",
         "@safescript/engine": "^1.0.0",
+      },
+    },
+    "packages/worker": {
+      "name": "@safescript/worker",
+      "version": "1.0.0",
+      "bin": {
+        "safescript-worker": "./dist/entry.js",
+      },
+      "dependencies": {
+        "@safescript/contracts": "1.0.0",
+        "@safescript/engine": "1.0.0",
       },
     },
   },
@@ -349,6 +361,8 @@
     "@safescript/example-crm": ["@safescript/example-crm@workspace:examples/crm"],
 
     "@safescript/sdk": ["@safescript/sdk@workspace:packages/sdk"],
+
+    "@safescript/worker": ["@safescript/worker@workspace:packages/worker"],
 
     "@tybys/wasm-util": ["@tybys/wasm-util@0.9.0", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-6+7nlbMVX/PVDCwaIQ8nTOPveOcFLSt8GcXdx8hD0bt39uWxYT88uXzqTd4fTvqta7oeUJqudepapKNt2DYJFw=="],
 

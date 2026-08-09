@@ -8,7 +8,8 @@
   },
   "devDependencies": {
     "@safescript/engine": "*",
-    "@safescript/sdk": "*"
+    "@safescript/sdk": "*",
+    "@safescript/worker": "*"
   },
   "nx": {
     "tags": [

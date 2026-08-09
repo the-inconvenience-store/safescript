@@ -1,0 +1,43 @@
+{
+  "name": "@safescript/worker",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./entry": "./src/entry.ts"
+  },
+  "bin": {
+    "safescript-worker": "./dist/entry.js"
+  },
+  "engines": {
+    "node": ">=22 <25"
+  },
+  "dependencies": {
+    "@safescript/contracts": "1.0.0",
+    "@safescript/engine": "1.0.0"
+  },
+  "nx": {
+    "tags": [
+      "layer:worker"
+    ],
+    "targets": {
+      "build": {
+        "executor": "nx:run-commands",
+        "options": {
+          "commands": [
+            "tsc -b tsconfig.lib.json",
+            "bun build src/entry.ts --outfile dist/entry.js --target=node --packages=bundle"
+          ],
+          "cwd": "packages/worker",
+          "parallel": false
+        },
+        "outputs": [
+          "{projectRoot}/dist"
+        ]
+      },
+      "lint": {},
+      "test": {},
+      "typecheck": {}
+    }
+  }
+}
