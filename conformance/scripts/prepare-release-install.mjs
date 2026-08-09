@@ -7,6 +7,7 @@ const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const releaseRoot = resolve(root, '.release');
 const packRoot = resolve(releaseRoot, 'packages');
 const installRoot = resolve(releaseRoot, 'install');
+const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const packages = [
   'packages/contracts',
   'packages/engine',
@@ -26,7 +27,7 @@ await rm(releaseRoot, { recursive: true, force: true });
 await mkdir(packRoot, { recursive: true });
 const packed = [];
 for (const packageRoot of packages) {
-  const output = JSON.parse(run('npm', ['pack', resolve(root, packageRoot), '--json', '--pack-destination', packRoot]));
+  const output = JSON.parse(run(npm, ['pack', resolve(root, packageRoot), '--json', '--pack-destination', packRoot]));
   const result = output[0];
   if (!result?.filename || !result?.integrity)
     throw new Error(`npm pack returned incomplete metadata for ${packageRoot}`);
@@ -45,7 +46,7 @@ for (const packageRoot of packages) {
   });
 }
 await mkdir(installRoot, { recursive: true });
-run('npm', [
+run(npm, [
   'install',
   '--prefix',
   installRoot,
