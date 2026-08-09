@@ -33,7 +33,7 @@ export default [
             },
             {
               sourceTag: 'layer:sdk',
-              onlyDependOnLibsWithTags: ['layer:engine', 'layer:contracts'],
+              onlyDependOnLibsWithTags: ['layer:engine', 'layer:worker', 'layer:contracts'],
             },
             {
               sourceTag: 'layer:cli',

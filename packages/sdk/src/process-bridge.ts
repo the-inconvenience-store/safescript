@@ -1,0 +1,484 @@
+import {
+  decodeWorkerProtocolEnvelope,
+  decodeWorkerProtocolPayload,
+  encodeWorkerProtocolEnvelope,
+  encodeWorkerProtocolPayload,
+  STANDARD_WORKER_OPERATIONAL_LIMITS,
+  validateWorkerProtocolWelcome,
+  WORKER_PROTOCOL_SESSION_HELLO_PAYLOAD,
+  WORKER_PROTOCOL_SESSION_INCOMPATIBLE_PAYLOAD,
+  WORKER_PROTOCOL_SESSION_WELCOME_PAYLOAD,
+  WorkerProtocolFrameDecoder,
+  WorkerProtocolFrameWriter,
+  type ActionOutcome,
+  type ActionRequest,
+  type BridgeError,
+  type CancelRequest,
+  type CancelResult,
+  type CheckRequest,
+  type CheckResult,
+  type CloseResult,
+  type ExecuteRequest,
+  type ExecutionResult,
+  type InspectRequest,
+  type InspectResult,
+  type RuntimeBridge,
+  type RuntimeBridgeHost,
+  type WorkerProtocolEnvelope,
+  type WorkerProtocolMessageKind,
+  type WorkerProtocolSessionHello,
+} from '@safescript/contracts';
+import { decodeWorkerBridgePayload, encodeWorkerBridgePayload } from '@safescript/worker';
+
+const MAX_UINT64 = (1n << 64n) - 1n;
+const ZERO_DIGEST = '0'.repeat(64);
+
+/** Host-side protocol identity used until release packaging supplies a generated build manifest. */
+export const DEFAULT_PROCESS_WORKER_HELLO: WorkerProtocolSessionHello = Object.freeze({
+  protocol: Object.freeze({ major: 1n, min_minor: 0n, max_minor: 0n }),
+  sdk: Object.freeze({
+    version: Object.freeze({ major: 1n, minor: 0n, patch: 0n }),
+    build: 'safescript-sdk-process-bridge',
+  }),
+  expected_worker: Object.freeze({
+    package_version: Object.freeze({ major: 1n, minor: 0n, patch: 0n }),
+    build_digest: ZERO_DIGEST,
+    override: false,
+  }),
+  required_features: Object.freeze([]),
+  optional_features: Object.freeze([]),
+  versions: Object.freeze({
+    abi: Object.freeze([Object.freeze({ major: 1n, minor: 0n })]),
+    language: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
+    ir: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
+    diagnostic_catalog: Object.freeze([Object.freeze({ major: 1n, minor: 0n, patch: 0n })]),
+    artifact: Object.freeze([Object.freeze({ major: 1n, minor: 0n })]),
+    authoring_bundle: Object.freeze([Object.freeze({ major: 1n, minor: 0n, patch: 0n })]),
+  }),
+  limits: STANDARD_WORKER_OPERATIONAL_LIMITS,
+});
+
+/** One already-created child-process byte channel. Spawn policy and supervision are layered above this seam. */
+export interface ProcessWorkerTransport {
+  readonly incoming: AsyncIterable<Uint8Array>;
+  write(completeFrame: Uint8Array): void | Promise<void>;
+  close(): void | Promise<void>;
+}
+
+export interface ProcessRuntimeBridgeOptions {
+  readonly transport: ProcessWorkerTransport;
+  readonly hello?: WorkerProtocolSessionHello;
+}
+
+type BridgePhase = BridgeError['phase'];
+type TerminalKind =
+  | 'bridge.check.result'
+  | 'bridge.inspect.result'
+  | 'bridge.execute.result'
+  | 'bridge.cancel.result'
+  | 'session.close.result';
+
+interface PendingExchange {
+  readonly kind: TerminalKind;
+  readonly phase: BridgePhase;
+  readonly invocationId?: string;
+  readonly host?: RuntimeBridgeHost;
+  readonly actionIds: Set<bigint>;
+  resolve(value: unknown): void;
+}
+
+interface Deferred<T> {
+  readonly promise: Promise<T>;
+  resolve(value: T): void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
+function error(phase: BridgePhase, code: BridgeError['code'], detail?: string): BridgeError {
+  return Object.freeze({
+    code,
+    phase,
+    ...(detail === undefined ? {} : { detail: detail.slice(0, 160) }),
+  });
+}
+
+function failedResult(phase: BridgePhase, code: BridgeError['code'], detail?: string): unknown {
+  const bridgeError = error(phase, code, detail);
+  if (phase === 'close') return Object.freeze({ status: 'bridge_error', error: bridgeError }) satisfies CloseResult;
+  if (phase === 'cancel') return Object.freeze({ status: 'bridge_error', error: bridgeError }) satisfies CancelResult;
+  return Object.freeze({ status: 'bridge_error', error: bridgeError });
+}
+
+function gatewayFailure(request: ActionRequest): ActionOutcome {
+  return Object.freeze({
+    abiVersion: request.abiVersion,
+    requestId: request.requestId,
+    result: Object.freeze({
+      tag: 'failed' as const,
+      value: Object.freeze({
+        effectState: 'unknown' as const,
+        failure: Object.freeze({ code: 'gateway_fault' as const }),
+      }),
+    }),
+  });
+}
+
+/**
+ * SDK-side protocol adapter for one worker connection.
+ *
+ * It owns envelope IDs, exact reply correlation, action suspension, and terminal resolution. Child creation,
+ * restart policy, flow-control ceilings, and host gateway construction remain separate concerns.
+ */
+export class ProcessRuntimeBridge implements RuntimeBridge {
+  readonly #transport: ProcessWorkerTransport;
+  readonly #hello: WorkerProtocolSessionHello;
+  readonly #decoder: WorkerProtocolFrameDecoder;
+  readonly #writer: WorkerProtocolFrameWriter;
+  readonly #ready = deferred<boolean>();
+  readonly #pending = new Map<bigint, PendingExchange>();
+  readonly #seenInbound = new Set<bigint>();
+  readonly #seenActionRequests = new Set<string>();
+  readonly #activeInvocations = new Map<string, bigint>();
+  #state: 'new' | 'handshaking' | 'ready' | 'closing' | 'closed' | 'failed' = 'new';
+  #nextId = 1n;
+  #helloId: bigint | undefined;
+  #closePromise: Promise<CloseResult> | undefined;
+  #transportClosed = false;
+
+  constructor(options: ProcessRuntimeBridgeOptions) {
+    if (
+      !options?.transport ||
+      typeof options.transport.write !== 'function' ||
+      typeof options.transport.close !== 'function'
+    )
+      throw new TypeError('process worker transport is required');
+    this.#transport = options.transport;
+    this.#hello = options.hello ?? DEFAULT_PROCESS_WORKER_HELLO;
+    this.#decoder = new WorkerProtocolFrameDecoder({ maxFrameBytes: Number(this.#hello.limits.max_frame_bytes) });
+    this.#writer = new WorkerProtocolFrameWriter((frame) => this.#transport.write(frame), {
+      maxFrameBytes: Number(this.#hello.limits.max_frame_bytes),
+    });
+    void this.#start();
+    void this.#read();
+  }
+
+  /** Resolves only after a validated welcome, returning false for every failed or incompatible handshake. */
+  ready(): Promise<boolean> {
+    return this.#ready.promise;
+  }
+
+  async check(request: CheckRequest): Promise<CheckResult> {
+    if (!(await this.#available())) return failedResult('check', this.#closedCode()) as CheckResult;
+    return this.#request('bridge.check.request', 'bridge.check.result', 'check', request) as Promise<CheckResult>;
+  }
+
+  async inspect(request: InspectRequest): Promise<InspectResult> {
+    if (!(await this.#available())) return failedResult('inspect', this.#closedCode()) as InspectResult;
+    return this.#request(
+      'bridge.inspect.request',
+      'bridge.inspect.result',
+      'inspect',
+      request,
+    ) as Promise<InspectResult>;
+  }
+
+  async execute(request: ExecuteRequest, host: RuntimeBridgeHost): Promise<ExecutionResult> {
+    if (!(await this.#available())) return failedResult('execute', this.#closedCode()) as ExecutionResult;
+    if (this.#activeInvocations.has(request.invocationId))
+      return Object.freeze({
+        status: 'not_started',
+        error: error('execute', 'invalid_request', 'duplicate active invocation'),
+      });
+    return this.#request('bridge.execute.request', 'bridge.execute.result', 'execute', request, {
+      invocationId: request.invocationId,
+      host,
+    }) as Promise<ExecutionResult>;
+  }
+
+  async cancel(request: CancelRequest): Promise<CancelResult> {
+    if (!(await this.#available())) return failedResult('cancel', this.#closedCode()) as CancelResult;
+    return this.#request('bridge.cancel.request', 'bridge.cancel.result', 'cancel', request) as Promise<CancelResult>;
+  }
+
+  close(): Promise<CloseResult> {
+    if (this.#closePromise) return this.#closePromise;
+    this.#closePromise = this.#close();
+    return this.#closePromise;
+  }
+
+  async #close(): Promise<CloseResult> {
+    if (this.#state === 'closed') return { status: 'closed' };
+    if (!(await this.#ready.promise) || this.#state !== 'ready') {
+      await this.#closeTransport();
+      return failedResult('close', this.#closedCode()) as CloseResult;
+    }
+    this.#state = 'closing';
+    const result = (await this.#request(
+      'session.close.request',
+      'session.close.result',
+      'close',
+      Object.freeze({}),
+      undefined,
+      true,
+    )) as CloseResult;
+    if (result.status === 'closed') this.#state = 'closed';
+    await this.#closeTransport();
+    return result;
+  }
+
+  async #available(): Promise<boolean> {
+    return (await this.#ready.promise) && this.#state === 'ready';
+  }
+
+  #closedCode(): BridgeError['code'] {
+    return this.#state === 'closed' || this.#state === 'closing' ? 'bridge_closed' : 'adapter_failure';
+  }
+
+  async #start(): Promise<void> {
+    try {
+      this.#state = 'handshaking';
+      const payload = encodeWorkerProtocolPayload(WORKER_PROTOCOL_SESSION_HELLO_PAYLOAD, this.#hello);
+      if (!payload.ok) return this.#fail('invalid session hello');
+      this.#helloId = this.#allocateId();
+      await this.#sendWithId(this.#helloId, 'session.hello', null, payload.value);
+    } catch {
+      await this.#fail('worker handshake write failed');
+    }
+  }
+
+  async #request(
+    requestKind:
+      | 'bridge.check.request'
+      | 'bridge.inspect.request'
+      | 'bridge.execute.request'
+      | 'bridge.cancel.request'
+      | 'session.close.request',
+    resultKind: TerminalKind,
+    phase: BridgePhase,
+    value: unknown,
+    execution?: Readonly<{ invocationId: string; host: RuntimeBridgeHost }>,
+    allowClosing = false,
+  ): Promise<unknown> {
+    if (this.#state !== 'ready' && !(allowClosing && this.#state === 'closing'))
+      return failedResult(phase, this.#closedCode());
+    const encoded = encodeWorkerBridgePayload(requestKind, value as never);
+    if (!encoded.ok) return failedResult(phase, 'invalid_request', encoded.failure.detail ?? encoded.failure.code);
+    const id = this.#allocateId();
+    const result = new Promise<unknown>((resolve) => {
+      this.#pending.set(id, {
+        kind: resultKind,
+        phase,
+        ...(execution === undefined ? {} : { invocationId: execution.invocationId, host: execution.host }),
+        actionIds: new Set(),
+        resolve,
+      });
+    });
+    if (execution) this.#activeInvocations.set(execution.invocationId, id);
+    try {
+      await this.#sendWithId(id, requestKind, null, encoded.value);
+    } catch {
+      await this.#fail('worker request write failed');
+    }
+    return result;
+  }
+
+  async #read(): Promise<void> {
+    try {
+      for await (const chunk of this.#transport.incoming) {
+        if (this.#state === 'closed' || this.#state === 'failed') break;
+        const frames = this.#decoder.push(chunk);
+        if (!frames.ok) return this.#fail(frames.failure.code);
+        for (const bytes of frames.value) {
+          const envelope = decodeWorkerProtocolEnvelope(bytes);
+          if (!envelope.ok) return this.#fail(envelope.failure.code);
+          await this.#accept(envelope.value);
+          if (this.#failed()) return;
+        }
+      }
+      const finished = this.#decoder.finish();
+      if (!finished.ok) return this.#fail(finished.failure.code);
+      if (this.#state !== 'closed') await this.#fail('worker transport ended');
+    } catch {
+      await this.#fail('worker transport failed');
+    }
+  }
+
+  async #accept(envelope: WorkerProtocolEnvelope): Promise<void> {
+    if (this.#seenInbound.has(envelope.id)) return this.#fail('duplicate worker message id');
+    this.#seenInbound.add(envelope.id);
+    if (this.#state === 'handshaking') {
+      await this.#acceptHandshake(envelope);
+      return;
+    }
+    if (envelope.kind === 'action.request') {
+      this.#acceptAction(envelope);
+      return;
+    }
+    if (envelope.replyTo === null) return this.#fail('unexpected worker initiating message');
+    const pending = this.#pending.get(envelope.replyTo);
+    if (!pending) return this.#fail('unknown or late worker correlation');
+    if (pending.kind === 'bridge.execute.result' && pending.actionIds.size !== 0)
+      return this.#fail('execute completed with unresolved actions');
+    if (envelope.kind === 'protocol.error') {
+      const decoded = decodeWorkerBridgePayload('protocol.error', envelope.payload);
+      if (!decoded.ok) return this.#fail('invalid protocol error payload');
+      this.#finish(envelope.replyTo, pending, failedResult(pending.phase, 'adapter_failure', decoded.value.code));
+      return;
+    }
+    if (envelope.kind !== pending.kind) return this.#fail('crossed worker correlation');
+    if (pending.kind === 'session.close.result' && this.#pending.size !== 1)
+      return this.#fail('close completed before worker quiescence');
+    const decoded = this.#decodeTerminal(pending.kind, envelope.payload);
+    if (!decoded.ok) return this.#fail(decoded.detail);
+    this.#finish(envelope.replyTo, pending, decoded.value);
+    if (pending.kind === 'session.close.result' && (decoded.value as CloseResult).status === 'closed')
+      this.#state = 'closed';
+  }
+
+  async #acceptHandshake(envelope: WorkerProtocolEnvelope): Promise<void> {
+    if (envelope.replyTo !== this.#helloId) return this.#fail('invalid handshake correlation');
+    if (envelope.kind === 'session.incompatible') {
+      const decoded = decodeWorkerProtocolPayload(WORKER_PROTOCOL_SESSION_INCOMPATIBLE_PAYLOAD, envelope.payload);
+      if (!decoded.ok) return this.#fail('invalid incompatibility payload');
+      return this.#fail('incompatible worker session');
+    }
+    if (envelope.kind !== 'session.welcome') return this.#fail('unexpected handshake response');
+    const decoded = decodeWorkerProtocolPayload(WORKER_PROTOCOL_SESSION_WELCOME_PAYLOAD, envelope.payload);
+    if (!decoded.ok || !validateWorkerProtocolWelcome(this.#hello, decoded.value))
+      return this.#fail('invalid worker welcome');
+    this.#state = 'ready';
+    this.#ready.resolve(true);
+  }
+
+  #acceptAction(envelope: WorkerProtocolEnvelope): void {
+    if ((this.#state !== 'ready' && this.#state !== 'closing') || envelope.replyTo !== null) {
+      void this.#fail('state-invalid action request');
+      return;
+    }
+    const decoded = decodeWorkerBridgePayload('action.request', envelope.payload);
+    if (!decoded.ok) {
+      void this.#fail('invalid action request payload');
+      return;
+    }
+    const execute = this.#pending.get(decoded.value.executeId);
+    if (
+      !execute ||
+      execute.kind !== 'bridge.execute.result' ||
+      !execute.host ||
+      execute.invocationId !== decoded.value.request.invocationId ||
+      this.#seenActionRequests.has(decoded.value.request.requestId)
+    ) {
+      void this.#fail('invalid action correlation');
+      return;
+    }
+    this.#seenActionRequests.add(decoded.value.request.requestId);
+    execute.actionIds.add(envelope.id);
+    void this.#resolveAction(envelope.id, decoded.value.executeId, decoded.value.request, execute, execute.host);
+  }
+
+  async #resolveAction(
+    envelopeId: bigint,
+    executeId: bigint,
+    request: ActionRequest,
+    exchange: PendingExchange,
+    host: RuntimeBridgeHost,
+  ): Promise<void> {
+    let outcome: ActionOutcome;
+    try {
+      outcome = await host.handleAction(request);
+    } catch {
+      outcome = gatewayFailure(request);
+    }
+    if (
+      !exchange.actionIds.has(envelopeId) ||
+      this.#pending.get(executeId) !== exchange ||
+      outcome.requestId !== request.requestId
+    ) {
+      await this.#fail('late or mismatched action outcome');
+      return;
+    }
+    const encoded = encodeWorkerBridgePayload('action.outcome', { request: envelopeId, outcome });
+    if (!encoded.ok) return this.#fail('invalid host action outcome');
+    exchange.actionIds.delete(envelopeId);
+    try {
+      await this.#send('action.outcome', envelopeId, encoded.value);
+    } catch {
+      await this.#fail('action outcome write failed');
+    }
+  }
+
+  #decodeTerminal(
+    kind: TerminalKind,
+    payload: Uint8Array,
+  ): Readonly<{ ok: true; value: unknown }> | Readonly<{ ok: false; detail: string }> {
+    const decoded =
+      kind === 'bridge.check.result'
+        ? decodeWorkerBridgePayload('bridge.check.result', payload)
+        : kind === 'bridge.inspect.result'
+          ? decodeWorkerBridgePayload('bridge.inspect.result', payload)
+          : kind === 'bridge.execute.result'
+            ? decodeWorkerBridgePayload('bridge.execute.result', payload)
+            : kind === 'bridge.cancel.result'
+              ? decodeWorkerBridgePayload('bridge.cancel.result', payload)
+              : decodeWorkerBridgePayload('session.close.result', payload);
+    return decoded.ok
+      ? Object.freeze({ ok: true, value: decoded.value })
+      : Object.freeze({ ok: false, detail: decoded.failure.detail ?? decoded.failure.code });
+  }
+
+  #finish(id: bigint, pending: PendingExchange, value: unknown): void {
+    this.#pending.delete(id);
+    if (pending.invocationId !== undefined) this.#activeInvocations.delete(pending.invocationId);
+    pending.resolve(value);
+  }
+
+  async #send(kind: WorkerProtocolMessageKind, replyTo: bigint | null, payload: Uint8Array): Promise<void> {
+    await this.#sendWithId(this.#allocateId(), kind, replyTo, payload);
+  }
+
+  async #sendWithId(
+    id: bigint,
+    kind: WorkerProtocolMessageKind,
+    replyTo: bigint | null,
+    payload: Uint8Array,
+  ): Promise<void> {
+    const envelope = encodeWorkerProtocolEnvelope({ version: 1, kind, id, replyTo, payload });
+    if (!envelope.ok) throw new Error('invalid process bridge envelope');
+    const written = await this.#writer.write(envelope.value);
+    if (!written.ok) throw new Error('invalid process bridge frame');
+  }
+
+  #allocateId(): bigint {
+    if (this.#nextId > MAX_UINT64) throw new Error('process bridge message id exhausted');
+    return this.#nextId++;
+  }
+
+  #failed(): boolean {
+    return this.#state === 'failed';
+  }
+
+  async #fail(detail: string): Promise<void> {
+    if (this.#state === 'failed' || this.#state === 'closed') return;
+    this.#state = 'failed';
+    this.#ready.resolve(false);
+    for (const [id, pending] of this.#pending)
+      this.#finish(id, pending, failedResult(pending.phase, 'adapter_failure', detail));
+    await this.#closeTransport();
+  }
+
+  async #closeTransport(): Promise<void> {
+    if (this.#transportClosed) return;
+    this.#transportClosed = true;
+    try {
+      await this.#transport.close();
+    } catch {
+      // Transport close is best effort after all public promises already have bounded terminal results.
+    }
+  }
+}

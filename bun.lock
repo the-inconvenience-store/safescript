@@ -60,6 +60,7 @@
       "dependencies": {
         "@safescript/contracts": "^1.0.0",
         "@safescript/engine": "^1.0.0",
+        "@safescript/worker": "1.0.0",
       },
     },
     "packages/worker": {
