@@ -18,7 +18,7 @@ const SHA256 = /^[0-9a-f]{64}$/;
 const FEATURE = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9_]*)+$/;
 const ZERO_DIGEST = '0'.repeat(64);
 const BUNDLED_PACKAGE_VERSION = '2.0.0';
-const BUNDLED_WORKER_BUILD_DIGEST = '002244f67f1f137a320b4e0753c9dc215b13bd8d0f500d3c94f919fdcac6ff5b';
+const BUNDLED_WORKER_BUILD_DIGEST = '51e734d7e547e0d791ab39a89f336015aebfdd69037216983330d0bdbd0e8005';
 
 interface WorkerBuildManifest {
   readonly schema: 1;

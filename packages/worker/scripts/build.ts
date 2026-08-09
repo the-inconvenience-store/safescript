@@ -18,10 +18,14 @@ if (!result.success) throw new AggregateError(result.logs, 'worker bundle failed
 
 const entry = new URL('dist/entry.js', root);
 const packageManifest = (await Bun.file(new URL('package.json', root)).json()) as PackageManifest;
-const normalizedBundle = (await Bun.file(entry).text()).replace(
-  /^\/\/ (?:\.\.\/)+node_modules\//gm,
-  '// node_modules/',
-);
+const bundled = await Bun.file(entry).text();
+const normalizedVendorPath =
+  '  var __dirname = "/safescript/vendor/typescript/lib", __filename = "/safescript/vendor/typescript/lib/typescript.js";';
+const normalizedBundle = bundled
+  .replace(/^\/\/ (?:\.\.\/)+node_modules\//gm, '// node_modules/')
+  .replace(/^  var __dirname = .*__filename = .*typescript\.js";$/m, normalizedVendorPath);
+if (!normalizedBundle.includes(normalizedVendorPath))
+  throw new Error('worker bundle did not contain the TypeScript vendor path');
 await Bun.write(entry, normalizedBundle);
 const buildDigest = createHash('sha256')
   .update(new Uint8Array(await Bun.file(entry).arrayBuffer()))
