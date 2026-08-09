@@ -31,6 +31,11 @@
     "canonicalMessageVectors": 16,
     "openCriticalFindings": 0
   },
+  "platformEvidence": {
+    "run": "https://github.com/the-inconvenience-store/safescript/actions/runs/31301465808",
+    "jobs": 10,
+    "result": "passed"
+  },
   "registryPublication": {
     "registry": "https://registry.npmjs.org/",
     "status": "pending-authentication"

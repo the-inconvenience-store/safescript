@@ -107,6 +107,7 @@ describe('V2 release metadata and public package surface', () => {
       protocolVersion: '1.0',
       fixtureSchemaVersion: '1.0.0',
       securityReview: { criticalFindings: 0, openCriticalFindings: 0 },
+      platformEvidence: { jobs: 10, result: 'passed' },
       result: 'passed',
     });
   });
