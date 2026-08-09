@@ -114,4 +114,36 @@ describe('worker protocol stdio framing', () => {
     ]);
     expect(hex(Uint8Array.from(output))).toBe('00000001a000000004a1616101');
   });
+
+  it('bounds queued bytes and gives reserved terminal writes the next fair slot', async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const output: string[] = [];
+    let writes = 0;
+    const writer = new WorkerProtocolFrameWriter(
+      async (completeFrame) => {
+        const decoded = decodeWorkerProtocolFrame(completeFrame);
+        if (!decoded.ok) throw new Error(decoded.failure.code);
+        output.push(hex(decoded.value));
+        if (writes++ === 0) await blocked;
+      },
+      { maxFrameBytes: 8, maxQueuedBytes: 4, reservedQueuedBytes: 2 },
+    );
+
+    const first = writer.write(bytes('a0a0'));
+    const waitingData = writer.write(bytes('a1a1'));
+    const terminal = writer.write(bytes('a2a2'), { reserved: true });
+    await Promise.resolve();
+    expect(output).toEqual(['a0a0']);
+    release();
+
+    expect(await Promise.all([first, waitingData, terminal])).toEqual([
+      { ok: true, value: undefined },
+      { ok: true, value: undefined },
+      { ok: true, value: undefined },
+    ]);
+    expect(output).toEqual(['a0a0', 'a2a2', 'a1a1']);
+  });
 });

@@ -414,7 +414,12 @@ function validateVersionSets(
 }
 
 function validLimits(limits: WorkerProtocolOperationalLimits): boolean {
-  return LIMIT_KEYS.every((key) => uint(limits[key], false)) && limits.max_payload_bytes < limits.max_frame_bytes;
+  return (
+    LIMIT_KEYS.every((key) => uint(limits[key], false)) &&
+    limits.max_payload_bytes < limits.max_frame_bytes &&
+    limits.max_pending_replies > limits.max_in_flight &&
+    limits.max_queued_bytes >= limits.max_frame_bytes * 2n
+  );
 }
 
 function selectLimits(

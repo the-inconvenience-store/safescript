@@ -21,14 +21,14 @@ import {
 } from '@safescript/contracts';
 
 import { decodeWorkerBridgePayload, encodeWorkerBridgePayload } from './protocol.js';
-import { RuntimeWorkerServer } from './server.js';
+import { DEFAULT_WORKER_HANDSHAKE_SUPPORT, RuntimeWorkerServer } from './server.js';
 
 const digest = '0'.repeat(64);
 const versions = Object.freeze({
   abi: Object.freeze([Object.freeze({ major: 2n, minor: 0n })]),
   language: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
   ir: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
-  diagnostic_catalog: Object.freeze([Object.freeze({ major: 1n, minor: 0n, patch: 0n })]),
+  diagnostic_catalog: Object.freeze([Object.freeze({ major: 1n, minor: 3n, patch: 0n })]),
   artifact: Object.freeze([Object.freeze({ major: 1n, minor: 0n })]),
   authoring_bundle: Object.freeze([Object.freeze({ major: 1n, minor: 0n, patch: 0n })]),
 });
@@ -136,6 +136,45 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 }
 
 describe('standalone runtime worker server', () => {
+  it('fails the connection before accepting work beyond negotiated in-flight capacity', async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const bridge = new FakeBridge();
+    bridge.check = async (request) => {
+      bridge.calls.push(`check:${request.slotId}`);
+      await blocked;
+      return { status: 'bridge_error', error: { code: 'adapter_failure', phase: 'check' } };
+    };
+    let closed = 0;
+    const support = {
+      ...DEFAULT_WORKER_HANDSHAKE_SUPPORT,
+      limits: { ...DEFAULT_WORKER_HANDSHAKE_SUPPORT.limits, max_in_flight: 1n },
+    };
+    const server = new RuntimeWorkerServer({
+      bridge,
+      handshake: support,
+      write: () => undefined,
+      close: () => {
+        closed++;
+      },
+    });
+    const selectedHello = { ...hello, limits: { ...hello.limits, max_in_flight: 1n } };
+    const helloPayload = encodeWorkerProtocolPayload(WORKER_PROTOCOL_SESSION_HELLO_PAYLOAD, selectedHello);
+    const checkPayload = encodeWorkerBridgePayload('bridge.check.request', checkRequest);
+    if (!helloPayload.ok || !checkPayload.ok) throw new Error('test payload encoding failed');
+    await server.receive(hostEnvelope('session.hello', 1n, helloPayload.value));
+    await server.receive(hostEnvelope('bridge.check.request', 2n, checkPayload.value));
+    await server.receive(hostEnvelope('bridge.check.request', 3n, checkPayload.value));
+
+    expect(server.state).toBe('failed');
+    expect(closed).toBe(1);
+    expect(bridge.calls.filter((call) => call.startsWith('check:'))).toEqual([`check:${checkRequest.slotId}`]);
+    release();
+    await server.drain();
+  });
+
   it('keeps legacy outcomes and SDK-local hook diagnostics off the worker wire', () => {
     expect(
       encodeWorkerBridgePayload('action.outcome', {

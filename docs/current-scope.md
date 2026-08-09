@@ -25,7 +25,7 @@ The repository currently implements:
 - adapter-neutral conformance references, resource ledgers, hostile cases, release metadata, and authoring evidence;
 - an interactive CRM integration and read-only semantic-graph projection.
 
-The public TypeScript packages and CLI are version 1.0.0. The supported compatibility dimensions include language 1.0 and 1.1, IR 1.0 and 1.1, action ABI 2.0, worker protocol 1.0, diagnostic catalog 1.2.0, and authoring bundle 1.0.0.
+The public TypeScript packages and CLI are version 1.0.0. The supported compatibility dimensions include language 1.0 and 1.1, IR 1.0 and 1.1, action ABI 2.0, worker protocol 1.0, diagnostic catalog 1.3.0, and authoring bundle 1.0.0.
 
 ## Host responsibilities, not missing runtime features
 

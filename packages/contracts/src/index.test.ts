@@ -285,6 +285,7 @@ describe('stable failure catalog', () => {
       'adapter_failure',
       'artifact_verification_failed',
       'bridge_closed',
+      'capacity_exceeded',
       'fingerprint_mismatch',
       'graph_limit_exceeded',
       'incompatible_version',
@@ -317,7 +318,7 @@ describe('stable failure catalog', () => {
     expect([...COMPILER_DIAGNOSTIC_CODES]).toEqual(
       [...COMPILER_DIAGNOSTIC_CODES].sort((left, right) => left.localeCompare(right)),
     );
-    expect(DIAGNOSTIC_CATALOG_VERSION).toEqual({ major: 1, minor: 2, patch: 0 });
+    expect(DIAGNOSTIC_CATALOG_VERSION).toEqual({ major: 1, minor: 3, patch: 0 });
     for (const entry of DIAGNOSTIC_CATALOG) {
       expect(Object.isFrozen(entry)).toBe(true);
       expect(Object.isFrozen(entry.fields)).toBe(true);

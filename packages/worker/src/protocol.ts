@@ -13,6 +13,7 @@ import {
   type InspectRequest,
   type InspectResult,
   type WorkerProtocolCodecResult,
+  type WorkerProtocolCodecLimits,
   type WorkerProtocolMessageKind,
   type WorkerProtocolPayload,
   type WorkerProtocolSchema,
@@ -655,15 +656,17 @@ function contract<K extends keyof WorkerPayloadTypes>(kind: K): WorkerProtocolPa
 export function encodeWorkerBridgePayload<K extends keyof WorkerPayloadTypes>(
   kind: K,
   value: WorkerPayloadTypes[K],
+  limits?: WorkerProtocolCodecLimits,
 ): WorkerProtocolCodecResult<Uint8Array> {
-  return encodeWorkerProtocolPayload(contract(kind), toWire(payloads[kind], value));
+  return encodeWorkerProtocolPayload(contract(kind), toWire(payloads[kind], value), limits);
 }
 
 export function decodeWorkerBridgePayload<K extends keyof WorkerPayloadTypes>(
   kind: K,
   bytesValue: Uint8Array,
+  limits?: WorkerProtocolCodecLimits,
 ): WorkerProtocolCodecResult<WorkerPayloadTypes[K]> {
-  const decoded = decodeWorkerProtocolPayload(contract(kind), bytesValue);
+  const decoded = decodeWorkerProtocolPayload(contract(kind), bytesValue, limits);
   if (!decoded.ok) return decoded;
   try {
     return Object.freeze({ ok: true, value: fromWire(payloads[kind], decoded.value) as WorkerPayloadTypes[K] });

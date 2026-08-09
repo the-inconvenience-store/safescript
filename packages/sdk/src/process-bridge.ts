@@ -24,8 +24,10 @@ import {
   type InspectResult,
   type RuntimeBridge,
   type RuntimeBridgeHost,
+  type WorkerProtocolCodecLimits,
   type WorkerProtocolEnvelope,
   type WorkerProtocolMessageKind,
+  type WorkerProtocolOperationalLimits,
   type WorkerProtocolSessionHello,
 } from '@safescript/contracts';
 import { decodeWorkerBridgePayload, encodeWorkerBridgePayload } from '@safescript/worker';
@@ -51,7 +53,7 @@ export const DEFAULT_PROCESS_WORKER_HELLO: WorkerProtocolSessionHello = Object.f
     abi: Object.freeze([Object.freeze({ major: 2n, minor: 0n })]),
     language: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
     ir: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
-    diagnostic_catalog: Object.freeze([Object.freeze({ major: 1n, minor: 0n, patch: 0n })]),
+    diagnostic_catalog: Object.freeze([Object.freeze({ major: 1n, minor: 3n, patch: 0n })]),
     artifact: Object.freeze([Object.freeze({ major: 1n, minor: 0n })]),
     authoring_bundle: Object.freeze([Object.freeze({ major: 1n, minor: 0n, patch: 0n })]),
   }),
@@ -61,6 +63,8 @@ export const DEFAULT_PROCESS_WORKER_HELLO: WorkerProtocolSessionHello = Object.f
 /** One already-created child-process byte channel. Spawn policy and supervision are layered above this seam. */
 export interface ProcessWorkerTransport {
   readonly incoming: AsyncIterable<Uint8Array>;
+  /** Optional child stderr stream; the bridge drains it into a bounded private ring. */
+  readonly stderr?: AsyncIterable<Uint8Array>;
   write(completeFrame: Uint8Array): void | Promise<void>;
   close(): void | Promise<void>;
 }
@@ -141,6 +145,18 @@ function gatewayFailure(request: ActionRequest): ActionOutcome {
   });
 }
 
+function payloadLimits(limits: WorkerProtocolOperationalLimits): WorkerProtocolCodecLimits {
+  return Object.freeze({
+    maxBytes: Number(limits.max_payload_bytes),
+    maxDepth: Number(limits.max_decoded_depth),
+    maxNodes: Number(limits.max_decoded_nodes),
+  });
+}
+
+function reservedQueueBytes(limits: WorkerProtocolOperationalLimits): number {
+  return Math.min(Number(limits.max_frame_bytes), Math.floor(Number(limits.max_queued_bytes) / 2));
+}
+
 /**
  * SDK-side protocol adapter for one worker connection.
  *
@@ -162,6 +178,10 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
   #helloId: bigint | undefined;
   #closePromise: Promise<CloseResult> | undefined;
   #transportClosed = false;
+  #maxInFlight = 0;
+  #limits: WorkerProtocolOperationalLimits;
+  #partialFrameTimer: ReturnType<typeof setTimeout> | undefined;
+  #stderr = new Uint8Array();
 
   constructor(options: ProcessRuntimeBridgeOptions) {
     if (
@@ -172,12 +192,16 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
       throw new TypeError('process worker transport is required');
     this.#transport = options.transport;
     this.#hello = options.hello ?? DEFAULT_PROCESS_WORKER_HELLO;
+    this.#limits = this.#hello.limits;
     this.#decoder = new WorkerProtocolFrameDecoder({ maxFrameBytes: Number(this.#hello.limits.max_frame_bytes) });
     this.#writer = new WorkerProtocolFrameWriter((frame) => this.#transport.write(frame), {
       maxFrameBytes: Number(this.#hello.limits.max_frame_bytes),
+      maxQueuedBytes: Number(this.#hello.limits.max_queued_bytes),
+      reservedQueuedBytes: reservedQueueBytes(this.#hello.limits),
     });
     void this.#start();
     void this.#read();
+    if (this.#transport.stderr) void this.#readStderr(this.#transport.stderr);
   }
 
   /** Resolves only after a validated welcome, returning false for every failed or incompatible handshake. */
@@ -188,6 +212,11 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
   /** Reports whether this one connection has entered an unrecoverable failed state. */
   isFailed(): boolean {
     return this.#state === 'failed';
+  }
+
+  /** Returns the bounded operator-only stderr tail; it is never inserted into protocol failures or semantic facts. */
+  capturedStderr(): Uint8Array {
+    return this.#stderr.slice();
   }
 
   async check(request: CheckRequest): Promise<CheckResult> {
@@ -265,7 +294,11 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
   async #start(): Promise<void> {
     try {
       this.#state = 'handshaking';
-      const payload = encodeWorkerProtocolPayload(WORKER_PROTOCOL_SESSION_HELLO_PAYLOAD, this.#hello);
+      const payload = encodeWorkerProtocolPayload(
+        WORKER_PROTOCOL_SESSION_HELLO_PAYLOAD,
+        this.#hello,
+        payloadLimits(this.#limits),
+      );
       if (!payload.ok) return this.#fail('invalid session hello');
       this.#helloId = this.#allocateId();
       await this.#sendWithId(this.#helloId, 'session.hello', null, payload.value);
@@ -289,7 +322,14 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
   ): Promise<unknown> {
     if (this.#state !== 'ready' && !(allowClosing && this.#state === 'closing'))
       return failedResult(phase, this.#closedCode());
-    const encoded = encodeWorkerBridgePayload(requestKind, value as never);
+    const dataRequest =
+      requestKind === 'bridge.check.request' ||
+      requestKind === 'bridge.inspect.request' ||
+      requestKind === 'bridge.execute.request';
+    if (dataRequest && this.#dataInFlight() >= this.#maxInFlight) return failedResult(phase, 'capacity_exceeded');
+    if (requestKind === 'bridge.cancel.request' && this.#pending.size >= Number(this.#limits.max_pending_replies))
+      return failedResult(phase, 'capacity_exceeded');
+    const encoded = encodeWorkerBridgePayload(requestKind, value as never, payloadLimits(this.#limits));
     if (!encoded.ok) return failedResult(phase, 'invalid_request', encoded.failure.detail ?? encoded.failure.code);
     const id = this.#allocateId();
     const result = new Promise<unknown>((resolve) => {
@@ -316,14 +356,19 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
         if (this.#state === 'closed' || this.#state === 'failed') break;
         const frames = this.#decoder.push(chunk);
         if (!frames.ok) return this.#fail(frames.failure.code);
+        this.#refreshPartialFrameDeadline();
         for (const bytes of frames.value) {
-          const envelope = decodeWorkerProtocolEnvelope(bytes);
+          const envelope = decodeWorkerProtocolEnvelope(bytes, {
+            envelopeLimits: { ...payloadLimits(this.#limits), maxBytes: Number(this.#limits.max_frame_bytes) },
+            payloadLimits: payloadLimits(this.#limits),
+          });
           if (!envelope.ok) return this.#fail(envelope.failure.code);
           await this.#accept(envelope.value);
           if (this.#failed()) return;
         }
       }
       const finished = this.#decoder.finish();
+      this.#clearPartialFrameDeadline();
       if (!finished.ok) return this.#fail(finished.failure.code);
       if (this.#state !== 'closed') await this.#fail('worker transport ended', 'worker_lost');
     } catch {
@@ -348,7 +393,7 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
     if (pending.kind === 'bridge.execute.result' && pending.actionIds.size !== 0)
       return this.#fail('execute completed with unresolved actions');
     if (envelope.kind === 'protocol.error') {
-      const decoded = decodeWorkerBridgePayload('protocol.error', envelope.payload);
+      const decoded = decodeWorkerBridgePayload('protocol.error', envelope.payload, payloadLimits(this.#limits));
       if (!decoded.ok) return this.#fail('invalid protocol error payload');
       this.#finish(envelope.replyTo, pending, failedResult(pending.phase, 'adapter_failure', decoded.value.code));
       return;
@@ -366,14 +411,27 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
   async #acceptHandshake(envelope: WorkerProtocolEnvelope): Promise<void> {
     if (envelope.replyTo !== this.#helloId) return this.#fail('invalid handshake correlation');
     if (envelope.kind === 'session.incompatible') {
-      const decoded = decodeWorkerProtocolPayload(WORKER_PROTOCOL_SESSION_INCOMPATIBLE_PAYLOAD, envelope.payload);
+      const decoded = decodeWorkerProtocolPayload(
+        WORKER_PROTOCOL_SESSION_INCOMPATIBLE_PAYLOAD,
+        envelope.payload,
+        payloadLimits(this.#limits),
+      );
       if (!decoded.ok) return this.#fail('invalid incompatibility payload');
       return this.#fail('incompatible worker session');
     }
     if (envelope.kind !== 'session.welcome') return this.#fail('unexpected handshake response');
-    const decoded = decodeWorkerProtocolPayload(WORKER_PROTOCOL_SESSION_WELCOME_PAYLOAD, envelope.payload);
+    const decoded = decodeWorkerProtocolPayload(
+      WORKER_PROTOCOL_SESSION_WELCOME_PAYLOAD,
+      envelope.payload,
+      payloadLimits(this.#limits),
+    );
     if (!decoded.ok || !validateWorkerProtocolWelcome(this.#hello, decoded.value))
       return this.#fail('invalid worker welcome');
+    this.#maxInFlight = Number(decoded.value.limits.max_in_flight);
+    this.#limits = decoded.value.limits;
+    const queue = this.#writer.configureQueue(Number(this.#limits.max_queued_bytes), reservedQueueBytes(this.#limits));
+    if (!queue.ok) return this.#fail('invalid negotiated queue limits');
+    this.#stderr = this.#stderr.slice(Math.max(0, this.#stderr.length - Number(this.#limits.max_stderr_bytes)));
     this.#state = 'ready';
     this.#ready.resolve(true);
   }
@@ -383,7 +441,7 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
       void this.#fail('state-invalid action request');
       return;
     }
-    const decoded = decodeWorkerBridgePayload('action.request', envelope.payload);
+    const decoded = decodeWorkerBridgePayload('action.request', envelope.payload, payloadLimits(this.#limits));
     if (!decoded.ok) {
       void this.#fail('invalid action request payload');
       return;
@@ -394,7 +452,8 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
       execute.kind !== 'bridge.execute.result' ||
       !execute.host ||
       execute.invocationId !== decoded.value.request.invocationId ||
-      this.#seenActionRequests.has(decoded.value.request.requestId)
+      this.#seenActionRequests.has(decoded.value.request.requestId) ||
+      this.#actionInFlight() >= this.#maxInFlight
     ) {
       void this.#fail('invalid action correlation');
       return;
@@ -425,7 +484,11 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
       await this.#fail('late or mismatched action outcome');
       return;
     }
-    const encoded = encodeWorkerBridgePayload('action.outcome', { request: envelopeId, outcome });
+    const encoded = encodeWorkerBridgePayload(
+      'action.outcome',
+      { request: envelopeId, outcome },
+      payloadLimits(this.#limits),
+    );
     if (!encoded.ok) return this.#fail('invalid host action outcome');
     exchange.actionIds.delete(envelopeId);
     try {
@@ -441,14 +504,14 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
   ): Readonly<{ ok: true; value: unknown }> | Readonly<{ ok: false; detail: string }> {
     const decoded =
       kind === 'bridge.check.result'
-        ? decodeWorkerBridgePayload('bridge.check.result', payload)
+        ? decodeWorkerBridgePayload('bridge.check.result', payload, payloadLimits(this.#limits))
         : kind === 'bridge.inspect.result'
-          ? decodeWorkerBridgePayload('bridge.inspect.result', payload)
+          ? decodeWorkerBridgePayload('bridge.inspect.result', payload, payloadLimits(this.#limits))
           : kind === 'bridge.execute.result'
-            ? decodeWorkerBridgePayload('bridge.execute.result', payload)
+            ? decodeWorkerBridgePayload('bridge.execute.result', payload, payloadLimits(this.#limits))
             : kind === 'bridge.cancel.result'
-              ? decodeWorkerBridgePayload('bridge.cancel.result', payload)
-              : decodeWorkerBridgePayload('session.close.result', payload);
+              ? decodeWorkerBridgePayload('bridge.cancel.result', payload, payloadLimits(this.#limits))
+              : decodeWorkerBridgePayload('session.close.result', payload, payloadLimits(this.#limits));
     return decoded.ok
       ? Object.freeze({ ok: true, value: decoded.value })
       : Object.freeze({ ok: false, detail: decoded.failure.detail ?? decoded.failure.code });
@@ -458,6 +521,24 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
     this.#pending.delete(id);
     if (pending.invocationId !== undefined) this.#activeInvocations.delete(pending.invocationId);
     pending.resolve(value);
+  }
+
+  #dataInFlight(): number {
+    let count = 0;
+    for (const pending of this.#pending.values())
+      if (
+        pending.kind === 'bridge.check.result' ||
+        pending.kind === 'bridge.inspect.result' ||
+        pending.kind === 'bridge.execute.result'
+      )
+        count++;
+    return count;
+  }
+
+  #actionInFlight(): number {
+    let count = 0;
+    for (const pending of this.#pending.values()) count += pending.actionIds.size;
+    return count;
   }
 
   async #send(kind: WorkerProtocolMessageKind, replyTo: bigint | null, payload: Uint8Array): Promise<void> {
@@ -470,9 +551,20 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
     replyTo: bigint | null,
     payload: Uint8Array,
   ): Promise<void> {
-    const envelope = encodeWorkerProtocolEnvelope({ version: 1, kind, id, replyTo, payload });
+    const envelope = encodeWorkerProtocolEnvelope(
+      { version: 1, kind, id, replyTo, payload },
+      {
+        envelopeLimits: { ...payloadLimits(this.#limits), maxBytes: Number(this.#limits.max_frame_bytes) },
+        payloadLimits: payloadLimits(this.#limits),
+      },
+    );
     if (!envelope.ok) throw new Error('invalid process bridge envelope');
-    const written = await this.#writer.write(envelope.value);
+    const reserved =
+      kind === 'session.hello' ||
+      kind === 'session.close.request' ||
+      kind === 'bridge.cancel.request' ||
+      kind === 'action.outcome';
+    const written = await this.#writer.write(envelope.value, { reserved });
     if (!written.ok) throw new Error('invalid process bridge frame');
   }
 
@@ -485,9 +577,41 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
     return this.#state === 'failed';
   }
 
+  #refreshPartialFrameDeadline(): void {
+    this.#clearPartialFrameDeadline();
+    if (!this.#decoder.hasPartialFrame()) return;
+    this.#partialFrameTimer = setTimeout(() => {
+      const expired = this.#decoder.expirePartialFrame();
+      if (!expired.ok) void this.#fail(expired.failure.code);
+    }, Number(this.#limits.partial_frame_ms));
+  }
+
+  #clearPartialFrameDeadline(): void {
+    if (this.#partialFrameTimer === undefined) return;
+    clearTimeout(this.#partialFrameTimer);
+    this.#partialFrameTimer = undefined;
+  }
+
+  async #readStderr(stderr: AsyncIterable<Uint8Array>): Promise<void> {
+    try {
+      for await (const chunk of stderr) {
+        const maximum = Number(this.#limits.max_stderr_bytes);
+        const owned = chunk.slice(Math.max(0, chunk.length - maximum));
+        const retained = this.#stderr.slice(Math.max(0, this.#stderr.length + owned.length - maximum));
+        const next = new Uint8Array(retained.length + owned.length);
+        next.set(retained);
+        next.set(owned, retained.length);
+        this.#stderr = next;
+      }
+    } catch {
+      // Stderr is operational context only; a broken diagnostic stream cannot alter protocol or semantic results.
+    }
+  }
+
   async #fail(detail: string, code: BridgeError['code'] = 'adapter_failure'): Promise<void> {
     if (this.#state === 'failed' || this.#state === 'closed') return;
     this.#state = 'failed';
+    this.#clearPartialFrameDeadline();
     this.#ready.resolve(false);
     for (const [id, pending] of this.#pending)
       this.#finish(id, pending, failedResult(pending.phase, code, code === 'worker_lost' ? undefined : detail));

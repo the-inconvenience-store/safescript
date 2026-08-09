@@ -258,11 +258,13 @@ class ScriptedTransport implements ProcessWorkerTransport {
   closes = 0;
   #nextWorkerId = 1n;
 
+  constructor(readonly hello: typeof DEFAULT_PROCESS_WORKER_HELLO = DEFAULT_PROCESS_WORKER_HELLO) {}
+
   async write(frame: Uint8Array): Promise<void> {
     const envelope = decodeFrame(frame);
     this.sent.push(envelope);
     if (envelope.kind !== 'session.hello') return;
-    const negotiated = negotiateWorkerProtocolHandshake(DEFAULT_PROCESS_WORKER_HELLO, DEFAULT_WORKER_HANDSHAKE_SUPPORT);
+    const negotiated = negotiateWorkerProtocolHandshake(this.hello, DEFAULT_WORKER_HANDSHAKE_SUPPORT);
     if (!negotiated.compatible) throw new Error('test handshake is incompatible');
     const payload = encodeWorkerProtocolPayload(WORKER_PROTOCOL_SESSION_WELCOME_PAYLOAD, negotiated.welcome);
     if (!payload.ok) throw new Error(payload.failure.code);
@@ -301,7 +303,73 @@ class WriteFailingTransport extends ScriptedTransport {
   }
 }
 
+class StderrTransport extends ScriptedTransport {
+  readonly stderr = new AsyncByteQueue();
+}
+
 describe('process RuntimeBridge state machine', () => {
+  it('expires partial frames and retains only the selected stderr tail', async () => {
+    const hello = {
+      ...DEFAULT_PROCESS_WORKER_HELLO,
+      limits: {
+        ...DEFAULT_PROCESS_WORKER_HELLO.limits,
+        partial_frame_ms: 5n,
+        max_stderr_bytes: 4n,
+      },
+    };
+    const transport = new StderrTransport(hello);
+    const bridge = new ProcessRuntimeBridge({ transport, hello });
+    expect(await bridge.ready()).toBe(true);
+    transport.stderr.push(Uint8Array.of(1, 2, 3));
+    transport.stderr.push(Uint8Array.of(4, 5, 6));
+    for (let attempt = 0; attempt < 100 && bridge.capturedStderr().length !== 4; attempt++) await Bun.sleep(1);
+    expect(bridge.capturedStderr()).toEqual(Uint8Array.of(3, 4, 5, 6));
+
+    transport.incoming.push(Uint8Array.of(0));
+    for (let attempt = 0; attempt < 100 && !bridge.isFailed(); attempt++) await Bun.sleep(1);
+    expect(bridge.isFailed()).toBe(true);
+    expect(transport.closes).toBe(1);
+  });
+
+  it('reserves negotiated in-flight capacity before queueing data work', async () => {
+    const hello = {
+      ...DEFAULT_PROCESS_WORKER_HELLO,
+      limits: { ...DEFAULT_PROCESS_WORKER_HELLO.limits, max_in_flight: 1n },
+    };
+    const transport = new ScriptedTransport(hello);
+    const bridge = new ProcessRuntimeBridge({ transport, hello });
+    expect(await bridge.ready()).toBe(true);
+
+    const pending = bridge.check(checkRequest);
+    await transport.request('bridge.check.request');
+    expect(await bridge.inspect({ ...checkRequest, views: ['semantic_graph'] })).toEqual({
+      status: 'bridge_error',
+      error: { code: 'capacity_exceeded', phase: 'inspect' },
+    });
+    expect(transport.sent.filter((envelope) => envelope.kind === 'bridge.check.request')).toHaveLength(1);
+
+    const cancellation = bridge.cancel({
+      abiVersion: { major: 2, minor: 0 },
+      invocationId: actionRequest.invocationId,
+    });
+    const cancelRequest = await transport.request('bridge.cancel.request');
+    const cancelResult = encodeWorkerBridgePayload('bridge.cancel.result', { status: 'not_active' });
+    if (!cancelResult.ok) throw new Error('test cancellation was not encoded');
+    transport.emit('bridge.cancel.result', cancelRequest.id, cancelResult.value);
+    expect(await cancellation).toEqual({ status: 'not_active' });
+
+    const request = transport.sent.find((envelope) => envelope.kind === 'bridge.check.request');
+    const result = encodeWorkerBridgePayload('bridge.check.result', {
+      status: 'bridge_error',
+      error: { code: 'adapter_failure', phase: 'check' },
+    });
+    if (!request || !result.ok) throw new Error('test request was not encoded');
+    transport.emit('bridge.check.result', request.id, result.value);
+    expect(await pending).toMatchObject({ status: 'bridge_error' });
+    transport.close();
+    expect(await bridge.close()).toMatchObject({ status: 'bridge_error' });
+  });
+
   it('starts lazily, fails lost work once, and uses a fresh worker only for later calls', async () => {
     const transports: ScriptedTransport[] = [];
     const bridge = new SupervisedProcessRuntimeBridge({

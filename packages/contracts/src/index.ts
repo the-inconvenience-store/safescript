@@ -1766,6 +1766,7 @@ export type BridgeErrorCode =
   | 'adapter_failure'
   | 'artifact_verification_failed'
   | 'bridge_closed'
+  | 'capacity_exceeded'
   | 'invalid_request'
   | 'unsupported_version'
   | 'worker_close_timeout'
@@ -2467,7 +2468,7 @@ export interface FailureCatalogEntry {
  * breaking and requires a major version. Removal first requires a deprecated entry and replacement path; message text
  * is deliberately outside this contract.
  */
-export const DIAGNOSTIC_CATALOG_VERSION: SemVer = Object.freeze({ major: 1, minor: 2, patch: 0 });
+export const DIAGNOSTIC_CATALOG_VERSION: SemVer = Object.freeze({ major: 1, minor: 3, patch: 0 });
 
 const COMPILER_DIAGNOSTIC_MEANINGS = Object.freeze([
   'ambient authority access',
@@ -2760,6 +2761,14 @@ export const DIAGNOSTIC_CATALOG: readonly FailureCatalogEntry[] = Object.freeze(
       'runtime_bridge',
       'runtime bridge is closed',
       ['phase', 'detail'],
+      'not_applicable',
+    ),
+    catalogEntry(
+      'capacity_exceeded',
+      'bridge',
+      'runtime_bridge',
+      'negotiated worker transport capacity is exhausted',
+      ['phase'],
       'not_applicable',
     ),
     catalogEntry(

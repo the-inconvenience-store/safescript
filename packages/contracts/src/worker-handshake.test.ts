@@ -114,6 +114,9 @@ describe('worker protocol handshake', () => {
       ['worker_build_digest'],
     ],
     [{ ...worker, limits: { ...limits, max_in_flight: 0n } }, ['operational_limit']],
+    [{ ...worker, limits: { ...limits, max_pending_replies: limits.max_in_flight } }, ['operational_limit']],
+    [{ ...worker, limits: { ...limits, max_queued_bytes: limits.max_frame_bytes } }, ['operational_limit']],
+    [{ ...worker, limits: { ...limits, max_queued_bytes: limits.max_frame_bytes * 2n - 1n } }, ['operational_limit']],
   ] as const)('fails closed before bridge work for an incompatible dimension', (support, expected) => {
     const result = negotiateWorkerProtocolHandshake(hello, support);
     expect(result.compatible).toBe(false);
