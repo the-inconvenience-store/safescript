@@ -151,7 +151,7 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
     const bridge = factory();
     const request = referenceCheckRequest(reference);
     const checked = await bridge.check(request);
-    expect(checked.status).toBe('accepted');
+    expect(checked.status, JSON.stringify(checked)).toBe('accepted');
     const first = await bridge.inspect({ ...request, views: ['semantic_graph'] });
     const second = await bridge.inspect({ ...request, views: ['semantic_graph'] });
     expect(first.status).toBe('accepted');
