@@ -105,10 +105,9 @@ The worker session applies these standard operational ceilings before decoding o
 | Handshake                         |        5 seconds |
 | Graceful close                    |        5 seconds |
 | Captured stderr                   |     65,536 bytes |
-| Restart attempts                  | 3 per 60 seconds |
 
 Protocol, worker, deployment, slot, and request ceilings compose by minimum. Capacity is reserved before protected decoding, allocation, compilation, interpretation, or dispatch. Whole-frame writes are serialized, reads apply backpressure, and cancellation and terminal replies retain reserved capacity so saturation cannot deadlock a session.
 
-Wall time, OS scheduling, process RSS, pipe buffers, protocol bytes, queue wait, startup, handshake, handler latency, and restart counts are operational observations. They are never charged as semantic fuel or included in deterministic execution facts.
+Wall time, OS scheduling, process RSS, pipe buffers, protocol bytes, queue wait, startup, handshake, and handler latency are operational observations. They are never charged as semantic fuel or included in deterministic execution facts.
 
-Stable worker failures include `incompatible_session`, `unexpected_message`, `invalid_correlation`, `duplicate_message_id`, `message_id_exhausted`, `capacity_exceeded`, `worker_start_failed`, `worker_start_timeout`, `worker_lost`, `worker_crash_loop`, `worker_close_timeout`, and `worker_identity_mismatch`. Worker loss never replays work.
+Stable worker failures include `incompatible_session`, `unexpected_message`, `invalid_correlation`, `duplicate_message_id`, `message_id_exhausted`, `capacity_exceeded`, `worker_start_failed`, `worker_start_timeout`, `worker_lost`, `worker_close_timeout`, and `worker_identity_mismatch`. Startup failure or worker loss permanently fails one facade. Worker loss never replays work; the host owns facade replacement and recovery policy.

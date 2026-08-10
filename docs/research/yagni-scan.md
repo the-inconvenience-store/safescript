@@ -48,7 +48,7 @@ This is not a thin adapter. The direct implementation is wrapped by:
 - 1,042 lines of process bridge and Node launcher;
 - worker-specific conformance, CDDL, canonical/hostile fixtures, lifecycle documentation, packaging, digest verification, restart budgets, flow control, stderr capture, and platform evidence.
 
-The protocol corpus covers crossed correlations, queue credits, partial writes, stderr saturation, crash loops, restart suppression, handshake incompatibilities, and override identities (`docs/conformance.md:7-15`). The release gate spans Node 22/24 and eight OS/architecture combinations (`docs/conformance.md:17-27`). This complexity is required by choosing a subprocess as the default, not by interpreting SafeScript.
+The protocol corpus covers crossed correlations, queue credits, partial writes, stderr saturation, terminal facade failure, handshake incompatibilities, and override identities (`docs/conformance.md:7-15`). The release gate spans Node 22/24 and eight OS/architecture combinations (`docs/conformance.md:17-27`). This complexity is required by choosing a subprocess as the default, not by interpreting SafeScript.
 
 The security case is narrower than the product positioning may imply. The security guide says the worker is trusted infrastructure, process separation is defense in depth, and it is not an OS sandbox (`docs/security.md:15-24`). The actual authority controls remain the closed language, verifier, interpreter, codecs, and gateway (`docs/security.md:1-4`). A direct-only SDK would lose fault separation, but it would not inherently give extension source ambient file/network/process access.
 
@@ -222,6 +222,8 @@ Resolution: required, optional, supported, and selected worker feature arrays we
 The supervisor restarts for later work after loss under attempt-count, time-window, and recovery-interval policy (`packages/sdk/src/process-bridge.ts:663-708`, `packages/sdk/src/process-bridge.ts:762-781`). These controls are exposed through Node bridge options and documented as part of lifecycle semantics (`packages/sdk/src/node-process-bridge.ts:43-52`, `packages/sdk/src/node-process-bridge.ts:182-190`; `docs/worker-lifecycle.md:72-78`).
 
 This is operational policy embedded in an otherwise transport-neutral runtime. A much smaller failure model is to mark the facade/bridge failed and require the host to recreate it. Keep automatic restart only if current deployments require transparent recovery for later invocations.
+
+Resolution: startup failure or unexpected established-worker loss now permanently fails one supervised facade. Later calls return the retained stable startup cause or `worker_lost` in their own phase and never start another worker. The host owns facade replacement, restart, backoff, circuit breaking, and monitoring. Restart attempt history, time-window logic, injected clocks, public restart options, restart operational limits, and `worker_crash_loop` were removed. Lazy shared initial startup, exact identity checks, bounded lifecycle deadlines, idempotent close, no replay, and unknown external-effect state remain.
 
 ### 11. Concurrent `Promise.all` action groups
 

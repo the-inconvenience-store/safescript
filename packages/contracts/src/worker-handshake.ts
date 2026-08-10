@@ -36,8 +36,6 @@ export interface WorkerProtocolOperationalLimits {
   readonly handshake_ms: bigint;
   readonly graceful_close_ms: bigint;
   readonly max_stderr_bytes: bigint;
-  readonly restart_attempts: bigint;
-  readonly restart_window_ms: bigint;
 }
 
 export interface WorkerProtocolSessionHello {
@@ -115,8 +113,6 @@ const OPERATIONAL_LIMITS_SCHEMA: WorkerProtocolSchema = Object.freeze({
       'handshake_ms',
       'graceful_close_ms',
       'max_stderr_bytes',
-      'restart_attempts',
-      'restart_window_ms',
     ].map((name) => Object.freeze({ name, schema: Object.freeze({ kind: 'uint' as const, minimum: 1n }) })),
   ),
 });
@@ -188,8 +184,6 @@ export const STANDARD_WORKER_OPERATIONAL_LIMITS: WorkerProtocolOperationalLimits
   handshake_ms: 5_000n,
   graceful_close_ms: 5_000n,
   max_stderr_bytes: 65_536n,
-  restart_attempts: 3n,
-  restart_window_ms: 60_000n,
 });
 
 const LIMIT_KEYS = Object.freeze(

@@ -247,7 +247,6 @@ describe('stable failure catalog', () => {
       'unknown_type',
       'unsupported_version',
       'worker_close_timeout',
-      'worker_crash_loop',
       'worker_identity_mismatch',
       'worker_lost',
       'worker_start_failed',

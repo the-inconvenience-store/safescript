@@ -8,7 +8,7 @@ For a runnable first integration, start with [getting started](getting-started.m
 
 Call `defineContract` with stable types, operations, and slots, then pass the result to `createSafeScript`. Both functions reject configuration problems synchronously. Contract validation catches duplicate or malformed IDs, conflicting schemas, declaration-name collisions, invalid limits, and missing slot permissions.
 
-`createSafeScript` requires exactly one handler for every operation. The `beforeAction` hook is optional. By default it creates an independent, lazy `SupervisedProcessRuntimeBridge` using the pinned local Node worker. A host can inject another conforming bridge; explicit direct mode is `bridge: createDirectRuntimeBridge()`. `ProcessRuntimeBridge` owns one already-created worker connection, enforces the negotiated codec, credit, queue, partial-frame, and stderr limits, and exposes its bounded operator-only stderr tail through `capturedStderr()`. `SupervisedProcessRuntimeBridge` adds lazy shared readiness, bounded restart and close policy, and no-replay recovery for later work.
+`createSafeScript` requires exactly one handler for every operation. The `beforeAction` hook is optional. By default it creates an independent, lazy `SupervisedProcessRuntimeBridge` using the pinned local Node worker. A host can inject another conforming bridge; explicit direct mode is `bridge: createDirectRuntimeBridge()`. `ProcessRuntimeBridge` owns one already-created worker connection, enforces the negotiated codec, credit, queue, partial-frame, and stderr limits, and exposes its bounded operator-only stderr tail through `capturedStderr()`. `SupervisedProcessRuntimeBridge` adds lazy shared readiness, bounded close policy, and terminal failure without replay.
 
 `createNodeProcessRuntimeBridge()` adds the concrete local-process boundary. Its default path resolves the exact `@safescript/worker` dependency, verifies the package metadata, generated build manifest, and pinned bundle digest before spawn, then launches the entry with the current Node executable, an empty environment, three pipe handles, and `shell: false`. A non-Node host supplies an absolute `nodePath`. An explicit override requires an absolute entry path, remains subject to the exact handshake, and may require a SHA-256 digest allow-list.
 
@@ -40,7 +40,7 @@ const safe = createSafeScript({
 });
 ```
 
-There is no automatic direct fallback. `worker_start_failed`, `worker_start_timeout`, `worker_identity_mismatch`, `worker_lost`, `worker_crash_loop`, and `worker_close_timeout` are stable operational failures. A lost invocation is never replayed, and an unresolved external effect must be treated as unknown unless the host can prove otherwise. See [limits and diagnostics](limits-and-diagnostics.md) and the [worker lifecycle](worker-lifecycle.md).
+There is no automatic direct fallback or worker restart. `worker_start_failed`, `worker_start_timeout`, `worker_identity_mismatch`, `worker_lost`, and `worker_close_timeout` are stable operational failures. Startup failure or worker loss permanently fails that facade. Later calls return the retained cause without spawning a worker. The host can close and replace the facade under its own restart and backoff policy, but it must not replay a lost invocation. An unresolved external effect remains unknown unless the host can prove otherwise. See [limits and diagnostics](limits-and-diagnostics.md) and the [worker lifecycle](worker-lifecycle.md).
 
 ## Check source
 

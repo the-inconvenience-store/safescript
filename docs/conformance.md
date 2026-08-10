@@ -10,9 +10,9 @@ The publication contains one fixed canonical byte vector for every message kind.
 
 ## Behavioral corpus
 
-The suite exercises exact bootstrap and incompatibility reporting; every message in its valid state and direction; unknown, duplicate, late, crossed, and reused correlation; concurrent work and nested action exchanges; cancellation races; idempotent close; partial writes; stderr saturation; queue and credit exhaustion; lifecycle deadlines; worker loss at each phase; restart suppression; and explicit override identity failures.
+The suite exercises exact bootstrap and incompatibility reporting; every message in its valid state and direction; unknown, duplicate, late, crossed, and reused correlation; concurrent work and nested action exchanges; cancellation races; idempotent close; partial writes; stderr saturation; queue and credit exhaustion; lifecycle deadlines; worker loss at each phase; terminal facade failure; and explicit override identity failures.
 
-Direct and process adapters run the same source, artifact, action, cancellation, diagnostic, semantic-graph, and resource-bound cases. Equal accepted inputs and semantic limits must produce equal public results and deterministic usage within the release. Process startup, queueing, wall time, RSS, and restart observations are intentionally excluded from semantic equivalence.
+Direct and process adapters run the same source, artifact, action, cancellation, diagnostic, semantic-graph, and resource-bound cases. Equal accepted inputs and semantic limits must produce equal public results and deterministic usage within the release. Process startup, queueing, wall time, and RSS observations are intentionally excluded from semantic equivalence.
 
 ## Release gates
 

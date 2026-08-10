@@ -67,12 +67,12 @@ A terminal execute result and cancellation may race. Whichever state transition 
 
 `session.close.request` has an empty payload and is idempotent at the SDK facade. On first acceptance the connection enters closing, rejects new work, signals cancellation to active invocations, and waits within the selected graceful-close deadline for terminal results and action bookkeeping.
 
-When quiescent, the worker sends `session.close.result` with status `closed`, flushes that complete frame, closes stdout, and exits successfully. If the deadline expires, the supervisor terminates the worker and maps unfinished operations through worker-loss rules. Repeated facade `close` calls share the same terminal result. After explicit close, the supervisor MUST NOT restart.
+When quiescent, the worker sends `session.close.result` with status `closed`, flushes that complete frame, closes stdout, and exits successfully. If the deadline expires, the supervisor terminates the worker and maps unfinished operations through worker-loss rules. Repeated facade `close` calls share the same terminal result. After explicit close, the supervisor MUST NOT start work.
 
-## Worker loss and restart
+## Worker loss and facade replacement
 
 Unexpected exit, signal, stdout loss, fatal protocol violation, or supervisor termination moves the connection to failed. The supervisor atomically completes every in-flight bridge operation with a bounded stable worker-loss bridge error. Started executions retain preparation, action, trace, and usage facts already validated by the host. An unresolved external action reports `effectState: unknown` unless the host can prove it was not performed.
 
 No source request, artifact request, invocation, action, cancellation, or close operation is automatically replayed. Any retry or business-specific deduplication is host policy outside the protocol.
 
-After unexpected loss, a later facade operation MAY trigger one fresh lazy worker startup and handshake for future work. Startup attempts share a bounded crash-rate budget. Exceeding it suppresses restart until the configured recovery interval or explicit facade replacement. A replacement connection starts envelope IDs from 1 and carries no protocol session state from the failed worker.
+Startup failure or unexpected loss permanently fails that facade. It retains the stable startup cause or `worker_lost`; later operations return that cause in their own phase without starting another worker. The host owns availability, monitoring, restart, backoff, and circuit-breaking policy. When its policy permits recovery, it closes and discards the failed facade and creates a new one with fresh configuration, handlers, hooks, and monitoring identity. It MUST NOT retry an invocation whose external-effect state is unknown.

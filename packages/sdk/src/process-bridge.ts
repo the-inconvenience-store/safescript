@@ -62,16 +62,13 @@ export interface ProcessRuntimeBridgeOptions {
   readonly hello?: WorkerProtocolSessionHello;
 }
 
-/** Lazy worker creation and bounded lifecycle policy for a supervised process bridge. */
+/** Lazy worker creation and terminal lifecycle policy for a supervised process bridge. */
 export interface SupervisedProcessRuntimeBridgeOptions {
   readonly start: () => ProcessWorkerTransport | Promise<ProcessWorkerTransport>;
   readonly hello?: WorkerProtocolSessionHello;
   readonly startupTimeoutMs?: number;
   readonly handshakeTimeoutMs?: number;
   readonly closeTimeoutMs?: number;
-  readonly restartAttempts?: number;
-  readonly restartWindowMs?: number;
-  readonly now?: () => number;
 }
 
 type BridgePhase = BridgeError['phase'];
@@ -148,7 +145,7 @@ function reservedQueueBytes(limits: WorkerProtocolOperationalLimits): number {
  * SDK-side protocol adapter for one worker connection.
  *
  * It owns envelope IDs, exact reply correlation, action suspension, and terminal resolution. Child creation,
- * restart policy, flow-control ceilings, and host gateway construction remain separate concerns.
+ * supervision, flow-control ceilings, and host gateway construction remain separate concerns.
  */
 export class ProcessRuntimeBridge implements RuntimeBridge {
   readonly #transport: ProcessWorkerTransport;
@@ -662,10 +659,10 @@ type Acquisition =
   Readonly<{ ok: true; connection: SupervisedConnection }> | Readonly<{ ok: false; code: BridgeError['code'] }>;
 
 /**
- * Lazy, restart-bounded owner for process bridge connections.
+ * Lazy owner for one terminal process bridge connection.
  *
- * Each public request is submitted to exactly one connection. Worker loss fails that request and may permit only a
- * later request to start a fresh worker; the supervisor never retries or replays accepted work.
+ * Each public request is submitted to exactly one connection. Startup failure or worker loss permanently fails this
+ * facade; the supervisor never restarts, retries, or replays accepted work.
  */
 export class SupervisedProcessRuntimeBridge implements RuntimeBridge {
   readonly #options: Readonly<{
@@ -674,13 +671,10 @@ export class SupervisedProcessRuntimeBridge implements RuntimeBridge {
     startupTimeoutMs: number;
     handshakeTimeoutMs: number;
     closeTimeoutMs: number;
-    restartAttempts: number;
-    restartWindowMs: number;
-    now: () => number;
   }>;
-  readonly #attempts: number[] = [];
   #connection: SupervisedConnection | undefined;
   #starting: Promise<Acquisition> | undefined;
+  #failure: BridgeError['code'] | undefined;
   #closed = false;
   #closePromise: Promise<CloseResult> | undefined;
 
@@ -691,19 +685,14 @@ export class SupervisedProcessRuntimeBridge implements RuntimeBridge {
       startupTimeoutMs: options.startupTimeoutMs ?? Number(hello.limits.worker_start_ms),
       handshakeTimeoutMs: options.handshakeTimeoutMs ?? Number(hello.limits.handshake_ms),
       closeTimeoutMs: options.closeTimeoutMs ?? Number(hello.limits.graceful_close_ms),
-      restartAttempts: options.restartAttempts ?? Number(hello.limits.restart_attempts),
-      restartWindowMs: options.restartWindowMs ?? Number(hello.limits.restart_window_ms),
     };
     if (
-      ![values.startupTimeoutMs, values.handshakeTimeoutMs, values.closeTimeoutMs, values.restartWindowMs].every(
+      ![values.startupTimeoutMs, values.handshakeTimeoutMs, values.closeTimeoutMs].every(
         (value) => Number.isSafeInteger(value) && value > 0,
-      ) ||
-      !Number.isSafeInteger(values.restartAttempts) ||
-      values.restartAttempts < 0 ||
-      (options.now !== undefined && typeof options.now !== 'function')
+      )
     )
       throw new TypeError('worker supervisor limits are invalid');
-    this.#options = { ...values, start: options.start, hello, now: options.now ?? Date.now };
+    this.#options = { ...values, start: options.start, hello };
   }
 
   async check(request: CheckRequest): Promise<CheckResult> {
@@ -759,7 +748,11 @@ export class SupervisedProcessRuntimeBridge implements RuntimeBridge {
 
   async #acquire(): Promise<Acquisition> {
     if (this.#closed) return Object.freeze({ ok: false, code: 'bridge_closed' });
-    if (this.#connection?.bridge.isFailed()) this.#connection = undefined;
+    if (this.#failure) return Object.freeze({ ok: false, code: this.#failure });
+    if (this.#connection?.bridge.isFailed()) {
+      this.#connection = undefined;
+      return this.#terminal('worker_lost');
+    }
     if (this.#connection) return Object.freeze({ ok: true, connection: this.#connection });
     if (this.#starting) return this.#starting;
     const starting = this.#start();
@@ -772,13 +765,6 @@ export class SupervisedProcessRuntimeBridge implements RuntimeBridge {
   }
 
   async #start(): Promise<Acquisition> {
-    const now = this.#options.now();
-    while (this.#attempts[0] !== undefined && now - this.#attempts[0] >= this.#options.restartWindowMs)
-      this.#attempts.shift();
-    if (this.#attempts.length > this.#options.restartAttempts)
-      return Object.freeze({ ok: false, code: 'worker_crash_loop' });
-    this.#attempts.push(now);
-
     const spawning = Promise.resolve().then(this.#options.start);
     const spawned = await withDeadline(spawning, this.#options.startupTimeoutMs);
     if (spawned.status === 'timeout') {
@@ -786,31 +772,28 @@ export class SupervisedProcessRuntimeBridge implements RuntimeBridge {
         (transport) => this.#closeTransport(transport),
         () => undefined,
       );
-      return Object.freeze({ ok: false, code: 'worker_start_timeout' });
+      return this.#terminal('worker_start_timeout');
     }
     if (spawned.status === 'failed')
-      return Object.freeze({
-        ok: false,
-        code: spawned.error instanceof WorkerStartError ? spawned.error.code : 'worker_start_failed',
-      });
+      return this.#terminal(spawned.error instanceof WorkerStartError ? spawned.error.code : 'worker_start_failed');
     const transport = spawned.value;
     let bridge: ProcessRuntimeBridge;
     try {
       bridge = new ProcessRuntimeBridge({ transport, hello: this.#options.hello });
     } catch {
       await this.#closeTransport(transport);
-      return Object.freeze({ ok: false, code: 'worker_start_failed' });
+      return this.#terminal('worker_start_failed');
     }
     const ready = await withDeadline(bridge.ready(), this.#options.handshakeTimeoutMs);
     if (ready.status === 'timeout') {
       await bridge.terminate();
-      return Object.freeze({ ok: false, code: 'worker_start_timeout' });
+      return this.#terminal('worker_start_timeout');
     }
     if (ready.status === 'failed') {
       await bridge.terminate();
-      return Object.freeze({ ok: false, code: 'worker_start_failed' });
+      return this.#terminal('worker_start_failed');
     }
-    if (!ready.value) return Object.freeze({ ok: false, code: 'worker_start_failed' });
+    if (!ready.value) return this.#terminal('worker_start_failed');
     if (this.#closed) {
       await bridge.terminate();
       return Object.freeze({ ok: false, code: 'bridge_closed' });
@@ -821,7 +804,7 @@ export class SupervisedProcessRuntimeBridge implements RuntimeBridge {
   }
 
   #observe(connection: SupervisedConnection, result: unknown): void {
-    if (
+    const lost =
       this.#connection === connection &&
       (connection.bridge.isFailed() ||
         (result !== null &&
@@ -832,9 +815,16 @@ export class SupervisedProcessRuntimeBridge implements RuntimeBridge {
           result.error !== null &&
           typeof result.error === 'object' &&
           'code' in result.error &&
-          result.error.code === 'worker_lost'))
-    )
+          result.error.code === 'worker_lost'));
+    if (lost) {
       this.#connection = undefined;
+      this.#failure ??= 'worker_lost';
+    }
+  }
+
+  #terminal(code: BridgeError['code']): Acquisition {
+    this.#failure ??= code;
+    return Object.freeze({ ok: false, code: this.#failure });
   }
 
   async #closeTransport(transport: ProcessWorkerTransport): Promise<void> {

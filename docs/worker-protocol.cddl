@@ -78,8 +78,6 @@ operational-limits = {
   handshake_ms: uint,
   graceful_close_ms: uint,
   max_stderr_bytes: uint,
-  restart_attempts: uint,
-  restart_window_ms: uint,
 }
 
 ; Bridge messages
@@ -309,7 +307,7 @@ bridge-error = {
 bridge-error-code =
   "adapter_failure" / "artifact_verification_failed" / "bridge_closed" /
   "invalid_request" / "unsupported_version" / "worker_start_failed" /
-  "worker_start_timeout" / "worker_lost" / "worker_crash_loop" /
+  "worker_start_timeout" / "worker_lost" /
   "worker_close_timeout" / "worker_identity_mismatch"
 
 execution-error = {

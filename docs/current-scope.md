@@ -23,7 +23,7 @@ The repository currently implements:
 - the six-method TypeScript facade and deterministic scripted-action tests;
 - slot-scoped agent/editor authoring bundles with repair guidance;
 - offline JSON CLI commands for check, inspect, execute, and test;
-- the worker protocol specification, standalone runtime worker, pinned manifest-verified Node launcher, default process bridge adapter, and lazy restart-bounded supervisor;
+- the worker protocol specification, standalone runtime worker, pinned manifest-verified Node launcher, default process bridge adapter, and lazy terminal-failure supervisor;
 - adapter-neutral conformance references, resource measurements, hostile cases, release metadata, and authoring evidence;
 - an interactive CRM integration and read-only semantic-graph projection.
 

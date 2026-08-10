@@ -17,7 +17,7 @@ import {
 const SHA256 = /^[0-9a-f]{64}$/;
 const ZERO_DIGEST = '0'.repeat(64);
 const BUNDLED_PACKAGE_VERSION = '0.6.0';
-const BUNDLED_WORKER_BUILD_DIGEST = '7399b093d21d84b1b36975f345e0c3e403a7a488178d745e47f17f29515428be';
+const BUNDLED_WORKER_BUILD_DIGEST = 'bf1895d96cad8f1ee89d336fd6fbf03055de57b0b0b5ef8348e958b5f9a878d3';
 
 interface WorkerBuildManifest {
   readonly schema: 1;
@@ -45,9 +45,6 @@ export interface NodeProcessRuntimeBridgeOptions {
   readonly startupTimeoutMs?: number;
   readonly handshakeTimeoutMs?: number;
   readonly closeTimeoutMs?: number;
-  readonly restartAttempts?: number;
-  readonly restartWindowMs?: number;
-  readonly now?: () => number;
 }
 
 interface ResolvedWorker {
@@ -174,9 +171,6 @@ export function createNodeProcessRuntimeBridge(
     ...(options.startupTimeoutMs === undefined ? {} : { startupTimeoutMs: options.startupTimeoutMs }),
     ...(options.handshakeTimeoutMs === undefined ? {} : { handshakeTimeoutMs: options.handshakeTimeoutMs }),
     ...(options.closeTimeoutMs === undefined ? {} : { closeTimeoutMs: options.closeTimeoutMs }),
-    ...(options.restartAttempts === undefined ? {} : { restartAttempts: options.restartAttempts }),
-    ...(options.restartWindowMs === undefined ? {} : { restartWindowMs: options.restartWindowMs }),
-    ...(options.now === undefined ? {} : { now: options.now }),
   };
   return new SupervisedProcessRuntimeBridge(supervisorOptions);
 }

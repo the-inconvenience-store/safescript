@@ -1564,7 +1564,6 @@ export type BridgeErrorCode =
   | 'invalid_request'
   | 'unsupported_version'
   | 'worker_close_timeout'
-  | 'worker_crash_loop'
   | 'worker_identity_mismatch'
   | 'worker_lost'
   | 'worker_start_failed'
@@ -2381,14 +2380,6 @@ export const DIAGNOSTIC_CATALOG: readonly FailureCatalogEntry[] = Object.freeze(
       'bridge',
       'runtime_bridge',
       'worker graceful close exceeded its deadline',
-      ['phase'],
-      'not_applicable',
-    ),
-    catalogEntry(
-      'worker_crash_loop',
-      'bridge',
-      'runtime_bridge',
-      'worker restart rate capacity is exhausted',
       ['phase'],
       'not_applicable',
     ),
