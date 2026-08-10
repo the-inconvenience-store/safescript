@@ -293,7 +293,7 @@ No example application consumes the bundle. The README demonstrates creation, wh
 
 **Confidence: medium.**
 
-Contracts expose many stable branded IDs, per-definition fingerprints, contract digests, compiler identities, artifact versions, action-site IDs, semantic-node IDs, worker identities, wire versions, failure domains/owners/fields, and a closed catalog that includes worker, artifact, graph, hook, time, randomness, and transport failures (`packages/contracts/src/index.ts:15-156`, `packages/contracts/src/index.ts:2189-2628`). The current package set is nevertheless one coordinated 0.6.0 release with no selectable compatibility versions (`docs/current-scope.md:28`, `docs/worker-protocol.md:9`).
+Contracts expose many stable branded IDs, per-definition fingerprints, contract digests, compiler identities, artifact versions, action-site IDs, semantic-node IDs, worker identities, wire versions, failure domains/owners/fields, and a closed catalog that includes worker, artifact, graph, hook, time, randomness, and transport failures (`packages/contracts/src/index.ts:15-156`, `packages/contracts/src/index.ts:2189-2628`). The current package set is nevertheless one coordinated 0.7.0 release with no selectable compatibility versions (`docs/current-scope.md:28`, `docs/worker-protocol.md:9`).
 
 Stable machine-readable compiler and execution errors are valuable. The YAGNI risk is making every optional subsystem's detailed taxonomy a permanent public compatibility promise before independent implementations or consumers exist.
 

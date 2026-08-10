@@ -6,7 +6,7 @@ This document defines the normative byte boundary between a SafeScript host adap
 
 The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHOULD**, **SHOULD NOT**, and **MAY** are normative requirements. Protocol implementations MUST fail closed at the smallest scope whose state remains trustworthy. They MUST NOT expose raw exceptions, stack traces, undecoded bytes, or unbounded peer-controlled text through public results.
 
-SafeScript 0.6.0 is the sole public compatibility contract. The control-envelope `version: 1` field is an internal wire-format marker, and compiler build identities bind checked artifacts and worker packages; neither is a separately selectable product contract.
+SafeScript 0.7.0 is the sole public compatibility contract. The control-envelope `version: 1` field is an internal wire-format marker, and compiler build identities bind checked artifacts and worker packages; neither is a separately selectable product contract.
 
 ## Reference stdio framing
 
@@ -73,11 +73,11 @@ An action outcome is either a completed canonical operation `Result` or a host f
 
 Envelope schema 1 is immutable. A future envelope that cannot be decoded by schema 1 requires a new envelope version and bootstrap rules; peers MUST NOT guess it.
 
-Peers require exact SafeScript 0.6.0 identity. Schema changes ship with a new coordinated SafeScript release. Fields and kinds are never silently ignored, reused, or assigned a new meaning.
+Peers require exact SafeScript 0.7.0 identity. Schema changes ship with a new coordinated SafeScript release. Fields and kinds are never silently ignored, reused, or assigned a new meaning.
 
 ## Wire failures
 
-The following wire codes have stable meanings in SafeScript 0.6.0:
+The following wire codes have stable meanings in SafeScript 0.7.0:
 
 | Code                           | Meaning                                                      | Scope                                                |
 | ------------------------------ | ------------------------------------------------------------ | ---------------------------------------------------- |

@@ -1,12 +1,12 @@
 # Worker handshake
 
-Every worker connection begins with an exact SafeScript 0.6.0 handshake over the [worker protocol](worker-protocol.md). No bridge, action, or close request is accepted before the session reaches `ready`.
+Every worker connection begins with an exact SafeScript 0.7.0 handshake over the [worker protocol](worker-protocol.md). No bridge, action, or close request is accepted before the session reaches `ready`.
 
 ## Host hello
 
 The host sends one `session.hello` containing:
 
-- `version`: exactly `0.6.0`;
+- `version`: exactly `0.7.0`;
 - `sdk_build`: a bounded implementation identity;
 - `expected_worker`: exact version, SHA-256 build digest, and whether an explicit override is in use;
 - requested operational limits.
@@ -23,7 +23,7 @@ The host validates the complete welcome and its correlation before entering `rea
 
 An incompatible worker replies once with `session.incompatible` and closes normally. Its sorted dimensions are limited to:
 
-- `version` — either peer is not exactly SafeScript 0.6.0;
+- `version` — either peer is not exactly SafeScript 0.7.0;
 - `worker_build_digest` — the bundled worker identity does not match;
 - `operational_limit` — operational limits are invalid.
 

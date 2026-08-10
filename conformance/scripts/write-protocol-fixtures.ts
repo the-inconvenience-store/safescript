@@ -196,6 +196,6 @@ const valid = fixtures.map((fixture) => {
 
 await writeFile(
   fixtureUrl,
-  `${JSON.stringify({ format: 1, releaseVersion: '0.6.0', valid, hostile: existing.hostile }, null, 2)}\n`,
+  `${JSON.stringify({ format: 1, releaseVersion: '0.7.0', valid, hostile: existing.hostile }, null, 2)}\n`,
   'utf8',
 );

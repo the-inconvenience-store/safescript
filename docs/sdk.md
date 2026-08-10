@@ -142,7 +142,7 @@ It returns `{ passed, mismatches, execution }` and does not throw for an extensi
 
 ## Worker distribution
 
-SafeScript 0.6.0 coordinates `@safescript/contracts`, `@safescript/engine`, `@safescript/worker`, `@safescript/sdk`, `@safescript/cli`, and `@safescript/conformance`. Internal SafeScript dependencies use the exact same version. Installation includes the complete JavaScript worker and does not download executables, require a daemon, compile native code, or discover ambient packages.
+SafeScript 0.7.0 coordinates `@safescript/contracts`, `@safescript/engine`, `@safescript/worker`, `@safescript/sdk`, `@safescript/cli`, and `@safescript/conformance`. Internal SafeScript dependencies use the exact same version. Installation includes the complete JavaScript worker and does not download executables, require a daemon, compile native code, or discover ambient packages.
 
 The SDK resolves the worker relative to its own installed package graph, verifies the generated manifest and SHA-256 build digest, and starts it lazily. An explicit override requires absolute entry and Node paths; an optional digest allow-list further constrains it. Overrides do not enable remote transports, daemon discovery, downgrade, or fallback.
 

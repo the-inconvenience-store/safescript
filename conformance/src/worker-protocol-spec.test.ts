@@ -49,10 +49,10 @@ function hex(value: Uint8Array): string {
 }
 
 describe('worker protocol publication', () => {
-  it('publishes one discoverable SafeScript 0.6.0 specification surface', async () => {
+  it('publishes one discoverable SafeScript 0.7.0 specification surface', async () => {
     const manifest = (await Bun.file(manifestUrl).json()) as WorkerProtocolManifest;
     expect(manifest.format).toBe(1);
-    expect(manifest.releaseVersion).toBe('0.6.0');
+    expect(manifest.releaseVersion).toBe('0.7.0');
     expect(manifest.index).toBe('docs/README.md');
     expect(manifest.schema).toBe('docs/worker-protocol.cddl');
     expect(manifest.fixtures).toBe('conformance/worker-protocol/fixtures.json');
@@ -62,7 +62,7 @@ describe('worker protocol publication', () => {
 
   it('runs every canonical vector through exact, split, and coalesced framing', async () => {
     const fixtures = (await Bun.file(fixturesUrl).json()) as WorkerProtocolFixtures;
-    expect(fixtures).toMatchObject({ format: 1, releaseVersion: '0.6.0' });
+    expect(fixtures).toMatchObject({ format: 1, releaseVersion: '0.7.0' });
     for (const fixture of fixtures.valid) {
       const frame = bytes(fixture.frameHex);
       const decodedFrame = decodeWorkerProtocolFrame(frame);

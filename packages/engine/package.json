@@ -1,6 +1,6 @@
 {
   "name": "@safescript/engine",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
   "exports": {
     ".": {
@@ -21,7 +21,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@safescript/contracts": "0.6.0",
+    "@safescript/contracts": "0.7.0",
     "typescript": "6.0.3"
   },
   "nx": {

@@ -10,7 +10,7 @@ const moduleRoot = resolve(installRoot, 'node_modules/@safescript');
 const packageNames = ['contracts', 'engine', 'worker', 'sdk', 'cli', 'conformance'];
 for (const name of packageNames) {
   const manifest = JSON.parse(await readFile(resolve(moduleRoot, name, 'package.json'), 'utf8'));
-  if (manifest.version !== '0.6.0') throw new Error(`${manifest.name} is ${manifest.version}, expected 0.6.0`);
+  if (manifest.version !== '0.7.0') throw new Error(`${manifest.name} is ${manifest.version}, expected 0.7.0`);
 }
 
 const contracts = await import(pathToFileURL(resolve(moduleRoot, 'contracts/dist/index.js')).href);
@@ -45,4 +45,4 @@ try {
 const cli = spawnSync(process.execPath, [resolve(moduleRoot, 'cli/dist/index.js')], { encoding: 'utf8', shell: false });
 if (cli.status !== 2 || !cli.stdout.includes('"status":"cli_error"'))
   throw new Error(`installed CLI smoke failed: ${cli.status}\n${cli.stdout}\n${cli.stderr}`);
-console.log('installed SafeScript 0.6.0 package set passed');
+console.log('installed SafeScript 0.7.0 package set passed');

@@ -1,4 +1,4 @@
-; SafeScript 0.6.0 worker protocol
+; SafeScript 0.7.0 worker protocol
 ; Maps are closed. Deterministic encoding and additional semantic constraints are
 ; defined by wire-protocol.md and the document owning each record.
 ; SDK policy, host context, and credentials are host-local and have no wire
@@ -34,14 +34,14 @@ message-payload =
 ; Handshake
 
 session-hello = {
-  version: "0.6.0",
+  version: "0.7.0",
   sdk_build: bounded-text,
   expected_worker: expected-worker,
   limits: operational-limits,
 }
 
 session-welcome = {
-  version: "0.6.0",
+  version: "0.7.0",
   worker: worker-identity,
   limits: operational-limits,
   implementation: bounded-text,
@@ -54,12 +54,12 @@ session-incompatible = {
 }
 
 expected-worker = {
-  version: "0.6.0",
+  version: "0.7.0",
   build_digest: sha256,
   override: bool,
 }
 worker-identity = {
-  version: "0.6.0",
+  version: "0.7.0",
   compiler_build: bounded-text,
   build_digest: sha256,
 }

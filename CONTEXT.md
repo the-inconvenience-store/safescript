@@ -89,5 +89,5 @@ A separately supervised local process that runs the SafeScript compiler and inte
 _Avoid_: Daemon, workflow worker, trusted plugin process
 
 **Worker protocol**:
-The language-neutral, bidirectional SafeScript 0.6.0 contract between a host adapter and a runtime worker. It carries runtime-bridge operations, typed action requests and outcomes, cancellation, lifecycle, and bounded execution facts without granting host authority.
+The language-neutral, bidirectional SafeScript 0.7.0 contract between a host adapter and a runtime worker. It carries runtime-bridge operations, typed action requests and outcomes, cancellation, lifecycle, and bounded execution facts without granting host authority.
 _Avoid_: Runtime bridge, remote service API, permission channel

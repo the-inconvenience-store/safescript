@@ -18,21 +18,21 @@
     },
     "apps/cli": {
       "name": "@safescript/cli",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "dependencies": {
-        "@safescript/sdk": "0.6.0",
+        "@safescript/sdk": "0.7.0",
       },
     },
     "conformance": {
       "name": "@safescript/conformance",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "dependencies": {
-        "@safescript/contracts": "0.6.0",
+        "@safescript/contracts": "0.7.0",
       },
       "devDependencies": {
-        "@safescript/engine": "0.6.0",
-        "@safescript/sdk": "0.6.0",
-        "@safescript/worker": "0.6.0",
+        "@safescript/engine": "0.7.0",
+        "@safescript/sdk": "0.7.0",
+        "@safescript/worker": "0.7.0",
       },
     },
     "examples/crm": {
@@ -45,34 +45,34 @@
     },
     "packages/contracts": {
       "name": "@safescript/contracts",
-      "version": "0.6.0",
+      "version": "0.7.0",
     },
     "packages/engine": {
       "name": "@safescript/engine",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "dependencies": {
-        "@safescript/contracts": "0.6.0",
+        "@safescript/contracts": "0.7.0",
         "typescript": "6.0.3",
       },
     },
     "packages/sdk": {
       "name": "@safescript/sdk",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "dependencies": {
-        "@safescript/contracts": "0.6.0",
-        "@safescript/engine": "0.6.0",
-        "@safescript/worker": "0.6.0",
+        "@safescript/contracts": "0.7.0",
+        "@safescript/engine": "0.7.0",
+        "@safescript/worker": "0.7.0",
       },
     },
     "packages/worker": {
       "name": "@safescript/worker",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "bin": {
         "safescript-worker": "./dist/entry.js",
       },
       "dependencies": {
-        "@safescript/contracts": "0.6.0",
-        "@safescript/engine": "0.6.0",
+        "@safescript/contracts": "0.7.0",
+        "@safescript/engine": "0.7.0",
       },
     },
   },
@@ -326,7 +326,7 @@
 
     "@nx/eslint-plugin": ["@nx/eslint-plugin@23.1.1", "", { "dependencies": { "@nx/devkit": "23.1.1", "@nx/js": "23.1.1", "@phenomnomnominal/tsquery": "~6.2.0", "@typescript-eslint/type-utils": "^8.0.0", "@typescript-eslint/utils": "^8.0.0", "confusing-browser-globals": "^1.0.9", "globals": "^17.0.0", "jsonc-eslint-parser": "^2.1.0", "picocolors": "^1.1.0", "semver": "^7.6.3", "tslib": "^2.3.0" }, "peerDependencies": { "@typescript-eslint/parser": "^8.0.0", "eslint-config-prettier": "^10.0.0" }, "optionalPeers": ["@typescript-eslint/parser", "eslint-config-prettier"] }, "sha512-XJwYAwroCPCk6m60mB6MMt92DFtRzQwUgZnKoszhgvWIX5RUx4RqQqGOmTpvxAkY0f5csUm9BWwfOeQLPewSMQ=="],
 
-    "@nx/js": ["@nx/js@23.1.1", "", { "dependencies": { "@babel/core": "^7.23.2", "@babel/plugin-proposal-decorators": "^7.22.7", "@babel/plugin-transform-class-properties": "^7.22.5", "@babel/plugin-transform-class-static-block": "^7.22.5", "@babel/plugin-transform-private-methods": "^7.22.5", "@babel/plugin-transform-private-property-in-object": "^7.22.5", "@babel/plugin-transform-runtime": "^7.23.2", "@babel/preset-env": "^7.23.2", "@babel/preset-typescript": "^7.22.5", "@babel/runtime": "^7.22.6", "@nx/devkit": "23.1.1", "@nx/workspace": "23.1.1", "@zkochan/js-yaml": "0.0.7", "babel-plugin-const-enum": "^1.0.1", "babel-plugin-macros": "^3.1.0", "babel-plugin-transform-typescript-metadata": "^0.3.1", "chalk": "^4.1.0", "columnify": "^1.6.0", "detect-port": "^2.1.0", "ignore": "^7.0.5", "js-tokens": "^4.0.0", "jsonc-parser": "^3.2.0", "npm-run-path": "^4.0.1", "picocolors": "^1.1.0", "picomatch": "4.0.4", "semver": "^7.6.3", "source-map-support": "0.5.19", "tinyglobby": "^0.2.12", "tslib": "^2.3.0" }, "peerDependencies": { "@swc/cli": ">=0.6.0 <0.9.0", "verdaccio": "^6.0.5" }, "optionalPeers": ["@swc/cli", "verdaccio"] }, "sha512-8YnhKAnSE7lTiiUEoUyO5LBmZiRIqsc/v2qFMAUfbJKr2bAKAB4h+6Lz9ZfbMvRzJH3fcDZVVWVcvU5GXmQhzg=="],
+    "@nx/js": ["@nx/js@23.1.1", "", { "dependencies": { "@babel/core": "^7.23.2", "@babel/plugin-proposal-decorators": "^7.22.7", "@babel/plugin-transform-class-properties": "^7.22.5", "@babel/plugin-transform-class-static-block": "^7.22.5", "@babel/plugin-transform-private-methods": "^7.22.5", "@babel/plugin-transform-private-property-in-object": "^7.22.5", "@babel/plugin-transform-runtime": "^7.23.2", "@babel/preset-env": "^7.23.2", "@babel/preset-typescript": "^7.22.5", "@babel/runtime": "^7.22.6", "@nx/devkit": "23.1.1", "@nx/workspace": "23.1.1", "@zkochan/js-yaml": "0.0.7", "babel-plugin-const-enum": "^1.0.1", "babel-plugin-macros": "^3.1.0", "babel-plugin-transform-typescript-metadata": "^0.3.1", "chalk": "^4.1.0", "columnify": "^1.6.0", "detect-port": "^2.1.0", "ignore": "^7.0.5", "js-tokens": "^4.0.0", "jsonc-parser": "^3.2.0", "npm-run-path": "^4.0.1", "picocolors": "^1.1.0", "picomatch": "4.0.4", "semver": "^7.6.3", "source-map-support": "0.5.19", "tinyglobby": "^0.2.12", "tslib": "^2.3.0" }, "peerDependencies": { "@swc/cli": ">=0.7.0 <0.9.0", "verdaccio": "^6.0.5" }, "optionalPeers": ["@swc/cli", "verdaccio"] }, "sha512-8YnhKAnSE7lTiiUEoUyO5LBmZiRIqsc/v2qFMAUfbJKr2bAKAB4h+6Lz9ZfbMvRzJH3fcDZVVWVcvU5GXmQhzg=="],
 
     "@nx/nx-darwin-arm64": ["@nx/nx-darwin-arm64@23.1.1", "", { "os": "darwin", "cpu": "arm64" }, "sha512-Rq/RXLX5uIvJQfb6kuUgEirquT5ARaAgQyNaMZVnOPAL5wuxaDvQag8WX/WUCIgbUKZuGkclJwM7Vlnvtn3bdg=="],
 
@@ -770,7 +770,7 @@
 
     "source-map": ["source-map@0.6.1", "", {}, "sha512-UjgapumWlbMhkBgzT7Ykc5YXUT46F0iKu8SGXq0bcwP5dz/h0Plj6enJqjz1Zbq2l5WaqYnrVbwWOWMyF3F47g=="],
 
-    "source-map-support": ["source-map-support@0.5.19", "", { "dependencies": { "buffer-from": "^1.0.0", "source-map": "^0.6.0" } }, "sha512-Wonm7zOCIJzBGQdB+thsPar0kYuCIzYvxZwlBa87yi/Mdjv7Tip2cyVbLj5o0cFPN4EVkuTwb3GDDyUx2DGnGw=="],
+    "source-map-support": ["source-map-support@0.5.19", "", { "dependencies": { "buffer-from": "^1.0.0", "source-map": "^0.7.0" } }, "sha512-Wonm7zOCIJzBGQdB+thsPar0kYuCIzYvxZwlBa87yi/Mdjv7Tip2cyVbLj5o0cFPN4EVkuTwb3GDDyUx2DGnGw=="],
 
     "string-width": ["string-width@4.2.3", "", { "dependencies": { "emoji-regex": "^8.0.0", "is-fullwidth-code-point": "^3.0.0", "strip-ansi": "^6.0.1" } }, "sha512-wKyQRQpjJ0sIp62ErSZdGsjMJWsap5oRNihHhu6G7JVO/9jIB6UyevL+tXuOqrng8j/cxKTWyWUwvSTriiZz/g=="],
 

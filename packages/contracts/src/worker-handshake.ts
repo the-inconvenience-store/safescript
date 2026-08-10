@@ -9,7 +9,7 @@ const SHA256 = /^[0-9a-f]{64}$/;
 const MAX_TEXT_BYTES = 256;
 
 /** The single public contract shared by every SafeScript component. */
-export const SAFESCRIPT_VERSION = '0.6.0' as const;
+export const SAFESCRIPT_VERSION = '0.7.0' as const;
 
 export interface WorkerProtocolExpectedWorker {
   readonly version: string;

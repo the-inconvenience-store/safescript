@@ -1,6 +1,6 @@
 # Worker and adapter conformance
 
-An adapter or worker conforms to SafeScript 0.6.0 only by passing the same corpus through its public boundary. Implementation language, internal classes, subprocess library, and decoder structure are not conformance surfaces.
+An adapter or worker conforms to SafeScript 0.7.0 only by passing the same corpus through its public boundary. Implementation language, internal classes, subprocess library, and decoder structure are not conformance surfaces.
 
 ## Publication unit
 
@@ -16,7 +16,7 @@ Direct and process adapters run the same source, artifact, action, cancellation,
 
 ## Release gates
 
-SafeScript 0.6.0 release evidence requires:
+SafeScript 0.7.0 release evidence requires:
 
 - build, test, lint, and typecheck success;
 - canonical and hostile protocol fixtures;
@@ -26,4 +26,4 @@ SafeScript 0.6.0 release evidence requires:
 - dependency audit and no open critical security findings;
 - pinned package, worker manifest, fixture, schema, and failure-catalog evidence.
 
-The checked-in [release record](../conformance/evidence/release/0.6.0.json) describes the current gate.
+The checked-in [0.6.0 release record](../conformance/evidence/release/0.6.0.json) is the latest completed cross-platform gate. A 0.7.0 release record must not claim completion until the full gate above passes for the 0.7.0 package set.

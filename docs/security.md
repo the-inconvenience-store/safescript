@@ -95,7 +95,7 @@ For implementation details, read [architecture and engine](engine.md). For host 
 
 The local runtime worker is defense in depth. Source, artifacts, registries, inputs, frames, worker outputs, action requests, and outcomes remain untrusted at every receiving seam. The host retains handlers, credentials, invocation context, policy state, business-specific deduplication, and effect dispatch; none of those values are serialized to the worker.
 
-Both peers enforce framing limits before allocation, deterministic CBOR, closed payload schemas, correlation, and the exact SafeScript 0.6.0 session contract. The host rejects duplicate, late, mismatched, or state-invalid actions before policy or handlers. Protocol failures close the smallest trustworthy scope and never cause replay. A lost unresolved action has unknown effect state unless the host can prove otherwise.
+Both peers enforce framing limits before allocation, deterministic CBOR, closed payload schemas, correlation, and the exact SafeScript 0.7.0 session contract. The host rejects duplicate, late, mismatched, or state-invalid actions before policy or handlers. Protocol failures close the smallest trustworthy scope and never cause replay. A lost unresolved action has unknown effect state unless the host can prove otherwise.
 
 The SDK launches the pinned worker entry with an argv array, `shell: false`, an empty environment, binary stdin/stdout, bounded stderr, and no Node IPC channel. It validates package metadata and the worker build digest before use. Explicit overrides require absolute paths and remain subject to the same handshake and validation.
 

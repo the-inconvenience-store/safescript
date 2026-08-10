@@ -31,7 +31,7 @@ describe('single-contract worker handshake', () => {
     const result = negotiateWorkerProtocolHandshake(hello, support);
     expect(result.compatible).toBe(true);
     if (!result.compatible) return;
-    expect(result.welcome.version).toBe('0.6.0');
+    expect(result.welcome.version).toBe('0.7.0');
     expect(result.welcome.limits).toEqual(STANDARD_WORKER_OPERATIONAL_LIMITS);
     expect(validateWorkerProtocolWelcome(hello, result.welcome).compatible).toBe(true);
   });

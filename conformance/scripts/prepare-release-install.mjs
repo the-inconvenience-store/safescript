@@ -65,7 +65,7 @@ runNpm([
 ]);
 await writeFile(
   resolve(releaseRoot, 'package-set.json'),
-  `${JSON.stringify({ format: 1, releaseVersion: '0.6.0', packages: packed, result: 'passed' }, null, 2)}\n`,
+  `${JSON.stringify({ format: 1, releaseVersion: '0.7.0', packages: packed, result: 'passed' }, null, 2)}\n`,
   'utf8',
 );
 if (process.env.GITHUB_ENV)

@@ -1,6 +1,6 @@
 # Worker protocol state machine and lifecycle
 
-This document defines message ownership, correlation, connection lifecycle, cancellation, close, and worker-loss behavior for SafeScript 0.6.0.
+This document defines message ownership, correlation, connection lifecycle, cancellation, close, and worker-loss behavior for SafeScript 0.7.0.
 
 ## Roles and ownership
 

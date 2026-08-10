@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "releaseVersion": "0.6.0",
+  "releaseVersion": "0.7.0",
   "index": "docs/README.md",
   "normativeDocuments": [
     "docs/worker-protocol.md",

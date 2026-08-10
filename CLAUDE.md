@@ -10,7 +10,7 @@ Read the [full project design](docs/SafeScript.md) only when a task needs deeper
 
 ## Conventions & Patterns
 
-- SafeScript 0.6.0 is the TypeScript host SDK, transport-neutral runtime bridge, compiler, bounded IR interpreter, deterministic test API, and conformance suite.
+- SafeScript 0.7.0 is the TypeScript host SDK, transport-neutral runtime bridge, compiler, bounded IR interpreter, deterministic test API, and conformance suite.
 - Keep contracts, diagnostics, IDs, limits, action requests, and outcomes stable and serialisable for later process-based SDKs.
 - Compile-time effect and capability summaries never replace current runtime authorisation.
 - SafeScript is not a workflow engine, no-code platform, approval system, durable runtime, or retry coordinator.

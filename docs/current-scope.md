@@ -27,7 +27,7 @@ The repository currently implements:
 - adapter-neutral conformance references, resource measurements, hostile cases, release metadata, and authoring evidence;
 - an interactive CRM integration and read-only semantic-graph projection.
 
-The coordinated public TypeScript package set and sole public compatibility contract is SafeScript 0.6.0. Internal envelope and artifact format markers are validation details, not independently selectable product versions.
+The coordinated public TypeScript package set and sole public compatibility contract is SafeScript 0.7.0. Internal envelope and artifact format markers are validation details, not independently selectable product versions.
 
 ## Host responsibilities, not missing runtime features
 

@@ -15,7 +15,7 @@ async function manifest(path: string): Promise<PackageManifest> {
   return Bun.file(new URL(path, import.meta.url)).json() as Promise<PackageManifest>;
 }
 
-describe('SafeScript 0.6.0 release metadata and public package surface', () => {
+describe('SafeScript 0.7.0 release metadata and public package surface', () => {
   it('publishes one coordinated Node 22/24 package set', async () => {
     const [contracts, engine, worker, sdk, cli, conformance] = await Promise.all([
       manifest('../../packages/contracts/package.json'),
@@ -26,7 +26,7 @@ describe('SafeScript 0.6.0 release metadata and public package surface', () => {
       manifest('../package.json'),
     ]);
     for (const packageManifest of [contracts, engine, worker, sdk, cli, conformance]) {
-      expect(packageManifest.version, packageManifest.name).toBe('0.6.0');
+      expect(packageManifest.version, packageManifest.name).toBe('0.7.0');
       expect(packageManifest.private).not.toBe(true);
       expect(packageManifest.files?.length, packageManifest.name).toBeGreaterThan(0);
       expect(packageManifest.engines?.node, packageManifest.name).toBe('>=22 <25');
@@ -36,11 +36,11 @@ describe('SafeScript 0.6.0 release metadata and public package surface', () => {
         import: './dist/index.js',
       });
       for (const [name, version] of Object.entries(packageManifest.dependencies ?? {}))
-        if (name.startsWith('@safescript/')) expect(version, `${packageManifest.name} -> ${name}`).toBe('0.6.0');
+        if (name.startsWith('@safescript/')) expect(version, `${packageManifest.name} -> ${name}`).toBe('0.7.0');
     }
   });
 
-  it('records current release evidence with no open critical finding', async () => {
+  it('retains the completed 0.6.0 release evidence as historical evidence', async () => {
     const release = await Bun.file(new URL('../evidence/release/0.6.0.json', import.meta.url)).json();
     expect(release).toMatchObject({
       format: 1,

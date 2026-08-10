@@ -2,7 +2,7 @@
 
 SafeScript source looks like TypeScript but has SafeScript semantics. TypeScript supplies parsing and source locations; the SafeScript compiler owns the accepted syntax, type behavior, effects, lowering, and execution model. Code that `tsc` accepts may still be invalid SafeScript.
 
-SafeScript 0.6.0 exposes one language. The sections below describe its core and structured syntax; hosts do not select a language version per slot.
+SafeScript 0.7.0 exposes one language. The sections below describe its core and structured syntax; hosts do not select a language version per slot.
 
 ## Program shape
 
