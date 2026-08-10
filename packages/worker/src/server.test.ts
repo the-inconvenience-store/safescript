@@ -48,7 +48,7 @@ const checkRequest = {
     definitions: [],
   },
   slotId: 'slot:test.worker',
-  source: { entry: 'module:test.worker', modules: [{ id: 'module:test.worker', source: [101, 120] }] },
+  source: { module: 'module:test.worker', source: [101, 120] },
   limits: STANDARD_COMPILE_LIMITS,
 } as unknown as CheckRequest;
 

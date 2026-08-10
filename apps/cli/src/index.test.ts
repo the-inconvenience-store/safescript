@@ -24,8 +24,8 @@ const contractJson = {
 const requestJson = {
   slot: 'main',
   source: {
-    entryModule: 'module:main',
-    modules: [{ id: 'module:main', source: 'this is not TypeScript {' }],
+    moduleId: 'module:main',
+    source: 'this is not TypeScript {',
   },
 } as const;
 
@@ -93,11 +93,8 @@ describe('SafeScript CLI', () => {
     const direct = await safe.check({
       slot: 'main',
       source: {
-        entryModule: requestJson.source.entryModule as ModuleId,
-        modules: requestJson.source.modules.map((module) => ({
-          id: module.id as ModuleId,
-          source: module.source,
-        })),
+        moduleId: requestJson.source.moduleId as ModuleId,
+        source: requestJson.source.source,
       },
     });
     await safe.close();
@@ -151,8 +148,8 @@ describe('SafeScript CLI', () => {
       program: {
         kind: 'source',
         source: {
-          entryModule: 'module:main' as ModuleId,
-          modules: [{ id: 'module:main' as ModuleId, source: 'this is not TypeScript {' }],
+          moduleId: 'module:main' as ModuleId,
+          source: 'this is not TypeScript {',
         },
       },
       input: 'hello',

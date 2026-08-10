@@ -203,6 +203,8 @@ The CRM and almost all reference programs use one module. There is one positive 
 
 **YAGNI test:** accept one source string/module initially. Add a real module graph only when extension size or shared-library use cases justify semantics stronger than text concatenation.
 
+Resolution: SafeScript now accepts one source string with one explicit module ID. The compiler parses and lowers that module directly. Text concatenation, regular-expression alias and namespace rewriting, module arrays, entry selection, module-count limits, and per-module byte limits were removed. Only static imports from `host:api` and `safescript:prelude` remain; ambient and dynamic resolution remain prohibited. The module ID remains part of diagnostics, provenance, action sites, semantic graphs, program and source hashes, cache keys, and artifacts. Multi-module support requires a demonstrated extension need and a structural graph with separate scopes, exact exports and resolution, defined cycles, original locations, and bounded graph work.
+
 ### 10a. Worker feature negotiation with no features to negotiate
 
 **Confidence: high.**

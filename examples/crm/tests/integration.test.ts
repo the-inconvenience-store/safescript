@@ -65,7 +65,7 @@ describe('CRM example integration', () => {
         for (const record of result.facts.actions) {
           if (record.phase !== 'requested') continue;
           expect(record.request.contractId).toBe(ids.contract('contract:example.crm'));
-          expect(record.request.source.module).toBe(automation.source.entryModule);
+          expect(record.request.source.module).toBe(automation.source.moduleId);
         }
       }
     }
@@ -208,13 +208,11 @@ describe('CRM example integration', () => {
     }
     expect(crm.store.effectCount()).toBe(0);
 
-    const module = won.source.modules[0];
-    if (!module) throw new Error('missing source module');
     const rejected = await crm.safe.check({
       slot: 'automation',
       source: {
-        entryModule: won.source.entryModule,
-        modules: [{ ...module, source: `import { readFile } from "node:fs"\n${module.source}` }],
+        moduleId: won.source.moduleId,
+        source: `import { readFile } from "node:fs"\n${won.source.source}`,
       },
     });
     expect(rejected.status).toBe('rejected');

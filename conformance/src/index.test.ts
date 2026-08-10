@@ -344,8 +344,8 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
     const result = await factory().check({
       ...referenceCheckRequest(reference),
       source: {
-        entry: reference.moduleId,
-        modules: [{ id: reference.moduleId, source: [...new TextEncoder().encode(source)] }],
+        module: reference.moduleId,
+        source: [...new TextEncoder().encode(source)],
       },
     });
     expect(result.status).toBe('rejected');

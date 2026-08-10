@@ -34,7 +34,6 @@ import {
   type ExecutionUsage,
   type InspectRequest,
   type InspectResult,
-  type ModuleId,
   type OperationDefinition,
   type RuntimeBridge,
   type RuntimeBridgeHost,
@@ -63,7 +62,7 @@ import {
   STANDARD_COMPILATION_CACHE_LIMITS,
   type CompilationCacheLimits,
 } from './compilation-cache.js';
-import { compileProgramModules, measureCompilerSource } from './compiler.js';
+import { compileProgram, measureCompilerSource } from './compiler.js';
 import { interpret, InterpreterFault } from './interpreter.js';
 import { allocationFuel, byteFuel, hostActionFuel, scanFuel, SEMANTIC_STEP_FUEL } from './resource-schedule.js';
 import { verifyProgram, type StructuredAction } from './structured-ir.js';
@@ -155,7 +154,7 @@ function diagnostic(request: CheckRequest, code: CompilerDiagnosticCode, message
     severity: 'error' as const,
     message: message.slice(0, MAX_DIAGNOSTIC_MESSAGE_LENGTH),
     repair: Object.freeze(diagnosticRepair(code)),
-    location: Object.freeze({ module: request.source.entry, start, end }),
+    location: Object.freeze({ module: request.source.module, start, end }),
   });
 }
 
@@ -260,11 +259,8 @@ function compilationCacheKey(request: CheckRequest): string {
         registry: request.registry,
         slotId: request.slotId,
         source: {
-          entry: request.source.entry,
-          modules: request.source.modules.map((module) => ({
-            id: module.id,
-            hash: sourceHash(Uint8Array.from(module.source)),
-          })),
+          module: request.source.module,
+          hash: sourceHash(Uint8Array.from(request.source.source)),
         },
         limits: request.limits,
       }),
@@ -276,7 +272,7 @@ async function checkCompile(
   request: CheckRequest,
   cache: CompilationCache<InternalCheckResult>,
 ): Promise<InternalCheckResult> {
-  const sourceBytes = request.source.modules.reduce((total, module) => total + module.source.length, 0);
+  const sourceBytes = request.source.source.length;
   let compileUsage = usage(sourceBytes);
   const reject = (code: CompilerDiagnosticCode, message: string, start = 0, end = 0): RejectedCheck =>
     Object.freeze({
@@ -297,32 +293,22 @@ async function checkCompile(
   if (typeof slot === 'string') return reject('SS_CONTRACT_INVALID', slot);
   if (!compileLimitsValid(request.limits, slot.compileLimits))
     return reject('SS_COMPILER_LIMIT', 'compile limits exceed the slot ceiling');
-  if (request.source.modules.length === 0 || request.source.modules.length > request.limits.modules)
-    return reject('SS_MODULE_SET_INVALID', 'module set is outside the selected language minor');
-  const module = request.source.modules.find((candidate) => candidate.id === request.source.entry);
-  if (!module) return reject('SS_MODULE_SET_INVALID', 'entry module is absent');
+  try {
+    ids.module(request.source.module);
+  } catch {
+    return reject('SS_MODULE_SHAPE', 'source module identity is invalid');
+  }
+  if (sourceBytes > request.limits.sourceBytes) return reject('SS_COMPILER_LIMIT', 'source byte limit exceeded');
+  const sourceText = decodeSource(request.source.source);
+  if (sourceText === undefined) return reject('SS_SOURCE_ENCODING', 'source must be canonical UTF-8');
+  const sourceMeasure = measureCompilerSource(sourceText);
   if (
-    sourceBytes > request.limits.sourceBytes ||
-    request.source.modules.some((candidate) => candidate.source.length > request.limits.moduleBytes)
-  )
-    return reject('SS_COMPILER_LIMIT', 'source byte limit exceeded');
-  const texts = request.source.modules.map((candidate) => ({
-    id: candidate.id,
-    source: decodeSource(candidate.source),
-  }));
-  if (texts.some((candidate) => candidate.source === undefined))
-    return reject('SS_SOURCE_ENCODING', 'source must be canonical UTF-8');
-  const sourceMeasures = texts.map((candidate) => measureCompilerSource(candidate.source as string));
-  if (
-    sourceMeasures.some(
-      (measure) =>
-        measure.typeDepth > request.limits.typeDepth ||
-        measure.derivedTemplateBytes > request.limits.derivedTemplateBytes,
-    )
+    sourceMeasure.typeDepth > request.limits.typeDepth ||
+    sourceMeasure.derivedTemplateBytes > request.limits.derivedTemplateBytes
   )
     return reject('SS_COMPILER_LIMIT', 'type-depth or derived-template limit exceeded');
   const identity = programHash(request.source);
-  if (!identity.ok) return reject('SS_MODULE_SET_INVALID', 'source program identity is invalid');
+  if (!identity.ok) return reject('SS_SOURCE_ENCODING', 'source program identity is invalid');
   const key = compilationCacheKey(request);
   return cache.getOrLoad(
     key,
@@ -342,12 +328,7 @@ async function checkCompile(
           });
         }
       }
-      const compiled = compileProgramModules(
-        texts as readonly Readonly<{ id: ModuleId; source: string }>[],
-        request.source.entry,
-        request.registry,
-        slot,
-      );
+      const compiled = compileProgram(sourceText, request.source.module, request.registry, slot);
       compileUsage = usage(sourceBytes, compiled.syntaxNodes);
       if (
         compiled.imports > request.limits.imports ||

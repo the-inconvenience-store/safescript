@@ -34,7 +34,7 @@ The CLI cannot load executable policy or handlers. Execution and tests therefore
 
 ## Lossless JSON conventions
 
-Source modules contain `{ id, source }`. Values that JSON cannot represent directly use tagged objects:
+Source programs contain `{ moduleId, source }`. Values that JSON cannot represent directly use tagged objects:
 
 - bytes, artifacts, and seeds: `{ "$bytes": "<base64>" }`;
 - integers outside JSON's safe number model: `{ "$bigint": "<decimal>" }`.

@@ -2,7 +2,6 @@
 import {
   derivedSemanticNodeId,
   derivedSymbolId,
-  hash,
   programHash,
   sourceHash,
   type CheckRequest,
@@ -296,7 +295,7 @@ function structuredStatements(
       source: statement.source,
       ...('name' in statement ? { label: statement.name } : {}),
       ...(statement.tag === 'variable'
-        ? { symbolId: derivedSymbolId(encoder.encode(`${context.request.source.entry}:${path}:${statement.name}`)) }
+        ? { symbolId: derivedSymbolId(encoder.encode(`${context.request.source.module}:${path}:${statement.name}`)) }
         : {}),
     });
     context.builder.edge('contains', parent, node, relation);
@@ -383,7 +382,7 @@ function deriveStructured(
       semanticKind: fn.name === program.handler ? 'handler' : 'function',
       label: fn.name,
       source: fn.source,
-      symbolId: derivedSymbolId(encoder.encode(`${request.source.entry}:function:${fn.name}`)),
+      symbolId: derivedSymbolId(encoder.encode(`${request.source.module}:function:${fn.name}`)),
       ...(fn.name === program.handler ? { type: { kind: 'ref' as const, type: slot.output } } : {}),
     });
     builder.edge('contains', root, declaration);
@@ -402,11 +401,11 @@ export function deriveSemanticGraph(
   const builder = new Builder(limits);
   let root: SemanticNodeId;
   try {
-    root = builder.node(`program:${request.source.entry}:${artifact.handler}`, {
+    root = builder.node(`program:${request.source.module}:${artifact.handler}`, {
       kind: 'declaration',
       semanticKind: 'program',
       label: artifact.handler,
-      symbolId: derivedSymbolId(encoder.encode(`${request.source.entry}:handler:${artifact.handler}`)),
+      symbolId: derivedSymbolId(encoder.encode(`${request.source.module}:handler:${artifact.handler}`)),
     });
     deriveStructured(builder, artifact.program.program, root, request, slot);
   } catch (error) {
@@ -421,9 +420,6 @@ export function deriveSemanticGraph(
     return { code: 'graph_limit_exceeded', limit: 'edges', maximum: limits.edges, actual: builder.edges.length };
   const sourceProgramHash = programHash(request.source);
   if (!sourceProgramHash.ok) throw new Error('accepted source has no program hash');
-  const sources = [...request.source.modules]
-    .sort((left, right) => String(left.id).localeCompare(String(right.id)))
-    .map((module) => Object.freeze({ module: module.id, hash: sourceHash(Uint8Array.from(module.source)) }));
   const declarationNodes = builder.nodes.filter((node) => node.kind === 'declaration').map((node) => node.id);
   const expressionNodes = builder.nodes
     .filter((node) => node.kind === 'expression' || node.kind === 'constant')
@@ -431,7 +427,7 @@ export function deriveSemanticGraph(
   const controlNodes = builder.nodes.filter((node) => node.kind === 'control').map((node) => node.id);
   const actionNodes = builder.nodes.filter((node) => node.kind === 'action').map((node) => node.id);
   const graph: SemanticGraph = Object.freeze({
-    sourceHash: hash('source', encoder.encode(canonical(sources))) as unknown as SemanticGraph['sourceHash'],
+    sourceHash: sourceHash(Uint8Array.from(request.source.source)),
     programHash: sourceProgramHash.value,
     compiler,
     contract: Object.freeze({
@@ -439,7 +435,7 @@ export function deriveSemanticGraph(
       digest: request.registry.digest,
     }),
     slotId: request.slotId,
-    entryModule: request.source.entry,
+    moduleId: request.source.module,
     root,
     nodes: Object.freeze(builder.nodes),
     edges: Object.freeze(builder.edges),
@@ -455,7 +451,6 @@ export function deriveSemanticGraph(
       controlNodes: Object.freeze(controlNodes),
       actionNodes: Object.freeze(actionNodes),
     }),
-    sources: Object.freeze(sources),
   });
   const bytes = Object.freeze(Array.from(encoder.encode(canonical(graph))));
   if (bytes.length > limits.bytes)

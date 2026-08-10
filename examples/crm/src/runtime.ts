@@ -130,7 +130,7 @@ export function createCrm(store = new CrmStore(), options: CrmOptions = {}) {
           name: automation.name,
           description: automation.description,
           event: dashboardEvent(automation.input),
-          source: automation.source.modules[0]?.source ?? '',
+          source: automation.source.source,
           sourceHash: graph.sourceHash,
           editor: projectNodeEditor(graph),
         });

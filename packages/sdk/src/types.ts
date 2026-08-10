@@ -87,10 +87,10 @@ type UnionToIntersection<U> = (U extends unknown ? (value: U) => void : never) e
   ? I
   : never;
 
-/** Complete TypeScript source module set accepted by the host-facing SDK. */
+/** Complete TypeScript source for one explicitly named module. */
 export interface SourceProgram {
-  readonly entryModule: ModuleId;
-  readonly modules: readonly Readonly<{ id: ModuleId; source: string }>[];
+  readonly moduleId: ModuleId;
+  readonly source: string;
 }
 
 /** Source fast path or checked-artifact execution input. Both use the same runtime and gateway semantics. */

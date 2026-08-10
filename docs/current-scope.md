@@ -8,7 +8,7 @@ The repository currently implements:
 
 - language-neutral contracts, stable identities, canonical schemas/codecs, limits, and failure catalog;
 - the restricted TypeScript language described in the language guide;
-- complete registered source-module sets with generated `host:api` and deterministic prelude/globals;
+- one explicitly named source module with generated `host:api` and deterministic prelude/globals;
 - SafeScript-owned compilation to verified typed IR without generated-JavaScript execution;
 - supervised worker-backed default and explicit direct in-process `RuntimeBridge` for check, inspect, execute, cancel, and close;
 - bounded bridge-local caching of accepted verified compilations;

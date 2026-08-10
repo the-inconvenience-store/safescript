@@ -205,7 +205,7 @@ describe('public SDK conformance', () => {
       slot: 'run',
       program: {
         kind: 'source',
-        source: { entryModule: moduleId, modules: [{ id: moduleId, source: 'export async function ignored() {}' }] },
+        source: { moduleId, source: 'export async function ignored() {}' },
       },
       input: { value: 7n },
       context: { tenant: 'acme' },

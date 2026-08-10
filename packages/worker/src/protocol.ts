@@ -53,17 +53,7 @@ const sourceLocation = record([
 ]);
 const compilerVersion = record([{ name: 'build', schema: text() }]);
 const compileLimits = record(
-  [
-    'source_bytes',
-    'module_bytes',
-    'modules',
-    'imports',
-    'declarations',
-    'syntax_nodes',
-    'syntax_depth',
-    'type_depth',
-    'derived_template_bytes',
-  ]
+  ['source_bytes', 'imports', 'declarations', 'syntax_nodes', 'syntax_depth', 'type_depth', 'derived_template_bytes']
     .map((name) => ({ name, schema: uint() }))
     .concat({ name: 'include_diagnostics', schema: boolean() }),
 );
@@ -200,16 +190,8 @@ const registry = record([
   { name: 'definitions', schema: array(fingerprintDefinition) },
 ]);
 const sourceProgram = record([
-  { name: 'entry', schema: text() },
-  {
-    name: 'modules',
-    schema: array(
-      record([
-        { name: 'id', schema: text() },
-        { name: 'source', schema: bytes() },
-      ]),
-    ),
-  },
+  { name: 'module', schema: text() },
+  { name: 'source', schema: bytes() },
 ]);
 const checkRequest = record([
   { name: 'registry', schema: registry },

@@ -6,7 +6,7 @@ SafeScript confines extension code by construction: it accepts a closed language
 
 Untrusted inputs include:
 
-- extension source and submitted module sets;
+- extension source and its explicit module identity;
 - checked artifact bytes loaded from any cache or store;
 - invocation inputs and requested lower limits;
 - runtime-bridge messages from a process adapter;
@@ -27,7 +27,7 @@ Each bridge may retain accepted verified compilations in a bounded in-memory cac
 
 ## No ambient authority
 
-Extensions have no filesystem, network, process, package, environment, credential, timer, or general host-object access. Source imports only compiler-provided modules and registered source modules. Deterministic time and randomness require invocation-provided values. `console` creates trace records rather than performing I/O.
+Extensions have no filesystem, network, process, package, environment, credential, timer, or general host-object access. Source imports only the compiler-provided `host:api` and `safescript:prelude` modules. Deterministic time and randomness require invocation-provided values. `console` creates trace records rather than performing I/O.
 
 A host operation is the only path to an external effect. Its generated declaration exposes data types, not service clients, credentials, database handles, or host policy state.
 
@@ -56,7 +56,7 @@ Recording a request proves only that work was proposed. Recording a completed ou
 
 The engine and SDK avoid exposing partial work at checked boundaries:
 
-- invalid source, contract, slot, module set, or artifact never starts interpretation;
+- invalid source, module identity, contract, slot, or artifact never starts interpretation;
 - invalid invocation input never reaches the bridge;
 - resource capacity for an action group is reserved before dispatch;
 - a validated `beforeAction` stop does not call the handler;

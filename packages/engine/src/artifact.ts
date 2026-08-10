@@ -131,10 +131,8 @@ export function artifactKey(request: CheckRequest): Sha256Digest | undefined {
         contractDigest: request.registry.digest,
         slotId: request.slotId,
         programHash: source.value,
-        modules: request.source.modules.map((module) => ({
-          id: module.id,
-          hash: sourceHash(Uint8Array.from(module.source)),
-        })),
+        module: request.source.module,
+        sourceHash: sourceHash(Uint8Array.from(request.source.source)),
         limits: request.limits,
       }),
     ),

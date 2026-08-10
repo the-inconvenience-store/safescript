@@ -224,17 +224,9 @@ function buildContract(input: CliContract) {
 
 function source(value: unknown): SourceProgram {
   const input = object(value, 'request.source');
-  const modules = input.modules;
-  if (!Array.isArray(modules)) throw new CliError('invalid_input', 'request.source.modules must be an array');
   return {
-    entryModule: string(input.entryModule, 'request.source.entryModule') as ModuleId,
-    modules: modules.map((item, index) => {
-      const module = object(item, `request.source.modules[${index}]`);
-      return {
-        id: string(module.id, `request.source.modules[${index}].id`) as ModuleId,
-        source: text(module.source, `request.source.modules[${index}].source`),
-      };
-    }),
+    moduleId: string(input.moduleId, 'request.source.moduleId') as ModuleId,
+    source: text(input.source, 'request.source.source'),
   };
 }
 

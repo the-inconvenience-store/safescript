@@ -83,15 +83,11 @@ export function measureCompilerSource(source: string): Readonly<{ typeDepth: num
   return { typeDepth, derivedTemplateBytes };
 }
 
-function hasModifier(node: ts.Node, kind: ts.SyntaxKind): boolean {
-  return ts.canHaveModifiers(node) && ts.getModifiers(node)?.some((modifier) => modifier.kind === kind) === true;
-}
-
-function validateImports(sourceFile: ts.SourceFile, registered = new Set<string>()): CompileFailure | undefined {
+function validateImports(sourceFile: ts.SourceFile): CompileFailure | undefined {
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement)) continue;
     const source = ts.isStringLiteral(statement.moduleSpecifier) ? statement.moduleSpecifier.text : '';
-    if (source !== 'safescript:prelude' && source !== 'host:api' && !registered.has(source))
+    if (source !== 'safescript:prelude' && source !== 'host:api')
       return {
         code: 'SS_AMBIENT_AUTHORITY',
         message: `unregistered import ${source}`,
@@ -120,65 +116,6 @@ function validateImports(sourceFile: ts.SourceFile, registered = new Set<string>
       };
   }
   return undefined;
-}
-
-/** Compiles a complete registered 1.1 module map without consulting ambient resolution. */
-export function compileProgramModules(
-  modules: readonly Readonly<{ id: ModuleId; source: string }>[],
-  entry: ModuleId,
-  registry: ContractRegistry,
-  slot: SlotDefinition,
-): CompileProgramResult {
-  const registered = new Set(modules.map((module) => String(module.id)));
-  const parsed = modules.map((module) => ({
-    ...module,
-    file: ts.createSourceFile(String(module.id), module.source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS),
-  }));
-  for (const module of parsed) {
-    const invalid = validateImports(module.file, registered);
-    if (invalid) return { ok: false, failure: invalid, syntaxNodes: 0, syntaxDepth: 0, imports: 0, declarations: 0 };
-  }
-  const defaultNames = new Map<string, string>();
-  for (const module of parsed) {
-    const declaration = module.file.statements.find(
-      (statement): statement is ts.FunctionDeclaration =>
-        ts.isFunctionDeclaration(statement) && hasModifier(statement, ts.SyntaxKind.DefaultKeyword) && !!statement.name,
-    );
-    if (declaration?.name) defaultNames.set(String(module.id), declaration.name.text);
-  }
-  let imports = 0;
-  const parts: string[] = [];
-  for (const module of parsed) {
-    const aliases = new Map<string, string>();
-    const namespaces = new Set<string>();
-    for (const statement of module.file.statements) {
-      if (!ts.isImportDeclaration(statement)) continue;
-      imports++;
-      const source = ts.isStringLiteral(statement.moduleSpecifier) ? statement.moduleSpecifier.text : '';
-      if (statement.importClause?.name) {
-        const target = defaultNames.get(source);
-        if (target) aliases.set(statement.importClause.name.text, target);
-      }
-      const bindings = statement.importClause?.namedBindings;
-      if (bindings && ts.isNamespaceImport(bindings)) namespaces.add(bindings.name.text);
-      if (bindings && ts.isNamedImports(bindings))
-        for (const element of bindings.elements)
-          aliases.set(element.name.text, element.propertyName?.text ?? element.name.text);
-    }
-    for (const statement of module.file.statements) {
-      if (ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement)) continue;
-      let text = statement.getText(module.file);
-      if (module.id !== entry) text = text.replace(/^export\s+(?:default\s+)?/, '');
-      for (const namespace of namespaces)
-        text = text.replace(new RegExp(`\\b${namespace.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\.`, 'g'), '');
-      for (const [local, imported] of aliases)
-        if (local !== imported)
-          text = text.replace(new RegExp(`\\b${local.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b`, 'g'), imported);
-      parts.push(text);
-    }
-  }
-  const result = compileProgram(parts.join('\n\n'), entry, registry, slot);
-  return result.ok ? { ...result, imports } : { ...result, imports };
 }
 
 /**

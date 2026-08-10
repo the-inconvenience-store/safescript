@@ -33,8 +33,8 @@ try {
   const checked = await safe.check({
     slot: 'run',
     source: {
-      entryModule: contracts.ids.module('module:release/installed'),
-      modules: [{ id: contracts.ids.module('module:release/installed'), source: 'this is not TypeScript {' }],
+      moduleId: contracts.ids.module('module:release/installed'),
+      source: 'this is not TypeScript {',
     },
   });
   if (checked.status !== 'rejected') throw new Error(`installed worker returned ${checked.status}`);

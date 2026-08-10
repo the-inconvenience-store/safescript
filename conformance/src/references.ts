@@ -285,8 +285,8 @@ export function referenceCheckRequest(reference: ReferenceIntegration) {
     registry: referenceRegistry,
     slotId,
     source: {
-      entry: reference.moduleId,
-      modules: [{ id: reference.moduleId, source: [...encoder.encode(reference.source)] }],
+      module: reference.moduleId,
+      source: [...encoder.encode(reference.source)],
     },
     limits: STANDARD_COMPILE_LIMITS,
   };

@@ -104,8 +104,8 @@ const checkRequest = {
   },
   slotId: 'slot:test.process-bridge',
   source: {
-    entry: 'module:test.process-bridge',
-    modules: [{ id: 'module:test.process-bridge', source: [101, 120] }],
+    module: 'module:test.process-bridge',
+    source: [101, 120],
   },
   limits: STANDARD_COMPILE_LIMITS,
 } as unknown as CheckRequest;

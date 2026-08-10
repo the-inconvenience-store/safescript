@@ -19,6 +19,6 @@ The contract file mirrors the SDK contract definition using serialisable type re
 map resource-scope fact names to dot-separated input paths with `resourceScope`. Execution and test action scripts use
 the SDK `ScriptedAction` shape. No handler modules or credentials are loaded.
 
-Requests use the corresponding SDK request fields. Source modules contain `{ id, source }`. Artifact bytes, seeds,
+Requests use the corresponding SDK request fields. Source programs contain `{ moduleId, source }`. Artifact bytes, seeds,
 and canonical byte values use `{ "$bytes": "<base64>" }`; integers outside JSON's safe numeric model use
 `{ "$bigint": "<decimal>" }`. Results apply the same encoding, so SDK records remain machine-readable and lossless.

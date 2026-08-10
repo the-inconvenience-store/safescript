@@ -44,7 +44,7 @@ There is no automatic direct fallback. `worker_start_failed`, `worker_start_time
 
 ## Check source
 
-`check` compiles a complete source module set for one named slot. It returns one of:
+`check` compiles one explicitly named source module for one named slot. It returns one of:
 
 - `accepted`, with reachable operation summary, compiler provenance, usage, and diagnostics;
 - `rejected`, with stable diagnostics and compile usage;

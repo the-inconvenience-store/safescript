@@ -143,17 +143,14 @@ The SDK requires exactly one handler for every operation. It validates action en
 
 ## 4. Write the extension
 
-Source is a complete set of named modules. `host:api` and `safescript:prelude` are compiler-provided modules, not ambient packages.
+Source is one explicitly named module. `host:api` and `safescript:prelude` are compiler-provided modules, not ambient packages.
 
 ```ts
 import { ids } from '@safescript/contracts';
 
 const source = {
-  entryModule: ids.module('module:main'),
-  modules: [
-    {
-      id: ids.module('module:main'),
-      source: `
+  moduleId: ids.module('module:main'),
+  source: `
         import { Ok, Err, type Result } from "safescript:prelude"
         import { type Context, type DemoEvent, type DemoTaskError } from "host:api"
 
@@ -166,8 +163,6 @@ const source = {
           return Ok()
         }
       `,
-    },
-  ],
 };
 ```
 

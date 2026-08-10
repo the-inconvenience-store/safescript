@@ -26,8 +26,7 @@ export async function handle(event: CrmEvent, ctx: Context): Promise<Result<void
 Imports are static and can only refer to:
 
 - generated `host:api` declarations;
-- `Ok`, `Err`, and `Result` from `safescript:prelude`;
-- modules included in the submitted source program.
+- `Ok`, `Err`, and `Result` from `safescript:prelude`.
 
 There is no package resolver or filesystem module lookup. Dynamic imports are rejected.
 
@@ -58,7 +57,6 @@ The current language also provides structured control and deterministic library 
 - conditional expressions and the broader checked arithmetic/comparison surface;
 - multiple sequential host actions;
 - `Promise.all` over a statically known, bounded action group;
-- registered multi-module source programs;
 - deterministic collection, string, object, math, bytes, time, JSON, numeric parsing, and trace intrinsics.
 
 All loops, recursion, allocations, collection work, calls, and action groups are bounded at runtime. Source does not need a statically known loop count, but it cannot exceed the invocation's fuel, call-depth, collection, or allocation ceilings.

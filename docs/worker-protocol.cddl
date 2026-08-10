@@ -382,13 +382,10 @@ schema =
 record-field = { name: bounded-text, schema: schema }
 variant-member = { tag: bounded-text, schema: schema }
 
-source-program = { entry: identifier, modules: [* source-module] }
-source-module = { id: identifier, source: canonical-bytes }
+source-program = { module: identifier, source: canonical-bytes }
 
 compile-limits = {
   source_bytes: uint,
-  module_bytes: uint,
-  modules: uint,
   imports: uint,
   declarations: uint,
   syntax_nodes: uint,

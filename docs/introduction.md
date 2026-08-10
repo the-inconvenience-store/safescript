@@ -11,7 +11,7 @@ Many products want programmable behavior: CRM automations, device rules, applica
 SafeScript changes the integration model:
 
 1. The host defines closed data schemas, extension slots, allowed operations, and limits.
-2. The compiler accepts only an explicit TypeScript subset and only registered modules.
+2. The compiler accepts one explicitly named module in a restricted TypeScript subset.
 3. The runtime interprets verified IR and meters semantic work.
 4. Every host operation becomes a typed action request.
 5. The SDK gateway validates that request before optional host policy and at-most-once handler dispatch.

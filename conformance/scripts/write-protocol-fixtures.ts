@@ -40,8 +40,8 @@ const checkRequest = {
   registry,
   slotId: ids.slot('slot:fixture'),
   source: {
-    entry: ids.module('module:fixture'),
-    modules: [{ id: ids.module('module:fixture'), source: [] }],
+    module: ids.module('module:fixture'),
+    source: [],
   },
   limits: STANDARD_COMPILE_LIMITS,
 };

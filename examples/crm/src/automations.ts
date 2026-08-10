@@ -33,19 +33,14 @@ import { type Context, type CrmActionError, type CrmAutomationEvent } from "host
 
 /** Wraps one readable script body in the module and handler shape required by the SDK. */
 const sourceProgram = (id: string, body: string): SourceProgram => {
-  const entryModule: ModuleId = ids.module(`module:example.crm/${id}`);
+  const moduleId: ModuleId = ids.module(`module:example.crm/${id}`);
   return {
-    entryModule,
-    modules: [
-      {
-        id: entryModule,
-        source: `${imports}
+    moduleId,
+    source: `${imports}
 
 export async function run(event: CrmAutomationEvent, ctx: Context): Promise<Result<void, CrmActionError>> {
   ${body}
 }`,
-      },
-    ],
   };
 };
 

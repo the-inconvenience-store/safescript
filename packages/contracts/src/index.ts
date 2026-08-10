@@ -394,8 +394,6 @@ export interface ValueLimits {
 /** Deterministic controls for source ingestion, parsing, and source diagnostics. */
 export interface CompileLimits {
   readonly sourceBytes: number;
-  readonly moduleBytes: number;
-  readonly modules: number;
   readonly imports: number;
   readonly declarations: number;
   readonly syntaxNodes: number;
@@ -429,8 +427,6 @@ export const STANDARD_VALUE_LIMITS: ValueLimits = Object.freeze({
 /** Conservative default compiler ceilings; hosts and requests may only lower them. */
 export const STANDARD_COMPILE_LIMITS: CompileLimits = Object.freeze({
   sourceBytes: 1024 * 1024,
-  moduleBytes: 256 * 1024,
-  modules: 128,
   imports: 1_024,
   declarations: 25_000,
   syntaxNodes: 500_000,
@@ -1451,7 +1447,6 @@ export const COMPILER_DIAGNOSTIC_CODES = Object.freeze([
   'SS_INVALID_ACTION',
   'SS_LOCALE_REJECTED',
   'SS_MISSING_RETURN',
-  'SS_MODULE_SET_INVALID',
   'SS_MODULE_SHAPE',
   'SS_MUTABLE_BINDING',
   'SS_NULL_REJECTED',
@@ -1508,10 +1503,9 @@ export function diagnosticRepair(code: CompilerDiagnosticCode): DiagnosticRepair
     code === 'SS_DYNAMIC_IMPORT' ||
     code === 'SS_IMPORT_FORM' ||
     code === 'SS_IMPORT_NAME' ||
-    code === 'SS_MODULE_SET_INVALID' ||
     code === 'SS_MODULE_SHAPE'
   )
-    return { category: 'modules', action: 'Use only supported static imports from the supplied virtual modules.' };
+    return { category: 'modules', action: 'Use only supported static imports from host:api or safescript:prelude.' };
   if (
     code === 'SS_FLOATING_ACTION' ||
     code === 'SS_INVALID_ACTION' ||
@@ -1749,42 +1743,39 @@ export function checkDefinitionCompatibility(
   return Object.freeze(failures.map((failure) => Object.freeze(failure)));
 }
 
-/** Complete UTF-8 source bytes for one named module. */
-export interface SourceModule {
-  readonly id: ModuleId;
+/** Complete canonical UTF-8 source bytes for one explicitly named module. */
+export interface SourceProgram {
+  readonly module: ModuleId;
   readonly source: CanonicalBytes;
 }
-/** Complete immutable module set and entry module submitted for checking. */
-export interface SourceProgram {
-  readonly entry: ModuleId;
-  readonly modules: readonly SourceModule[];
-}
 
-/** Hashes a complete source program after validating module identities, uniqueness, order, and byte values. */
+/** Hashes one named source module after validating its canonical bytes. */
 export function programHash(program: SourceProgram): ContractResult<ProgramHash> {
-  const modules = [...program.modules].sort((left, right) =>
-    String(left.id) < String(right.id) ? -1 : String(left.id) > String(right.id) ? 1 : 0,
-  );
-  if (
-    !modules.some((module) => module.id === program.entry) ||
-    modules.some((module, index) => index > 0 && module.id === modules[index - 1]?.id)
-  ) {
+  try {
+    ids.module(program.module);
+  } catch {
     return Object.freeze({
       ok: false,
-      failure: Object.freeze({ code: 'invalid_value', path: Object.freeze([]), detail: 'invalid program module set' }),
+      failure: Object.freeze({ code: 'invalid_value', path: Object.freeze(['module']), detail: 'invalid module ID' }),
     });
   }
+  if (
+    !Array.isArray(program.source) ||
+    !program.source.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255)
+  )
+    return Object.freeze({
+      ok: false,
+      failure: Object.freeze({
+        code: 'invalid_value',
+        path: Object.freeze(['source']),
+        detail: 'invalid source bytes',
+      }),
+    });
   const schema: Schema = {
     kind: 'tuple',
-    items: [
-      { kind: 'string' },
-      { kind: 'list', item: { kind: 'tuple', items: [{ kind: 'string' }, { kind: 'string' }] } },
-    ],
+    items: [{ kind: 'string' }, { kind: 'string' }],
   };
-  const digest = digestCanonical('program', schema, [
-    program.entry,
-    modules.map((module) => [module.id, sourceHash(Uint8Array.from(module.source))]),
-  ]);
+  const digest = digestCanonical('program', schema, [program.module, sourceHash(Uint8Array.from(program.source))]);
   return digest.ok ? Object.freeze({ ok: true, value: digest.value as unknown as ProgramHash }) : digest;
 }
 /** Deterministic compiler resources consumed by one check. */
@@ -1953,13 +1944,12 @@ export interface SemanticGraph {
   readonly compiler: CompilerVersion;
   readonly contract: Readonly<{ id: ContractId; digest: Sha256Digest }>;
   readonly slotId: SlotId;
-  readonly entryModule: ModuleId;
+  readonly moduleId: ModuleId;
   readonly root: SemanticNodeId;
   readonly nodes: readonly SemanticGraphNode[];
   readonly edges: readonly SemanticGraphEdge[];
   readonly operations: readonly OperationId[];
   readonly resources: SemanticGraphResources;
-  readonly sources: readonly Readonly<{ module: ModuleId; hash: SourceHash }>[];
 }
 
 /** A requested view may fail independently after source checking has succeeded. */
@@ -2122,7 +2112,6 @@ const COMPILER_DIAGNOSTIC_MEANINGS = Object.freeze([
   'invalid host action use',
   'locale-dependent operation',
   'missing return',
-  'invalid source module set',
   'invalid module-level program shape',
   'unsupported mutable binding',
   'null or undefined use',

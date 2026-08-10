@@ -325,8 +325,8 @@ describe('createSafeScript', () => {
     const rejected = await defaultWorker.check({
       slot: 'main',
       source: {
-        entryModule: ids.module('module:main'),
-        modules: [{ id: ids.module('module:main'), source: 'this is not TypeScript {' }],
+        moduleId: ids.module('module:main'),
+        source: 'this is not TypeScript {',
       },
     });
     expect(rejected.status).toBe('rejected');
@@ -422,7 +422,7 @@ describe('createSafeScript', () => {
       (
         await safe.check({
           slot: 'main',
-          source: { entryModule: ids.module('module:main'), modules: [{ id: ids.module('module:main'), source: '' }] },
+          source: { moduleId: ids.module('module:main'), source: '' },
         })
       ).status,
     ).toBe('bridge_error');
@@ -437,16 +437,11 @@ describe('createSafeScript', () => {
   it('uses optional host artifact storage across bridge lifetimes and repairs corrupt entries', async () => {
     const moduleId = ids.module('module:main');
     const source: SourceProgram = {
-      entryModule: moduleId,
-      modules: [
-        {
-          id: moduleId,
-          source: `import type { Context, TestInput, TestOutput } from "host:api"
+      moduleId,
+      source: `import type { Context, TestInput, TestOutput } from "host:api"
 export async function handle(input: TestInput, _ctx: Context): Promise<TestOutput> {
   return \`value:\${input.value}\`
 }`,
-        },
-      ],
     };
     const entries = new Map<string, readonly number[]>();
     let loads = 0;
@@ -513,14 +508,9 @@ export async function handle(input: TestInput, _ctx: Context): Promise<TestOutpu
   it('falls back from artifact-store failures and bounds concurrent reads and timeouts', async () => {
     const moduleId = ids.module('module:main');
     const source: SourceProgram = {
-      entryModule: moduleId,
-      modules: [
-        {
-          id: moduleId,
-          source: `import type { Context, TestInput, TestOutput } from "host:api"
+      moduleId,
+      source: `import type { Context, TestInput, TestOutput } from "host:api"
 export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutput> { return "done" }`,
-        },
-      ],
     };
     let loads = 0;
     let timedOutSignal: import('./types.js').AbortSignal | undefined;
@@ -883,7 +873,7 @@ export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutp
     });
     await safe.check({
       slot: 'main',
-      source: { entryModule: ids.module('module:main'), modules: [{ id: ids.module('module:main'), source: '' }] },
+      source: { moduleId: ids.module('module:main'), source: '' },
       limits: { includeDiagnostics: true },
     });
     expect(bridge.lastCheck?.limits.includeDiagnostics).toBe(false);
@@ -927,8 +917,8 @@ export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutp
       handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
     });
     const source = {
-      entryModule: ids.module('module:main'),
-      modules: [{ id: ids.module('module:main'), source: 'export {}' }],
+      moduleId: ids.module('module:main'),
+      source: 'export {}',
     };
     expect((await safe.check({ slot: 'missing' as 'main', source })).status).toBe('bridge_error');
     expect((await safe.inspect({ slot: 'missing' as 'main', source, views: [] })).status).toBe('bridge_error');

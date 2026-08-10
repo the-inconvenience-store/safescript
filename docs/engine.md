@@ -6,8 +6,8 @@ The SafeScript engine is the reference compiler and execution runtime behind the
 
 For a check request, the direct bridge:
 
-1. validates the contract registry, slot, source module set, UTF-8, and requested ceilings;
-2. measures source, module, import, declaration, syntax-depth, type-depth, template, and diagnostic work;
+1. validates the contract registry, slot, module identity, source UTF-8, and requested ceilings;
+2. measures source, import, declaration, syntax-depth, type-depth, template, and diagnostic work;
 3. parses with the pinned TypeScript compiler API without invoking ambient module resolution;
 4. applies SafeScript-owned syntax, type, control-flow, module, and operation-permission rules;
 5. lowers accepted code to typed SafeScript IR;

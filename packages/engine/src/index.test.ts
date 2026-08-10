@@ -179,7 +179,7 @@ const moduleId = ids.module('module:crm/handler');
 const checkRequest = {
   registry,
   slotId: slot,
-  source: { entry: moduleId, modules: [{ id: moduleId, source: [...new TextEncoder().encode(source)] }] },
+  source: { module: moduleId, source: [...new TextEncoder().encode(source)] },
   limits: STANDARD_COMPILE_LIMITS,
 } as const;
 
@@ -219,7 +219,7 @@ function executeRequest(
 function checkWithSource(value: string) {
   return {
     ...checkRequest,
-    source: { entry: moduleId, modules: [{ id: moduleId, source: [...new TextEncoder().encode(value)] }] },
+    source: { module: moduleId, source: [...new TextEncoder().encode(value)] },
   };
 }
 
@@ -246,8 +246,8 @@ describe('direct RuntimeBridge walking skeleton', () => {
     const alternateCheck = {
       ...checkRequest,
       source: {
-        entry: moduleId,
-        modules: [{ id: moduleId, source: [...new TextEncoder().encode(alternateSource)] }],
+        module: moduleId,
+        source: [...new TextEncoder().encode(alternateSource)],
       },
     };
     const bridge = createDirectRuntimeBridge();
@@ -318,8 +318,8 @@ describe('direct RuntimeBridge walking skeleton', () => {
       ...checkRequest,
       registry: notificationRegistry,
       source: {
-        entry: moduleId,
-        modules: [{ id: moduleId, source: [...new TextEncoder().encode(notificationSource)] }],
+        module: moduleId,
+        source: [...new TextEncoder().encode(notificationSource)],
       },
     });
     expect(checked.status).toBe('accepted');
@@ -403,8 +403,8 @@ describe('direct RuntimeBridge walking skeleton', () => {
     const ambient = {
       ...checkRequest,
       source: {
-        entry: moduleId,
-        modules: [{ id: moduleId, source: [...new TextEncoder().encode('import fs from "node:fs"')] }],
+        module: moduleId,
+        source: [...new TextEncoder().encode('import fs from "node:fs"')],
       },
     };
     expect((await bridge.check(ambient)).status).toBe('rejected');
@@ -885,10 +885,8 @@ export async function onDealUpdated(`,
     const nullResult = await bridge.check({
       ...request,
       source: {
-        entry: moduleId,
-        modules: [
-          { id: moduleId, source: [...new TextEncoder().encode(optionSource.replace('{}', '{ threshold: null }'))] },
-        ],
+        module: moduleId,
+        source: [...new TextEncoder().encode(optionSource.replace('{}', '{ threshold: null }'))],
       },
     });
     expect(nullResult.status).toBe('rejected');
@@ -986,41 +984,6 @@ export async function onDealUpdated(`,
     }
   });
 
-  it('resolves static registered modules without ambient package or filesystem access', async () => {
-    const helperId = ids.module('module:crm/helper');
-    const modularSource = source
-      .replace(
-        'import { Err, Ok, type Result } from "safescript:prelude"',
-        `import { Err, Ok, type Result } from "safescript:prelude"\nimport * as helpers from "${helperId}"`,
-      )
-      .replace('  if (\n', '  const required = helpers.threshold()\n\n  if (\n')
-      .replace('event.after.amount.minorUnits < 2_000_000', 'event.after.amount.minorUnits < required');
-    const helperSource = `export function threshold(): number { return 2_000_000 }`;
-    const moduleRegistry: ContractRegistry = {
-      ...registry,
-      digest: fingerprint(50),
-      slots: registry.slots.map((candidate) => ({ ...candidate })),
-    };
-    const request = {
-      ...checkWithSource(modularSource),
-      registry: moduleRegistry,
-      source: {
-        entry: moduleId,
-        modules: [
-          { id: moduleId, source: [...new TextEncoder().encode(modularSource)] },
-          { id: helperId, source: [...new TextEncoder().encode(helperSource)] },
-        ],
-      },
-    } as const;
-    const bridge = createDirectRuntimeBridge();
-    expect((await bridge.check(request)).status).toBe('accepted');
-    const completed = await bridge.execute(
-      { ...executeRequest({ kind: 'source', source: request }, event('open', 1_999_999n)), registry: moduleRegistry },
-      unreachableHost,
-    );
-    expect(completed.status).toBe('completed');
-  });
-
   it('executes immutable spread and object and tuple destructuring', async () => {
     const destructuringSource = source
       .replace(
@@ -1094,13 +1057,8 @@ export async function onDealUpdated(`,
     const mutating = await bridge.check({
       ...request,
       source: {
-        entry: moduleId,
-        modules: [
-          {
-            id: moduleId,
-            source: [...new TextEncoder().encode(collectionSource.replace('.toReversed()', '.reverse()'))],
-          },
-        ],
+        module: moduleId,
+        source: [...new TextEncoder().encode(collectionSource.replace('.toReversed()', '.reverse()'))],
       },
     });
     expect(mutating.status).toBe('rejected');
@@ -1145,7 +1103,7 @@ export async function onDealUpdated(`,
       (
         await bridge.check({
           ...checkRequest,
-          limits: { ...STANDARD_COMPILE_LIMITS, modules: STANDARD_COMPILE_LIMITS.modules + 1 },
+          limits: { ...STANDARD_COMPILE_LIMITS, sourceBytes: STANDARD_COMPILE_LIMITS.sourceBytes + 1 },
         })
       ).status,
     ).toBe('rejected');
@@ -1154,7 +1112,7 @@ export async function onDealUpdated(`,
       limits: {
         ...STANDARD_COMPILE_LIMITS,
         includeDiagnostics: false,
-        modules: STANDARD_COMPILE_LIMITS.modules + 1,
+        sourceBytes: STANDARD_COMPILE_LIMITS.sourceBytes + 1,
       },
     });
     expect(withoutDiagnostics.status).toBe('rejected');
@@ -1195,7 +1153,7 @@ export async function onDealUpdated(`,
       (
         await bridge.check({
           ...checkRequest,
-          source: { entry: moduleId, modules: [...checkRequest.source.modules, ...checkRequest.source.modules] },
+          source: { ...checkRequest.source, module: 'module invalid' as never },
         })
       ).status,
     ).toBe('rejected');
@@ -1203,7 +1161,7 @@ export async function onDealUpdated(`,
       (
         await bridge.check({
           ...checkRequest,
-          source: { entry: moduleId, modules: [{ id: moduleId, source: [0xff] }] },
+          source: { module: moduleId, source: [0xff] },
         })
       ).status,
     ).toBe('rejected');

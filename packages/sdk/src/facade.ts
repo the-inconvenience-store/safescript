@@ -176,24 +176,9 @@ function validSignal(value: AbortSignal | undefined): boolean {
 function validSourceEnvelope(request: BridgeExecuteRequest): boolean {
   if (request.program.kind !== 'source') return true;
   const { limits, source } = request.program.source;
-  if (
-    source.modules.length === 0 ||
-    source.modules.length > limits.modules ||
-    !source.modules.some((module) => module.id === source.entry)
-  )
-    return false;
-  let totalBytes = 0;
-  const moduleIds = new Set<string>();
   try {
-    ids.module(source.entry);
-    for (const module of source.modules) {
-      ids.module(module.id);
-      if (moduleIds.has(module.id) || !validBytes(module.source, limits.moduleBytes)) return false;
-      moduleIds.add(module.id);
-      totalBytes += module.source.length;
-      if (totalBytes > limits.sourceBytes) return false;
-    }
-    return true;
+    ids.module(source.module);
+    return validBytes(source.source, limits.sourceBytes);
   } catch {
     return false;
   }
@@ -201,8 +186,8 @@ function validSourceEnvelope(request: BridgeExecuteRequest): boolean {
 
 function sourceProgram(source: SourceProgram): BridgeSourceProgram {
   return freeze({
-    entry: source.entryModule,
-    modules: source.modules.map((module) => ({ id: module.id, source: [...encodeUtf8(module.source)] })),
+    module: source.moduleId,
+    source: [...encodeUtf8(source.source)],
   });
 }
 
