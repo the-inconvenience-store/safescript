@@ -35,7 +35,7 @@ The SDK adds its deterministic `test` method above this seam. Bridge inputs and 
 
 Source execution compiles through the same check path and reports summary, provenance, diagnostics, and compile usage in `facts.preparation`. Set `includeArtifact: true` only when the host also needs serialized bytes in those facts.
 
-Artifact execution treats bytes as untrusted. The engine rechecks canonical encoding, compiler identity, contract identity, registry digest, referenced definition fingerprints, slot, IR digest, and the complete private IR verifier before interpreting anything. Artifact mode reports its verified IR digest in preparation facts.
+Artifact execution treats bytes as untrusted. The engine rechecks canonical encoding, compiler identity, exact registry digest, slot, optional source-compilation key, IR digest, and the complete private IR verifier before interpreting anything. Artifact mode reports its verified IR digest in preparation facts.
 
 An artifact is a disposable optimization, not a permission token. It does not bypass input validation, resource limits, the action gateway, configured host hooks, handler dispatch, or result validation.
 

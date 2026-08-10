@@ -23,6 +23,8 @@ export type {
 export { SdkConfigurationError } from './types.js';
 export type {
   AbortSignal,
+  ArtifactStore,
+  ArtifactStoreContext,
   ActionContext,
   ActionHookContext,
   BeforeActionDecision,

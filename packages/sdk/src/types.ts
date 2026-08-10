@@ -47,6 +47,18 @@ export interface AbortSignal {
   removeEventListener(type: 'abort', listener: () => void): void;
 }
 
+/** One bounded optional artifact-store operation owned and operated by the host. */
+export interface ArtifactStoreContext {
+  readonly signal: AbortSignal;
+}
+
+/** Host-provided storage for opaque serialized artifacts keyed entirely by SafeScript. */
+export interface ArtifactStore {
+  load(key: Sha256Digest, context: ArtifactStoreContext): Promise<Uint8Array | CanonicalBytes | undefined>;
+  store(key: Sha256Digest, artifact: CanonicalBytes, context: ArtifactStoreContext): Promise<void>;
+  remove?(key: Sha256Digest, context: ArtifactStoreContext): Promise<void>;
+}
+
 /** Validated invocation and request facts supplied to one operation handler. */
 export interface ActionContext<C> {
   readonly invocationId: InvocationId;
@@ -268,6 +280,10 @@ export interface CreateSafeScriptOptions<C, O extends Operations, S extends Slot
   readonly defaultExecutionLimits?: Partial<ExecutionLimits>;
   readonly createInvocationId?: () => InvocationId;
   readonly hooks?: SafeScriptHooks<C, O, S>;
+  /** Optional host-owned serialized artifact cache or store. */
+  readonly artifactStore?: ArtifactStore;
+  /** Maximum duration of each artifact-store operation. Defaults to 1000 ms. */
+  readonly artifactStoreTimeoutMs?: number;
 }
 
 /**

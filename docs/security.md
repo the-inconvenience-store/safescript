@@ -85,6 +85,8 @@ The host decides whether to retain source, serialized artifacts, semantic graphs
 
 Checked artifacts contain executable derived representation and contract/source fingerprints, but no credentials or cached host decisions. Semantic graphs can include constants and source-derived facts. Treat both according to the source program's sensitivity.
 
+An optional host artifact store receives only opaque SafeScript-derived keys and serialized bytes. Loaded bytes remain untrusted and pass exact binding, digest, and IR verification inside the engine. Store misses, corruption, failures, and timeouts cannot bypass source validation or runtime authorization. The host remains responsible for store tenancy, credentials, encryption, access control, retention, eviction, quotas, deletion, durability, and monitoring.
+
 ## Security non-goals
 
 SafeScript is not an approval system, policy language, secrets broker, workflow engine, durable runtime, retry coordinator, or host-service sandbox. It cannot protect against absent or over-permissive host policy, a malicious trusted hook or handler, or a downstream service that grants too much. It cannot roll back external effects.

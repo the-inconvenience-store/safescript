@@ -136,6 +136,7 @@ check-request = {
   source: source-program,
   limits: compile-limits,
   ? include_artifact: bool,
+  ? cached_artifact: canonical-bytes,
 }
 
 check-result =
@@ -155,6 +156,8 @@ inspect-request = {
   slot_id: identifier,
   source: source-program,
   limits: compile-limits,
+  ? include_artifact: bool,
+  ? cached_artifact: canonical-bytes,
   views: [* "semantic_graph"],
   ? graph_limits: graph-limits,
 }
@@ -188,7 +191,7 @@ execute-request = {
   ? idempotency_seed: canonical-bytes,
   ? fixed_instant: instant,
   ? random_seed: canonical-bytes,
-  trace: "none" / "summary" / "semantic",
+  trace: bool,
 }
 
 executable-program =

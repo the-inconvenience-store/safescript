@@ -51,7 +51,14 @@ import {
   LANGUAGE_PROFILE,
 } from '@safescript/contracts';
 
-import { createVerifiedCompilation, serializeArtifact, verifyArtifact, type VerifiedCompilation } from './artifact.js';
+import {
+  COMPILER_BUILD,
+  artifactKey,
+  createVerifiedCompilation,
+  serializeArtifact,
+  verifyArtifact,
+  type VerifiedCompilation,
+} from './artifact.js';
 import {
   CompilationCache,
   STANDARD_COMPILATION_CACHE_LIMITS,
@@ -64,9 +71,8 @@ import { structuredActions, verifyProgram, type StructuredAction } from './struc
 import { deriveSemanticGraph } from './semantic-graph.js';
 
 const COMPILER = Object.freeze({
-  build: 'structured-ir-current',
+  build: COMPILER_BUILD,
 });
-const COMPILER_NAME = COMPILER.build;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
@@ -223,7 +229,7 @@ type AcceptedCheck = Extract<CheckResult, { readonly status: 'accepted' }>;
 
 function projectAcceptedCheck(request: CheckRequest, compiled: Compiled): AcceptedCheck | RejectedCheck {
   const artifact = request.includeArtifact
-    ? serializeArtifact(request, compiled.slot, compiled.compilation, COMPILER_NAME)
+    ? serializeArtifact(request, compiled.slot, compiled.compilation)
     : undefined;
   if (request.includeArtifact && !artifact)
     return Object.freeze({
@@ -250,7 +256,7 @@ function compilationCacheKey(request: CheckRequest): string {
     'program',
     encoder.encode(
       cacheText({
-        compiler: COMPILER_NAME,
+        compiler: COMPILER_BUILD,
         language: LANGUAGE_PROFILE,
         registry: request.registry,
         slotId: request.slotId,
@@ -283,6 +289,11 @@ async function checkCompile(
     });
   if (request.includeArtifact !== undefined && typeof request.includeArtifact !== 'boolean')
     return { status: 'bridge_error', error: bridgeError('check', 'invalid_request', 'invalid artifact selection') };
+  if (
+    request.cachedArtifact !== undefined &&
+    (!isByteArray(request.cachedArtifact) || request.cachedArtifact.length > STANDARD_EXECUTION_LIMITS.maxBytes)
+  )
+    return { status: 'bridge_error', error: bridgeError('check', 'invalid_request', 'invalid cached artifact') };
   const slot = validateRegistry(request.registry, request.slotId);
   if (typeof slot === 'string') return reject('SS_CONTRACT_INVALID', slot);
   if (!compileLimitsValid(request.limits, slot.compileLimits))
@@ -317,6 +328,21 @@ async function checkCompile(
   return cache.getOrLoad(
     key,
     () => {
+      if (request.cachedArtifact !== undefined) {
+        const cached = verifyArtifact(request.cachedArtifact, request.registry, slot, artifactKey(request));
+        if (cached && cached.syntaxNodes <= request.limits.syntaxNodes) {
+          compileUsage = usage(sourceBytes, cached.syntaxNodes);
+          return Object.freeze({
+            status: 'accepted' as const,
+            compiled: Object.freeze({
+              compilation: cached,
+              usage: compileUsage,
+              slot,
+              weight: sourceBytes + cached.syntaxNodes * 64,
+            }),
+          });
+        }
+      }
       const compiled = compileProgramModules(
         texts as readonly Readonly<{ id: ModuleId; source: string }>[],
         request.source.entry,
@@ -338,7 +364,7 @@ async function checkCompile(
       return Object.freeze({
         status: 'accepted' as const,
         compiled: Object.freeze({
-          compilation: createVerifiedCompilation(verified, compiled.handler),
+          compilation: createVerifiedCompilation(verified, compiled.handler, compiled.syntaxNodes),
           usage: compileUsage,
           slot,
           weight: sourceBytes + compiled.syntaxNodes * 64,
@@ -914,7 +940,7 @@ export class DirectRuntimeBridge implements RuntimeBridge {
         diagnostics: projected.diagnostics,
       });
     } else {
-      const verified = verifyArtifact(request.program.bytes, request.registry, slot, COMPILER_NAME);
+      const verified = verifyArtifact(request.program.bytes, request.registry, slot);
       if (!verified)
         return {
           status: 'not_started',

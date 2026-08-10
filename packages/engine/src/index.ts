@@ -8,6 +8,7 @@ import { DirectRuntimeBridge, type DirectRuntimeBridgeOptions } from './bridge.j
 
 export { STANDARD_COMPILATION_CACHE_LIMITS } from './compilation-cache.js';
 export type { CompilationCacheLimits } from './compilation-cache.js';
+export { artifactKey } from './artifact.js';
 export type { DirectRuntimeBridgeOptions } from './bridge.js';
 
 /** Creates an independently closable in-process adapter over the reference compiler and interpreter. */

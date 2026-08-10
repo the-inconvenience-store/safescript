@@ -84,4 +84,4 @@ An operation is statically eligible only when both its effect and capability occ
 
 The registry contains metadata and schemas, not live handlers, hooks, credentials, host context, or cached policy decisions. It is safe to send through the runtime bridge, but it is still validated at every trust seam.
 
-The [SDK guide](sdk.md) shows how the derived products are used. The [artifacts guide](artifacts-and-inspection.md) explains definition compatibility and contract binding.
+The [SDK guide](sdk.md) shows how the derived products are used. The [artifacts guide](artifacts-and-inspection.md) explains exact registry and source-compilation binding.

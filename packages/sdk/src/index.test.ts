@@ -31,7 +31,9 @@ import {
   SdkConfigurationError,
   createSafeScript,
   defineContract,
+  type ArtifactStore,
   type ContractType,
+  type SourceProgram,
 } from './index.js';
 
 const inputType: ContractType<{ readonly value: bigint }> = {
@@ -313,6 +315,22 @@ describe('createSafeScript', () => {
         bridge: new FakeBridge(),
       }),
     ).toThrow(SdkConfigurationError);
+    expect(() =>
+      createSafeScript({
+        contract,
+        handlers: { read: () => ({ tag: 'ok', value: 'unused' }) as const },
+        bridge: new FakeBridge(),
+        artifactStore: {} as never,
+      }),
+    ).toThrow(SdkConfigurationError);
+    expect(() =>
+      createSafeScript({
+        contract,
+        handlers: { read: () => ({ tag: 'ok', value: 'unused' }) as const },
+        bridge: new FakeBridge(),
+        artifactStoreTimeoutMs: 0,
+      }),
+    ).toThrow(SdkConfigurationError);
     const defaultWorker = createSafeScript({
       contract,
       handlers: { read: () => ({ tag: 'error', value: { tag: 'domain', value: 'unused' } }) as const },
@@ -427,6 +445,141 @@ describe('createSafeScript', () => {
     expect(STANDARD_EXECUTION_LIMITS.fuel).toBeGreaterThan(
       contract.registry.slots[0]?.executionLimits.fuel ?? Infinity,
     );
+  });
+
+  it('uses optional host artifact storage across bridge lifetimes and repairs corrupt entries', async () => {
+    const moduleId = ids.module('module:main');
+    const source: SourceProgram = {
+      entryModule: moduleId,
+      modules: [
+        {
+          id: moduleId,
+          source: `import type { Context, TestInput, TestOutput } from "host:api"
+export async function handle(input: TestInput, _ctx: Context): Promise<TestOutput> {
+  return \`value:\${input.value}\`
+}`,
+        },
+      ],
+    };
+    const entries = new Map<string, readonly number[]>();
+    let loads = 0;
+    let stores = 0;
+    let removes = 0;
+    const adapter: ArtifactStore = {
+      load: async (key) => {
+        loads++;
+        return entries.get(key);
+      },
+      store: async (key, artifact) => {
+        stores++;
+        entries.set(key, artifact);
+      },
+      remove: async (key) => {
+        removes++;
+        entries.delete(key);
+      },
+    };
+    const create = () =>
+      createSafeScript({
+        contract,
+        bridge: createDirectRuntimeBridge(),
+        handlers: { read: () => ({ tag: 'ok', value: 'unused' }) as const },
+        artifactStore: adapter,
+      });
+    const execute = (safe: ReturnType<typeof create>) =>
+      safe.execute({
+        slot: 'main',
+        program: { kind: 'source', source },
+        input: { value: 7n },
+        context: {},
+      });
+
+    const checkedFacade = create();
+    expect((await checkedFacade.check({ slot: 'main', source })).status).toBe('accepted');
+    expect((await execute(checkedFacade)).status).toBe('completed');
+    expect([loads, stores, removes]).toEqual([0, 0, 0]);
+    await checkedFacade.close();
+
+    const first = create();
+    const firstResult = await execute(first);
+    expect(firstResult.status).toBe('completed');
+    expect(firstResult.status === 'completed' && firstResult.output).toBe('value:7');
+    expect(firstResult.status === 'completed' && firstResult.facts.preparation).not.toHaveProperty('artifact');
+    expect([loads, stores, removes]).toEqual([1, 1, 0]);
+    expect(entries.size).toBe(1);
+    await first.close();
+
+    const second = create();
+    expect((await execute(second)).status).toBe('completed');
+    expect([loads, stores, removes]).toEqual([2, 1, 0]);
+    await second.close();
+
+    const [key, artifact] = [...entries.entries()][0] as [string, readonly number[]];
+    entries.set(key, [0, ...artifact.slice(1)]);
+    const third = create();
+    expect((await execute(third)).status).toBe('completed');
+    expect([loads, stores, removes]).toEqual([3, 2, 1]);
+    expect(entries.get(key)?.[0]).not.toBe(0);
+    await third.close();
+  });
+
+  it('falls back from artifact-store failures and bounds concurrent reads and timeouts', async () => {
+    const moduleId = ids.module('module:main');
+    const source: SourceProgram = {
+      entryModule: moduleId,
+      modules: [
+        {
+          id: moduleId,
+          source: `import type { Context, TestInput, TestOutput } from "host:api"
+export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutput> { return "done" }`,
+        },
+      ],
+    };
+    let loads = 0;
+    let timedOutSignal: import('./types.js').AbortSignal | undefined;
+    const adapter: ArtifactStore = {
+      load: async (_key, context) => {
+        loads++;
+        timedOutSignal = context.signal;
+        return new Promise<undefined>(() => undefined);
+      },
+      store: async () => undefined,
+    };
+    const safe = createSafeScript({
+      contract,
+      bridge: createDirectRuntimeBridge(),
+      handlers: { read: () => ({ tag: 'ok', value: 'unused' }) as const },
+      artifactStore: adapter,
+      artifactStoreTimeoutMs: 5,
+    });
+    const request = {
+      slot: 'main' as const,
+      program: { kind: 'source' as const, source },
+      input: { value: 1n },
+      context: {},
+    };
+    const [first, second] = await Promise.all([safe.execute(request), safe.execute(request)]);
+    expect(first.status).toBe('completed');
+    expect(second.status).toBe('completed');
+    expect(loads).toBe(1);
+    expect(timedOutSignal?.aborted).toBe(true);
+    await safe.close();
+
+    let stores = 0;
+    const failing = createSafeScript({
+      contract,
+      bridge: createDirectRuntimeBridge(),
+      handlers: { read: () => ({ tag: 'ok', value: 'unused' }) as const },
+      artifactStore: {
+        load: async () => Promise.reject(new Error('unavailable')),
+        store: async () => {
+          stores++;
+        },
+      },
+    });
+    expect((await failing.execute(request)).status).toBe('completed');
+    expect(stores).toBe(0);
+    await failing.close();
   });
 
   it('scripts an execution rejection without invoking production hooks, handlers, or the bridge', async () => {

@@ -13,6 +13,7 @@ The repository currently implements:
 - supervised worker-backed default and explicit direct in-process `RuntimeBridge` for check, inspect, execute, cancel, and close;
 - bounded bridge-local caching of accepted verified compilations;
 - explicit optional checked-artifact creation and fail-closed verification;
+- optional SDK read-through and write-through integration with a host-provided artifact store;
 - bounded IR interpretation with deterministic fuel and value/resource accounting;
 - sequential actions and bounded deterministic `Promise.all` groups;
 - typed action requests/outcomes, optional execution/action lifecycle hooks, idempotency-key derivation, and at-most-once handler dispatch per request;
@@ -50,7 +51,7 @@ The current repository does not yet provide:
 - platform-specific optional hardening recipes beyond the portable spawn contract;
 - Python, Go, Rust, Java, or C# host SDKs;
 - a WebAssembly execution backend;
-- persistent or host-integrated artifact storage/signing/export products;
+- a SafeScript-provided artifact storage backend, signing, or export product;
 - checked semantic source-edit transformations;
 - a general visual editor product;
 - durable invocations, workflow coordination, approvals, retries, or audit persistence;

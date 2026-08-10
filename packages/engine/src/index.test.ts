@@ -19,7 +19,7 @@ import {
   type TypeDefinition,
 } from '@safescript/contracts';
 
-import { createDirectRuntimeBridge } from './index.js';
+import { artifactKey, createDirectRuntimeBridge } from './index.js';
 
 const source = `import { Err, Ok, type Result } from "safescript:prelude"
 import {
@@ -241,6 +241,17 @@ const unreachableHost = {
 };
 
 describe('direct RuntimeBridge walking skeleton', () => {
+  it('derives artifact-store keys from compilation semantics but not output selection', () => {
+    const key = artifactKey(checkRequest);
+    expect(key).toMatch(/^[0-9a-f]{64}$/);
+    expect(artifactKey({ ...checkRequest, includeArtifact: true })).toBe(key);
+    expect(artifactKey({ ...checkRequest, limits: { ...checkRequest.limits, syntaxNodes: 1 } })).not.toBe(key);
+    expect(artifactKey(checkWithSource(source.replace('2_000_000', '1_000_000')))).not.toBe(key);
+    expect(
+      artifactKey({ ...checkRequest, registry: { ...registry, digest: hash('contract', Uint8Array.of(99)) } }),
+    ).not.toBe(key);
+  });
+
   it('derives behavior from checked source instead of fixture constants', async () => {
     const alternateSource = source.replace('2_000_000', '1_000_000').replace('Onboard ', 'Review ');
     const alternateCheck = {

@@ -206,6 +206,8 @@ Always observe `close()` during orderly shutdown. A worker lost during an invoca
 
 You can execute `{ kind: "source", source }` for the compile-and-run fast path or the accepted artifact bytes. Artifact execution revalidates compatibility and integrity and uses the same gateway, hooks, and handlers as source execution.
 
+For reuse across worker or process lifetimes, a host can provide `artifactStore` to `createSafeScript`. SafeScript derives the keys and verifies loaded bytes. The host supplies and operates the storage system. Most integrations do not need this option.
+
 ## Next steps
 
 - Read the [language guide](language.md) before writing non-trivial extensions.

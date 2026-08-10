@@ -7,6 +7,7 @@ import {
   ids,
   resultSchema,
   type ActionOutcome,
+  type CheckRequest,
   type RuntimeBridgeFactory,
   type Schema,
 } from '@safescript/contracts';
@@ -82,8 +83,7 @@ function invocation(digit: string) {
 function executionRequest(
   reference: ReferenceIntegration,
   program:
-    | Readonly<{ kind: 'source'; source: ReturnType<typeof referenceCheckRequest> }>
-    | Readonly<{ kind: 'artifact'; bytes: readonly number[] }>,
+    Readonly<{ kind: 'source'; source: CheckRequest }> | Readonly<{ kind: 'artifact'; bytes: readonly number[] }>,
   digit = '1',
 ) {
   return {
@@ -212,6 +212,33 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
       expect(artifactResult.facts.usage).toEqual(sourceResult.facts.usage);
     }
     await bridge.close();
+  });
+
+  it('rejects a corrupt stored-artifact candidate and safely compiles the bound source', async () => {
+    const reference = references[0];
+    if (!reference) throw new Error('missing conformance reference');
+    const producer = factory();
+    const checked = await producer.check({ ...referenceCheckRequest(reference), includeArtifact: true });
+    expect(checked.status).toBe('accepted');
+    if (checked.status !== 'accepted' || !checked.artifact) return;
+    const corrupt = [...checked.artifact];
+    corrupt[0] = 0;
+    const consumer = factory();
+    const result = await consumer.execute(
+      executionRequest(
+        reference,
+        {
+          kind: 'source',
+          source: { ...referenceCheckRequest(reference), cachedArtifact: corrupt },
+        },
+        'f',
+      ),
+      { handleAction: async (request) => completedAction(request) },
+    );
+    expect(result.status).toBe('completed');
+    if (result.status === 'completed') expect(result.facts.preparation.kind).toBe('source');
+    await producer.close();
+    await consumer.close();
   });
 
   it.each([

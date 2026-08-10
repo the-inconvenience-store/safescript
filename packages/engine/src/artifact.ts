@@ -3,16 +3,18 @@
  * @packageDocumentation
  */
 import {
-  checkDefinitionCompatibility,
+  LANGUAGE_PROFILE,
   decodeCanonical,
   encodeCanonical,
   hash,
   programHash,
+  sourceHash,
   type CanonicalBytes,
   type CheckRequest,
   type ContractRegistry,
   type IrDigest,
   type Schema,
+  type Sha256Digest,
   type SlotDefinition,
 } from '@safescript/contracts';
 
@@ -20,18 +22,20 @@ import { verifyProgram, type StructuredProgram, type VerifiedStructuredProgram }
 
 const encoder = new TextEncoder();
 const ARTIFACT_SCHEMA: Schema = Object.freeze({ kind: 'string' });
+const ARTIFACT_FORMAT = 3;
+
+/** Exact compiler-semantics identity used by artifacts and cache keys. */
+export const COMPILER_BUILD = 'structured-ir-current';
 
 interface ArtifactRecord {
   readonly magic: 'SafeScript checked artifact';
-  readonly format: 2;
+  readonly format: 3;
   readonly compiler: string;
-  readonly contractId: string;
   readonly contractDigest: string;
-  readonly definitions: readonly (readonly [string, string])[];
   readonly slotId: string;
-  readonly sourceHash: string;
+  readonly artifactKey: string;
   readonly irDigest: string;
-  readonly handler: string;
+  readonly syntaxNodes: number;
   readonly program: StructuredProgram;
 }
 
@@ -43,6 +47,7 @@ export interface VerifiedCompilation {
   readonly digest: IrDigest;
   readonly program: VerifiedStructuredProgram;
   readonly handler: string;
+  readonly syntaxNodes: number;
 }
 
 function frozenBytes(bytes: Uint8Array | readonly number[]): CanonicalBytes {
@@ -83,15 +88,15 @@ function isRecord(value: unknown): value is ArtifactRecord {
   const record = value as Partial<ArtifactRecord>;
   return (
     record.magic === 'SafeScript checked artifact' &&
-    record.format === 2 &&
+    record.format === ARTIFACT_FORMAT &&
     typeof record.compiler === 'string' &&
-    typeof record.contractId === 'string' &&
     typeof record.contractDigest === 'string' &&
-    Array.isArray(record.definitions) &&
     typeof record.slotId === 'string' &&
-    typeof record.sourceHash === 'string' &&
+    typeof record.artifactKey === 'string' &&
     typeof record.irDigest === 'string' &&
-    typeof record.handler === 'string' &&
+    typeof record.syntaxNodes === 'number' &&
+    Number.isSafeInteger(record.syntaxNodes) &&
+    record.syntaxNodes >= 0 &&
     record.program !== undefined
   );
 }
@@ -104,8 +109,36 @@ function digest(program: StructuredProgram): IrDigest {
  * Creates the private executable value used by source execution and the in-memory cache.
  * @internal
  */
-export function createVerifiedCompilation(program: VerifiedStructuredProgram, handler: string): VerifiedCompilation {
-  return Object.freeze({ digest: digest(program.program), program, handler });
+export function createVerifiedCompilation(
+  program: VerifiedStructuredProgram,
+  handler: string,
+  syntaxNodes: number,
+): VerifiedCompilation {
+  return Object.freeze({ digest: digest(program.program), program, handler, syntaxNodes });
+}
+
+/** Derives the opaque non-secret key used by an optional host artifact store. */
+export function artifactKey(request: CheckRequest): Sha256Digest | undefined {
+  const source = programHash(request.source);
+  if (!source.ok) return undefined;
+  return hash(
+    'artifact',
+    encoder.encode(
+      stringify({
+        format: ARTIFACT_FORMAT,
+        compiler: COMPILER_BUILD,
+        language: LANGUAGE_PROFILE,
+        contractDigest: request.registry.digest,
+        slotId: request.slotId,
+        programHash: source.value,
+        modules: request.source.modules.map((module) => ({
+          id: module.id,
+          hash: sourceHash(Uint8Array.from(module.source)),
+        })),
+        limits: request.limits,
+      }),
+    ),
+  );
 }
 
 /**
@@ -116,23 +149,18 @@ export function serializeArtifact(
   request: CheckRequest,
   slot: SlotDefinition,
   compilation: VerifiedCompilation,
-  compiler: string,
 ): CanonicalBytes | undefined {
-  const sourceHash = programHash(request.source);
-  if (!sourceHash.ok) return undefined;
+  const key = artifactKey(request);
+  if (!key) return undefined;
   const record: ArtifactRecord = {
     magic: 'SafeScript checked artifact',
-    format: 2,
-    compiler,
-    contractId: request.registry.id,
+    format: ARTIFACT_FORMAT,
+    compiler: COMPILER_BUILD,
     contractDigest: request.registry.digest,
-    definitions: [...request.registry.definitions]
-      .map((definition) => [String(definition.id), String(definition.fingerprint)] as const)
-      .sort((left, right) => left[0].localeCompare(right[0])),
     slotId: slot.id,
-    sourceHash: sourceHash.value,
+    artifactKey: key,
     irDigest: compilation.digest,
-    handler: compilation.handler,
+    syntaxNodes: compilation.syntaxNodes,
     program: compilation.program.program,
   };
   const encoded = encodeCanonical(ARTIFACT_SCHEMA, stringify(record));
@@ -140,7 +168,7 @@ export function serializeArtifact(
 }
 
 /**
- * Revalidates every compatibility, canonicalisation, fingerprint, digest, and IR invariant before executable use.
+ * Revalidates every compatibility, canonicalisation, binding, digest, and IR invariant before executable use.
  *
  * @remarks Artifact bytes are an untrusted cache input. Verification never treats a prior compilation as current
  * authority and returns `undefined` for every malformed or incompatible form.
@@ -150,7 +178,7 @@ export function verifyArtifact(
   bytes: CanonicalBytes,
   registry: ContractRegistry,
   slot: SlotDefinition,
-  compiler: string,
+  expectedKey?: Sha256Digest,
 ): VerifiedCompilation | undefined {
   if (!Array.isArray(bytes) || bytes.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 255))
     return undefined;
@@ -159,29 +187,26 @@ export function verifyArtifact(
     if (!decoded.ok || typeof decoded.value !== 'string') return undefined;
     const text = decoded.value;
     const value = parse(text);
-    const definitions = [...registry.definitions]
-      .map((definition) => [String(definition.id), String(definition.fingerprint)] as const)
-      .sort((left, right) => left[0].localeCompare(right[0]));
     // Re-stringifying rejects alternate JSON spellings before any decoded field gains semantic meaning.
     if (
       !isRecord(value) ||
       stringify(value) !== text ||
-      value.compiler !== compiler ||
-      value.contractId !== registry.id ||
+      value.compiler !== COMPILER_BUILD ||
       value.contractDigest !== registry.digest ||
-      stringify(value.definitions) !== stringify(definitions) ||
-      value.slotId !== slot.id
+      value.slotId !== slot.id ||
+      !/^[0-9a-f]{64}$/.test(value.artifactKey) ||
+      (expectedKey !== undefined && value.artifactKey !== expectedKey)
     )
       return undefined;
-    const required = value.definitions.map(([id, fingerprint]) => ({
-      id: id as ContractRegistry['definitions'][number]['id'],
-      fingerprint: fingerprint as ContractRegistry['definitions'][number]['fingerprint'],
-    }));
-    if (checkDefinitionCompatibility(registry, required).length > 0) return undefined;
     const program = verifyProgram(value.program, registry, slot);
     const irDigest = program && digest(program.program);
     if (!program || irDigest !== value.irDigest) return undefined;
-    return Object.freeze({ digest: irDigest, program, handler: value.handler });
+    return Object.freeze({
+      digest: irDigest,
+      program,
+      handler: program.program.handler,
+      syntaxNodes: value.syntaxNodes,
+    });
   } catch {
     return undefined;
   }

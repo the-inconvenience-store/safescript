@@ -1922,17 +1922,6 @@ export function programHash(program: SourceProgram): ContractResult<ProgramHash>
   ]);
   return digest.ok ? Object.freeze({ ok: true, value: digest.value as unknown as ProgramHash }) : digest;
 }
-/** Integrity metadata retained by a checked execution artifact. */
-export interface CheckedArtifactHeader {
-  readonly compilerVersion: CompilerVersion;
-  readonly contractId: ContractId;
-  readonly contractDigest: Sha256Digest;
-  readonly referencedDefinitions: readonly DefinitionFingerprint[];
-  readonly sourceHash: SourceHash;
-  readonly programHash: ProgramHash;
-  readonly irDigest: IrDigest;
-}
-
 /** Deterministic compiler resources consumed by one check. */
 export interface CompileUsage {
   readonly sourceBytes: number;
@@ -1972,6 +1961,8 @@ export interface CheckRequest {
   readonly limits: CompileLimits;
   /** Whether accepted source should also be serialized as portable artifact bytes. */
   readonly includeArtifact?: boolean;
+  /** Untrusted host-store candidate to verify on an in-memory cache miss. */
+  readonly cachedArtifact?: CanonicalBytes;
 }
 
 /** Accepted source, rejected source diagnostics, or a bridge-envelope failure. */

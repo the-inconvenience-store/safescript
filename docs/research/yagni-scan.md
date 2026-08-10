@@ -144,6 +144,8 @@ The docs call artifacts a disposable optional cache optimization, but cache/stor
 
 Resolution: ordinary source work now uses a bounded bridge-local cache of private verified compilations. Artifact serialization requires `includeArtifact: true` and remains separate from the cache. Persistent storage remains a host responsibility and a separate optional feature.
 
+Follow-up resolution: the SDK now accepts an optional host-owned artifact store. SafeScript supplies no backend. The format contains one exact registry binding instead of both a registry digest and every definition fingerprint, and removes redundant contract, source, and handler fields. Storage failures always fall back to source compilation.
+
 ## Tier 2: strong simplification candidates
 
 ### 7. Operation, effect, and capability as three identities for each action

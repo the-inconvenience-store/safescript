@@ -14,6 +14,7 @@ import {
   hash,
   ids,
   type BridgeError,
+  type CanonicalBytes,
   type CancelResult,
   type CheckResult,
   type CloseResult,
@@ -27,8 +28,10 @@ import {
   type OperationId,
   type RuntimeBridge,
   type RuntimeBridgeHost,
+  type Sha256Digest,
   type SourceProgram as BridgeSourceProgram,
 } from '@safescript/contracts';
+import { artifactKey } from '@safescript/engine';
 import type { Contract, Operations, Slot, Slots } from './contract.js';
 import { createGateway, type OperationEntry } from './gateway.js';
 import { createNodeProcessRuntimeBridge } from './node-process-bridge.js';
@@ -37,6 +40,7 @@ import { compareExpectations, createScriptedHost, testMismatch } from './testing
 import {
   SdkConfigurationError,
   type AbortSignal,
+  type ArtifactStore,
   type BeforeExecuteDecision,
   type CheckRequest,
   type CreateSafeScriptOptions,
@@ -52,6 +56,11 @@ import {
 } from './types.js';
 
 const MAX_HOOK_CODE_LENGTH = 64;
+const DEFAULT_ARTIFACT_STORE_TIMEOUT_MS = 1_000;
+const MAX_ARTIFACT_STORE_TIMEOUT_MS = 60_000;
+
+type ArtifactLoad =
+  Readonly<{ status: 'hit'; bytes: CanonicalBytes }> | Readonly<{ status: 'miss' | 'invalid' | 'failure' }>;
 
 function executionProgram(request: BridgeExecuteRequest): Program {
   return request.program.kind === 'artifact'
@@ -101,6 +110,107 @@ function validBeforeExecuteDecision(value: unknown): BeforeExecuteDecision | und
 
 function validBytes(value: readonly number[], maximum: number): boolean {
   return value.length <= maximum && value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255);
+}
+
+function equalBytes(left: readonly number[], right: readonly number[]): boolean {
+  return left.length === right.length && left.every((byte, index) => byte === right[index]);
+}
+
+class ArtifactStorage {
+  private readonly controllers = new Set<AbortController>();
+  private readonly loads = new Map<Sha256Digest, Promise<ArtifactLoad>>();
+  private readonly stores = new Map<Sha256Digest, Promise<boolean>>();
+  private closed = false;
+
+  constructor(
+    private readonly adapter: ArtifactStore,
+    private readonly timeoutMs: number,
+  ) {}
+
+  load(key: Sha256Digest, signal: AbortSignal): Promise<ArtifactLoad> {
+    const existing = this.loads.get(key);
+    if (existing) return this.wait(existing, signal, { status: 'failure' });
+    const operation = this.bounded<ArtifactLoad>(
+      async (operationSignal) => {
+        const value = await this.adapter.load(key, { signal: operationSignal });
+        if (value === undefined) return { status: 'miss' } as const;
+        let bytes: number[];
+        try {
+          bytes = [...value];
+        } catch {
+          return { status: 'invalid' } as const;
+        }
+        return validBytes(bytes, STANDARD_EXECUTION_LIMITS.maxBytes)
+          ? ({ status: 'hit', bytes: freeze(bytes) } as const)
+          : ({ status: 'invalid' } as const);
+      },
+      { status: 'failure' } as const,
+    ).finally(() => this.loads.delete(key));
+    this.loads.set(key, operation);
+    return this.wait(operation, signal, { status: 'failure' });
+  }
+
+  store(key: Sha256Digest, bytes: CanonicalBytes): Promise<boolean> {
+    const existing = this.stores.get(key);
+    if (existing) return existing;
+    const operation = this.bounded(async (signal) => {
+      await this.adapter.store(key, bytes, { signal });
+      return true;
+    }, false).finally(() => this.stores.delete(key));
+    this.stores.set(key, operation);
+    return operation;
+  }
+
+  remove(key: Sha256Digest): Promise<boolean> {
+    if (!this.adapter.remove) return Promise.resolve(false);
+    return this.bounded(async (signal) => {
+      await this.adapter.remove?.(key, { signal });
+      return true;
+    }, false);
+  }
+
+  close(): void {
+    this.closed = true;
+    for (const controller of this.controllers) controller.abort();
+  }
+
+  private async bounded<T>(work: (signal: globalThis.AbortSignal) => Promise<T>, fallback: T): Promise<T> {
+    if (this.closed) return fallback;
+    const controller = new AbortController();
+    this.controllers.add(controller);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<T>((resolve) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        resolve(fallback);
+      }, this.timeoutMs);
+    });
+    const operation = Promise.resolve()
+      .then(() => work(controller.signal))
+      .catch(() => fallback);
+    try {
+      return await Promise.race([operation, timeout]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      this.controllers.delete(controller);
+    }
+  }
+
+  private wait<T>(operation: Promise<T>, signal: AbortSignal, fallback: T): Promise<T> {
+    if (signal.aborted) return Promise.resolve(fallback);
+    return new Promise<T>((resolve) => {
+      let settled = false;
+      const finish = (value: T): void => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener('abort', abort);
+        resolve(value);
+      };
+      const abort = (): void => finish(fallback);
+      signal.addEventListener('abort', abort, { once: true });
+      void operation.then(finish, () => finish(fallback));
+    });
+  }
 }
 
 function validSignal(value: AbortSignal | undefined): boolean {
@@ -166,6 +276,20 @@ function validateConfiguration<C, O extends Operations, S extends Slots>(
   } catch (error) {
     throw new SdkConfigurationError(error instanceof Error ? error.message : 'invalid SDK limits');
   }
+  const store = options.artifactStore;
+  const timeout = options.artifactStoreTimeoutMs;
+  if (
+    (store !== undefined &&
+      (store === null ||
+        typeof store !== 'object' ||
+        typeof store.load !== 'function' ||
+        typeof store.store !== 'function' ||
+        (store.remove !== undefined && typeof store.remove !== 'function'))) ||
+    (timeout !== undefined &&
+      (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > MAX_ARTIFACT_STORE_TIMEOUT_MS)) ||
+    (store === undefined && timeout !== undefined)
+  )
+    throw new SdkConfigurationError('invalid artifact store configuration');
 }
 
 class RequestCodec<C, O extends Operations, S extends Slots> {
@@ -175,13 +299,20 @@ class RequestCodec<C, O extends Operations, S extends Slots> {
     private readonly defaultExecutionLimits?: Partial<ExecutionLimits>,
   ) {}
 
-  check(slot: Slot<unknown, unknown>, source: SourceProgram, limits?: Partial<CompileLimits>, includeArtifact = false) {
+  check(
+    slot: Slot<unknown, unknown>,
+    source: SourceProgram,
+    limits?: Partial<CompileLimits>,
+    includeArtifact = false,
+    cachedArtifact?: CanonicalBytes,
+  ) {
     return freeze({
       registry: this.contract.registry,
       slotId: slot.id,
       source: sourceProgram(source),
       limits: this.compileLimits(slot, limits),
       includeArtifact,
+      ...(cachedArtifact === undefined ? {} : { cachedArtifact }),
     });
   }
 
@@ -312,6 +443,8 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
   private readonly operationsById: ReadonlyMap<OperationId, OperationEntry<O>>;
   private readonly slotsByKey: ReadonlyMap<string, Slot<unknown, unknown>>;
   private readonly requests: RequestCodec<C, O, S>;
+  private readonly artifactStorage: ArtifactStorage | undefined;
+  private readonly knownArtifactKeys = new Set<Sha256Digest>();
   private readonly controllers = new Map<InvocationId, AbortController>();
   private readonly active = new Set<Promise<unknown>>();
   private closing = false;
@@ -327,6 +460,9 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
     );
     this.slotsByKey = new Map(Object.entries(options.contract.slots));
     this.requests = new RequestCodec(options.contract, options.defaultCompileLimits, options.defaultExecutionLimits);
+    this.artifactStorage = options.artifactStore
+      ? new ArtifactStorage(options.artifactStore, options.artifactStoreTimeoutMs ?? DEFAULT_ARTIFACT_STORE_TIMEOUT_MS)
+      : undefined;
   }
 
   check(request: CheckRequest<PropertyKey>): Promise<CheckResult> {
@@ -337,9 +473,12 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
       try {
         if (request.includeArtifact !== undefined && typeof request.includeArtifact !== 'boolean')
           return freeze({ status: 'bridge_error', error: bridgeError('check', 'invalid_request') });
-        return await this.bridge.check(
-          this.requests.check(slot, request.source, request.limits, request.includeArtifact ?? false),
-        );
+        const assembled = this.requests.check(slot, request.source, request.limits, request.includeArtifact ?? false);
+        const result = await this.bridge.check(assembled);
+        if (result.status === 'bridge_error') this.knownArtifactKeys.clear();
+        const key = result.status === 'accepted' && this.artifactStorage ? artifactKey(assembled) : undefined;
+        if (key) this.knownArtifactKeys.add(key);
+        return result;
       } catch {
         return freeze({ status: 'bridge_error', error: bridgeError('check') });
       }
@@ -354,11 +493,16 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
       try {
         if (request.includeArtifact !== undefined && typeof request.includeArtifact !== 'boolean')
           return freeze({ status: 'bridge_error', error: bridgeError('inspect', 'invalid_request') });
-        return await this.bridge.inspect({
+        const assembled = {
           ...this.requests.check(slot, request.source, request.limits, request.includeArtifact ?? false),
           views: request.views,
           ...(request.graphLimits === undefined ? {} : { graphLimits: request.graphLimits }),
-        });
+        };
+        const result = await this.bridge.inspect(assembled);
+        if (result.status === 'bridge_error') this.knownArtifactKeys.clear();
+        const key = result.status === 'accepted' && this.artifactStorage ? artifactKey(assembled) : undefined;
+        if (key) this.knownArtifactKeys.add(key);
+        return result;
       } catch {
         return freeze({ status: 'bridge_error', error: bridgeError('inspect') });
       }
@@ -495,11 +639,11 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
               },
             });
           } else {
-            result = await this.executeBridge(slot, request, gateway.host, invocationId, assembled);
+            result = await this.executeBridge(slot, request, gateway.host, invocationId, assembled, controller.signal);
           }
         }
       } else {
-        result = await this.executeBridge(slot, request, gateway.host, invocationId, assembled);
+        result = await this.executeBridge(slot, request, gateway.host, invocationId, assembled, controller.signal);
       }
       const actionDiagnostics = gateway.hookDiagnostics();
       if (actionDiagnostics.length)
@@ -524,12 +668,45 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
     host: RuntimeBridgeHost,
     invocationId: InvocationId,
     prepared?: BridgeExecuteRequest,
+    storageSignal?: AbortSignal,
+    useArtifactStore = true,
   ): Promise<ExecutionResult<unknown>> {
     const assembled = prepared ?? this.requests.execute(slot, request, invocationId);
     if ('code' in assembled) return freeze({ status: 'bridge_error', error: assembled });
     let removeAbort = (): void => undefined;
     try {
-      const execution = this.bridge.execute(assembled, host);
+      const storage = useArtifactStore ? this.artifactStorage : undefined;
+      let bridgeRequest = assembled;
+      let key: Sha256Digest | undefined;
+      let loaded: ArtifactLoad | undefined;
+      if (storage && storageSignal && assembled.program.kind === 'source') {
+        key = artifactKey(assembled.program.source);
+        if (key && this.knownArtifactKeys.has(key)) {
+          bridgeRequest = freeze({
+            ...assembled,
+            program: {
+              kind: 'source' as const,
+              source: { ...assembled.program.source, includeArtifact: request.includeArtifact ?? false },
+            },
+          });
+        } else if (key) {
+          loaded = await storage.load(key, storageSignal);
+          if (loaded.status === 'invalid') await storage.remove(key);
+          bridgeRequest = freeze({
+            ...assembled,
+            program: {
+              kind: 'source' as const,
+              source: {
+                ...assembled.program.source,
+                includeArtifact: true,
+                ...(loaded.status === 'hit' ? { cachedArtifact: loaded.bytes } : {}),
+              },
+            },
+          });
+        }
+      }
+      if (storageSignal?.aborted) return freeze({ status: 'not_started', error: { code: 'cancelled' } });
+      const execution = this.bridge.execute(bridgeRequest, host);
       if (request.signal) {
         const cancel = (): void => {
           void this.bridge.cancel({ invocationId }).catch(() => undefined);
@@ -540,7 +717,31 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
           removeAbort = () => request.signal?.removeEventListener('abort', cancel);
         }
       }
-      return this.requests.decode(slot, await execution, invocationId);
+      let bridgeResult = await execution;
+      if (storage && key && loaded && bridgeResult.status !== 'not_started' && bridgeResult.status !== 'bridge_error') {
+        const preparation = bridgeResult.facts.preparation;
+        if (preparation.kind === 'source' && preparation.artifact) {
+          const same = loaded.status === 'hit' && equalBytes(loaded.bytes, preparation.artifact);
+          if (loaded.status === 'hit' && !same) await storage.remove(key);
+          if (!same && loaded.status !== 'failure') await storage.store(key, preparation.artifact);
+          this.knownArtifactKeys.add(key);
+          if (request.includeArtifact !== true) {
+            const publicPreparation = {
+              kind: preparation.kind,
+              summary: preparation.summary,
+              provenance: preparation.provenance,
+              usage: preparation.usage,
+              diagnostics: preparation.diagnostics,
+            } as const;
+            bridgeResult = freeze({
+              ...bridgeResult,
+              facts: { ...bridgeResult.facts, preparation: publicPreparation },
+            }) as BridgeExecutionResult;
+          }
+        }
+      }
+      if (bridgeResult.status === 'bridge_error') this.knownArtifactKeys.clear();
+      return this.requests.decode(slot, bridgeResult, invocationId);
     } catch {
       return freeze({ status: 'bridge_error', error: bridgeError('execute') });
     } finally {
@@ -601,6 +802,9 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
             },
             scripted.host,
             invocationId,
+            undefined,
+            undefined,
+            false,
           )
         : decision?.status === 'rejected'
           ? freeze({
@@ -618,6 +822,7 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
   }
 
   private async finishClose(): Promise<CloseResult> {
+    this.artifactStorage?.close();
     let result: CloseResult;
     try {
       result = await this.bridge.close();

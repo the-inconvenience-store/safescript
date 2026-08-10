@@ -223,6 +223,7 @@ const checkRequest = record([
   { name: 'source', schema: sourceProgram },
   { name: 'limits', schema: compileLimits },
   { name: 'include_artifact', schema: boolean(), optional: true },
+  { name: 'cached_artifact', schema: bytes(), optional: true },
 ]);
 const graphLimits = record([
   { name: 'nodes', schema: uint() },

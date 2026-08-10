@@ -22,8 +22,12 @@ const safe = createSafeScript({
   },
   defaultCompileLimits: { sourceBytes: 128 * 1024 },
   defaultExecutionLimits: { fuel: 20_000, hostCalls: 4 },
+  artifactStore: hostArtifactStore,
+  artifactStoreTimeoutMs: 1_000,
 });
 ```
+
+`artifactStore` is optional. Without it, SafeScript has no persistent cache dependency and ordinary source work uses only the bounded bridge-local cache. With it, source execution uses host-provided read-through and write-through storage. SafeScript derives opaque keys and verifies all loaded bytes. The host owns the storage technology and its security, tenancy, retention, eviction, durability, and operations. See [artifacts and inspection](artifacts-and-inspection.md#optional-host-artifact-storage).
 
 To select direct mode deliberately:
 
@@ -62,6 +66,8 @@ See [artifacts and inspection](artifacts-and-inspection.md) before building an e
 `execute` accepts either source or checked artifact bytes. It validates the slot input with the contract codec before calling the bridge and decodes a completed output back to the slot's host-side TypeScript type.
 
 For a source program, `includeArtifact: true` adds serialized bytes to source preparation facts. It is false by default and does not change execution semantics.
+
+The optional artifact store is used only by source `execute`. It does not run during `check`, `inspect`, artifact-only execution, or deterministic `test`. Misses, corrupt entries, adapter failures, and adapter timeouts fall back to source compilation. Artifact-only execution has no fallback.
 
 Useful invocation inputs include:
 
