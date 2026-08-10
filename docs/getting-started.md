@@ -181,12 +181,12 @@ Generated type names follow contract type IDs, so `type:demo.event` becomes `Dem
 ## 5. Check and execute
 
 ```ts
-const checked = await safe.check({ slot: 'onEvent', source });
+const checked = await safe.check({ slot: 'onEvent', source, includeArtifact: true });
 
 if (checked.status !== 'accepted') {
   console.error(checked);
   process.exitCode = 1;
-} else {
+} else if (checked.artifact) {
   const result = await safe.execute({
     slot: 'onEvent',
     program: { kind: 'artifact', bytes: checked.artifact },

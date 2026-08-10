@@ -136,9 +136,10 @@ describe('CRM example integration', () => {
   it('executes a checked artifact with the same observable effect as source', async () => {
     const crm = example();
     const automation = automationAt(4);
-    const checked = await crm.safe.check({ slot: 'automation', source: automation.source });
+    const checked = await crm.safe.check({ slot: 'automation', source: automation.source, includeArtifact: true });
     expect(checked.status).toBe('accepted');
     if (checked.status !== 'accepted') return;
+    if (!checked.artifact) throw new Error('artifact serialization was not requested');
     const result = await crm.safe.execute({
       slot: 'automation',
       program: { kind: 'artifact', bytes: checked.artifact },

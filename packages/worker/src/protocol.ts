@@ -222,6 +222,7 @@ const checkRequest = record([
   { name: 'slot_id', schema: text() },
   { name: 'source', schema: sourceProgram },
   { name: 'limits', schema: compileLimits },
+  { name: 'include_artifact', schema: boolean(), optional: true },
 ]);
 const graphLimits = record([
   { name: 'nodes', schema: uint() },
@@ -289,7 +290,7 @@ const diagnostic = record([
 ]);
 const checkAccepted = record([
   { name: 'status', schema: literal('accepted') },
-  { name: 'artifact', schema: bytes() },
+  { name: 'artifact', schema: bytes(), optional: true },
   { name: 'summary', schema: programSummary },
   { name: 'provenance', schema: compilerProvenance },
   { name: 'usage', schema: compileUsage },
@@ -404,7 +405,7 @@ const executionUsage = record(
 const executionPreparation = oneOf(
   record([
     { name: 'kind', schema: literal('source') },
-    { name: 'artifact', schema: bytes() },
+    { name: 'artifact', schema: bytes(), optional: true },
     { name: 'summary', schema: programSummary },
     { name: 'provenance', schema: compilerProvenance },
     { name: 'usage', schema: compileUsage },

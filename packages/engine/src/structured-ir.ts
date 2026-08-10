@@ -565,9 +565,14 @@ export function verifyProgram(
   slot: SlotDefinition,
 ): VerifiedStructuredProgram | undefined {
   if (!verifyStructuredProgram(value, registry, slot)) return undefined;
+  const operationIds = new Set(structuredActions(value as StructuredProgram).map((action) => action.operationId));
   return Object.freeze({
     program: value,
-    operations: new Map(registry.operations.map((operation) => [operation.id, operation] as const)),
+    operations: new Map(
+      registry.operations
+        .filter((operation) => operationIds.has(operation.id))
+        .map((operation) => [operation.id, operation] as const),
+    ),
   });
 }
 

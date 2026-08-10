@@ -44,9 +44,9 @@ const safe = createSafeScript({
 });
 
 const authoring = createAuthoringBundle(contract, 'automation');
-const checked = await safe.check({ slot: 'automation', source });
+const checked = await safe.check({ slot: 'automation', source, includeArtifact: true });
 
-if (checked.status === 'accepted') {
+if (checked.status === 'accepted' && checked.artifact) {
   const result = await safe.execute({
     slot: 'automation',
     program: { kind: 'artifact', bytes: checked.artifact },

@@ -175,12 +175,13 @@ class RequestCodec<C, O extends Operations, S extends Slots> {
     private readonly defaultExecutionLimits?: Partial<ExecutionLimits>,
   ) {}
 
-  check(slot: Slot<unknown, unknown>, source: SourceProgram, limits?: Partial<CompileLimits>) {
+  check(slot: Slot<unknown, unknown>, source: SourceProgram, limits?: Partial<CompileLimits>, includeArtifact = false) {
     return freeze({
       registry: this.contract.registry,
       slotId: slot.id,
       source: sourceProgram(source),
       limits: this.compileLimits(slot, limits),
+      includeArtifact,
     });
   }
 
@@ -199,7 +200,10 @@ class RequestCodec<C, O extends Operations, S extends Slots> {
       const trace = request.trace ?? false;
       const program =
         request.program.kind === 'source'
-          ? { kind: 'source' as const, source: this.check(slot, request.program.source) }
+          ? {
+              kind: 'source' as const,
+              source: this.check(slot, request.program.source, undefined, request.includeArtifact ?? false),
+            }
           : request.program.kind === 'artifact'
             ? { kind: 'artifact' as const, bytes: [...request.program.bytes] }
             : undefined;
@@ -208,6 +212,7 @@ class RequestCodec<C, O extends Operations, S extends Slots> {
       if (
         !program ||
         typeof trace !== 'boolean' ||
+        (request.includeArtifact !== undefined && typeof request.includeArtifact !== 'boolean') ||
         (program.kind === 'artifact' && !validBytes(program.bytes, limits.maxBytes)) ||
         (idempotencySeed !== undefined && !validBytes(idempotencySeed, limits.maxBytes)) ||
         (randomSeed !== undefined && !validBytes(randomSeed, limits.maxBytes)) ||
@@ -330,7 +335,11 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
       const slot = this.slotFor(request.slot);
       if (!slot) return freeze({ status: 'bridge_error', error: bridgeError('check', 'invalid_request') });
       try {
-        return await this.bridge.check(this.requests.check(slot, request.source, request.limits));
+        if (request.includeArtifact !== undefined && typeof request.includeArtifact !== 'boolean')
+          return freeze({ status: 'bridge_error', error: bridgeError('check', 'invalid_request') });
+        return await this.bridge.check(
+          this.requests.check(slot, request.source, request.limits, request.includeArtifact ?? false),
+        );
       } catch {
         return freeze({ status: 'bridge_error', error: bridgeError('check') });
       }
@@ -343,8 +352,10 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
       const slot = this.slotFor(request.slot);
       if (!slot) return freeze({ status: 'bridge_error', error: bridgeError('inspect', 'invalid_request') });
       try {
+        if (request.includeArtifact !== undefined && typeof request.includeArtifact !== 'boolean')
+          return freeze({ status: 'bridge_error', error: bridgeError('inspect', 'invalid_request') });
         return await this.bridge.inspect({
-          ...this.requests.check(slot, request.source, request.limits),
+          ...this.requests.check(slot, request.source, request.limits, request.includeArtifact ?? false),
           views: request.views,
           ...(request.graphLimits === undefined ? {} : { graphLimits: request.graphLimits }),
         });

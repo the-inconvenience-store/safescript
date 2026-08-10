@@ -96,6 +96,8 @@ export interface CheckRequest<K extends PropertyKey> {
   readonly slot: K;
   readonly source: SourceProgram;
   readonly limits?: Partial<CompileLimits>;
+  /** Explicitly serialize portable artifact bytes for an accepted check. Defaults to false. */
+  readonly includeArtifact?: boolean;
 }
 /** Source check plus explicitly requested read-only derived views. */
 export interface InspectRequest<K extends PropertyKey> extends CheckRequest<K> {
@@ -114,6 +116,8 @@ export interface ExecuteRequest<K extends PropertyKey, I, C> {
   readonly randomSeed?: Uint8Array | CanonicalBytes;
   readonly limits?: Partial<ExecutionLimits>;
   readonly trace?: boolean;
+  /** Explicitly include serialized artifact bytes in source preparation facts. Defaults to false. */
+  readonly includeArtifact?: boolean;
   readonly signal?: AbortSignal;
 }
 

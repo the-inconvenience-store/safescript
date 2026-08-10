@@ -11,7 +11,8 @@ The repository currently implements:
 - complete registered source-module sets with generated `host:api` and deterministic prelude/globals;
 - SafeScript-owned compilation to verified typed IR without generated-JavaScript execution;
 - supervised worker-backed default and explicit direct in-process `RuntimeBridge` for check, inspect, execute, cancel, and close;
-- checked artifact creation and fail-closed verification;
+- bounded bridge-local caching of accepted verified compilations;
+- explicit optional checked-artifact creation and fail-closed verification;
 - bounded IR interpretation with deterministic fuel and value/resource accounting;
 - sequential actions and bounded deterministic `Promise.all` groups;
 - typed action requests/outcomes, optional execution/action lifecycle hooks, idempotency-key derivation, and at-most-once handler dispatch per request;
@@ -49,7 +50,7 @@ The current repository does not yet provide:
 - platform-specific optional hardening recipes beyond the portable spawn contract;
 - Python, Go, Rust, Java, or C# host SDKs;
 - a WebAssembly execution backend;
-- artifact cache/storage/signing/export products;
+- persistent or host-integrated artifact storage/signing/export products;
 - checked semantic source-edit transformations;
 - a general visual editor product;
 - durable invocations, workflow coordination, approvals, retries, or audit persistence;

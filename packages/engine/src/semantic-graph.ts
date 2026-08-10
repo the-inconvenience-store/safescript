@@ -17,7 +17,7 @@ import {
   type SlotDefinition,
 } from '@safescript/contracts';
 
-import type { CheckedArtifact } from './artifact.js';
+import type { VerifiedCompilation } from './artifact.js';
 import {
   fieldType,
   type StructuredExpression,
@@ -397,7 +397,7 @@ function deriveStructured(
 export function deriveSemanticGraph(
   request: CheckRequest,
   slot: SlotDefinition,
-  artifact: CheckedArtifact,
+  artifact: VerifiedCompilation,
   compiler: CompilerVersion,
   limits: SemanticGraphLimits,
 ): DerivedGraph | SemanticGraphError {

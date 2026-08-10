@@ -135,12 +135,13 @@ check-request = {
   slot_id: identifier,
   source: source-program,
   limits: compile-limits,
+  ? include_artifact: bool,
 }
 
 check-result =
   {
     status: "accepted",
-    artifact: canonical-bytes,
+    ? artifact: canonical-bytes,
     summary: program-summary,
     provenance: compiler-provenance,
     usage: compile-usage,
@@ -170,7 +171,7 @@ inspect-result =
 
 check-accepted = {
   status: "accepted",
-  artifact: canonical-bytes,
+  ? artifact: canonical-bytes,
   summary: program-summary,
   provenance: compiler-provenance,
   usage: compile-usage,
@@ -265,7 +266,7 @@ execution-facts = {
 execution-preparation =
   {
     kind: "source",
-    artifact: canonical-bytes,
+    ? artifact: canonical-bytes,
     summary: program-summary,
     provenance: compiler-provenance,
     usage: compile-usage,

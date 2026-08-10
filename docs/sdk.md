@@ -43,11 +43,13 @@ There is no automatic direct fallback. `worker_start_failed`, `worker_start_time
 
 `check` compiles a complete source module set for one named slot. It returns one of:
 
-- `accepted`, with checked artifact bytes, reachable effect/capability summary, compiler provenance, usage, and diagnostics;
+- `accepted`, with reachable effect/capability summary, compiler provenance, usage, and diagnostics;
 - `rejected`, with stable diagnostics and compile usage;
 - `bridge_error`, for an invalid envelope, incompatible bridge, closed facade, or adapter failure.
 
 Accepted diagnostics can contain bounded non-fatal information; use `status`, not array emptiness, as the decision. A summary is static eligibility information and never current authority.
+
+Accepted checks omit artifact bytes by default. Set `includeArtifact: true` when the host needs bytes for later artifact execution or host-managed storage. Normal source work reuses a private bounded cache inside the direct bridge or worker and does not serialize IR.
 
 ## Inspect source
 
@@ -58,6 +60,8 @@ See [artifacts and inspection](artifacts-and-inspection.md) before building an e
 ## Execute source or an artifact
 
 `execute` accepts either source or checked artifact bytes. It validates the slot input with the contract codec before calling the bridge and decodes a completed output back to the slot's host-side TypeScript type.
+
+For a source program, `includeArtifact: true` adds serialized bytes to source preparation facts. It is false by default and does not change execution semantics.
 
 Useful invocation inputs include:
 

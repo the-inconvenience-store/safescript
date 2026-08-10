@@ -171,9 +171,10 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
 
   it.each(references)('executes the $name reference in source and artefact modes', async (reference) => {
     const bridge = factory();
-    const checked = await bridge.check(referenceCheckRequest(reference));
+    const checked = await bridge.check({ ...referenceCheckRequest(reference), includeArtifact: true });
     expect(checked.status).toBe('accepted');
     if (checked.status !== 'accepted') return;
+    if (!checked.artifact) throw new Error('artifact serialization was not requested');
     const calls: string[] = [];
     const host = {
       handleAction: async (request: Parameters<typeof completedAction>[0]) => {
@@ -193,6 +194,8 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
     );
     expect(sourceResult.status).toBe('completed');
     expect(artifactResult.status).toBe('completed');
+    if (sourceResult.status === 'completed' && sourceResult.facts.preparation.kind === 'source')
+      expect(sourceResult.facts.preparation.artifact).toBeUndefined();
     expect(new Set(sourceCalls)).toEqual(new Set(reference.expectedOperations));
     expect(calls).toEqual(sourceCalls);
     if (sourceResult.status === 'completed' && artifactResult.status === 'completed') {
@@ -229,9 +232,10 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
     'executes the exact blind-agent $name source without a deterministic fault',
     async (reference, input, operations) => {
       const bridge = factory();
-      const checked = await bridge.check(referenceCheckRequest(reference));
+      const checked = await bridge.check({ ...referenceCheckRequest(reference), includeArtifact: true });
       expect(checked.status).toBe('accepted');
       if (checked.status !== 'accepted') return;
+      if (!checked.artifact) throw new Error('artifact serialization was not requested');
       expect(checked.summary.effects).toEqual(
         reference.expectedOperations.map((operation) => ids.effect(operation.replace('operation:', 'effect:'))).sort(),
       );

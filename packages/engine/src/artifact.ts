@@ -36,11 +36,10 @@ interface ArtifactRecord {
 }
 
 /**
- * Verified artifact bytes plus private executable IR retained by the direct bridge.
+ * Private verified executable compilation retained by the direct bridge.
  * @internal
  */
-export interface CheckedArtifact {
-  readonly bytes: CanonicalBytes;
+export interface VerifiedCompilation {
   readonly digest: IrDigest;
   readonly program: VerifiedStructuredProgram;
   readonly handler: string;
@@ -102,19 +101,25 @@ function digest(program: StructuredProgram): IrDigest {
 }
 
 /**
- * Creates canonical artifact bytes bound to exact source, compiler, contract, slot, and verified IR facts.
+ * Creates the private executable value used by source execution and the in-memory cache.
  * @internal
  */
-export function createArtifact(
+export function createVerifiedCompilation(program: VerifiedStructuredProgram, handler: string): VerifiedCompilation {
+  return Object.freeze({ digest: digest(program.program), program, handler });
+}
+
+/**
+ * Serializes a verified compilation only when a caller explicitly requests portable artifact bytes.
+ * @internal
+ */
+export function serializeArtifact(
   request: CheckRequest,
   slot: SlotDefinition,
-  program: VerifiedStructuredProgram,
-  handler: string,
+  compilation: VerifiedCompilation,
   compiler: string,
-): CheckedArtifact | undefined {
+): CanonicalBytes | undefined {
   const sourceHash = programHash(request.source);
   if (!sourceHash.ok) return undefined;
-  const irDigest = digest(program.program);
   const record: ArtifactRecord = {
     magic: 'SafeScript checked artifact',
     format: 2,
@@ -126,14 +131,12 @@ export function createArtifact(
       .sort((left, right) => left[0].localeCompare(right[0])),
     slotId: slot.id,
     sourceHash: sourceHash.value,
-    irDigest,
-    handler,
-    program: program.program,
+    irDigest: compilation.digest,
+    handler: compilation.handler,
+    program: compilation.program.program,
   };
   const encoded = encodeCanonical(ARTIFACT_SCHEMA, stringify(record));
-  return encoded.ok
-    ? Object.freeze({ bytes: frozenBytes(encoded.value), digest: irDigest, program, handler })
-    : undefined;
+  return encoded.ok ? frozenBytes(encoded.value) : undefined;
 }
 
 /**
@@ -148,7 +151,7 @@ export function verifyArtifact(
   registry: ContractRegistry,
   slot: SlotDefinition,
   compiler: string,
-): CheckedArtifact | undefined {
+): VerifiedCompilation | undefined {
   if (!Array.isArray(bytes) || bytes.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 255))
     return undefined;
   try {
@@ -178,7 +181,7 @@ export function verifyArtifact(
     const program = verifyProgram(value.program, registry, slot);
     const irDigest = program && digest(program.program);
     if (!program || irDigest !== value.irDigest) return undefined;
-    return Object.freeze({ bytes: frozenBytes(bytes), digest: irDigest, program, handler: value.handler });
+    return Object.freeze({ digest: irDigest, program, handler: value.handler });
   } catch {
     return undefined;
   }

@@ -12,8 +12,8 @@ For a check request, the direct bridge:
 4. applies SafeScript-owned syntax, type, control-flow, module, effect, and capability rules;
 5. lowers accepted code to typed SafeScript IR;
 6. independently verifies structured IR shape and depth, schemas, handler, actions, summaries, and slot permissions;
-7. creates a checked artifact bound to source, compiler build, contract, definitions, and slot;
-8. returns the artifact, reachable authority summary, provenance, diagnostics, and usage.
+7. creates a private verified compilation and retains accepted results in the bridge-local cache;
+8. returns the reachable authority summary, provenance, diagnostics, and usage, and serializes an artifact only when requested.
 
 The compiler lowers current SafeScript directly into one verified structured IR, allowing helper calls, recursion, loops, destructuring, collections, intrinsics, and action groups. This is a private execution representation; integrations should depend on source, bridge records, and the public semantic graph instead. Legacy flat control-flow IR and its artifacts are not accepted.
 
@@ -33,11 +33,28 @@ The SDK adds its deterministic `test` method above this seam. Bridge inputs and 
 
 ## Execution preparation
 
-Source execution compiles through the same check path and reports the newly created artifact, summary, provenance, diagnostics, and compile usage in `facts.preparation`.
+Source execution compiles through the same check path and reports summary, provenance, diagnostics, and compile usage in `facts.preparation`. Set `includeArtifact: true` only when the host also needs serialized bytes in those facts.
 
 Artifact execution treats bytes as untrusted. The engine rechecks canonical encoding, compiler identity, contract identity, registry digest, referenced definition fingerprints, slot, IR digest, and the complete private IR verifier before interpreting anything. Artifact mode reports its verified IR digest in preparation facts.
 
 An artifact is a disposable optimization, not a permission token. It does not bypass input validation, resource limits, the action gateway, configured host hooks, handler dispatch, or result validation.
+
+## Compiled-program cache
+
+Each direct bridge owns a private cache of accepted, verified compilations. The default worker gets the same behavior from the direct bridge that it owns. The cache is local to that bridge or worker lifetime and is cleared on `close` or process exit. It never persists or accepts its internal values.
+
+The default bounds are 64 entries and 16 MiB of approximate retained weight. Weight is a deterministic estimate based on source bytes and syntax-node count, not a heap measurement. Eviction is least recently used. Concurrent identical misses share one compilation. Rejected compilations are not cached.
+
+The key covers the compiler build and language profile, complete contract registry, slot, ordered source-program hashes, and effective compile limits. Source bytes, encoding, identities, registry, slot, and limits are still validated before lookup. A hit reports the same compile usage as the original compilation; hit and miss are not public facts.
+
+Direct hosts can change the bounds or disable reuse:
+
+```ts
+createDirectRuntimeBridge({ compilationCache: { maxEntries: 32, maxWeight: 8 * 1024 * 1024 } });
+createDirectRuntimeBridge({ compilationCache: false });
+```
+
+The cache contains no invocation input, execution limit, authorization decision, hook, handler, action outcome, idempotency state, cancellation state, trace, or action record. Every execution applies those current values again.
 
 ## Bounded interpretation
 

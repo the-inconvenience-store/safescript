@@ -4,7 +4,7 @@ TypeScript source is the canonical SafeScript program. Artifacts, summaries, sem
 
 ## Checked artifacts
 
-An accepted check returns canonical artifact bytes. The artifact binds the compiled program to:
+An accepted check does not serialize an artifact by default. Set `includeArtifact: true` on `check` or `inspect` when the host needs canonical artifact bytes. For source execution, the same option includes bytes in source preparation facts. The artifact binds the compiled program to:
 
 - exact compiler build;
 - contract ID, registry digest, and referenced definition fingerprints;
@@ -14,6 +14,8 @@ An accepted check returns canonical artifact bytes. The artifact binds the compi
 Artifacts are suitable for an optional host cache or store. Before every artifact execution, the engine treats the bytes as untrusted and revalidates canonical representation, compiler and contract binding, referenced definitions, digest integrity, and typed IR. Any mismatch fails before interpretation.
 
 Artifact reuse never reuses a host policy decision. Actions still pass through the SDK gateway and the hooks and handlers configured for that invocation. Hosts should retain source as the canonical review and editing form and regenerate artifacts when the compiler or contract changes.
+
+Ordinary source checks and executions use the bounded, bridge-local verified-compilation cache. That trusted internal value is not a public handle or serialization format. It remains in memory only for the bridge or worker lifetime. Serialized artifacts are a separate optional projection for hosts that deliberately provide storage or transport.
 
 ## Program summaries
 

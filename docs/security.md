@@ -23,6 +23,8 @@ The default SDK facade uses the supervised local worker. The host-side adapter t
 
 Trusted does not mean infallible. The public boundaries still validate registry records, canonical bytes, correlations, results, limits, and versions and map unexpected implementation failures to stable fail-closed outcomes.
 
+Each bridge may retain accepted verified compilations in a bounded in-memory cache. Cache keys cover compiler, language, registry, slot, source, and compile limits. The cache is cleared on bridge close or worker exit and does not retain runtime authority, invocation data, hooks, handlers, outcomes, traces, or action records. All source and execution boundary checks still run on a cache hit.
+
 ## No ambient authority
 
 Extensions have no filesystem, network, process, package, environment, credential, timer, or general host-object access. Source imports only compiler-provided modules and registered source modules. Deterministic time and randomness require invocation-provided values. `console` creates trace records rather than performing I/O.
@@ -79,7 +81,7 @@ SafeScript does not coordinate retries. It never retries an action automatically
 
 ## Storage and privacy
 
-The host decides whether to retain source, artifacts, semantic graphs, traces, inputs, outputs, and action facts. SafeScript does not persist them automatically. These records can contain application data and should follow the host's retention, tenancy, access-control, and deletion policies.
+The host decides whether to retain source, serialized artifacts, semantic graphs, traces, inputs, outputs, and action facts. SafeScript does not persist them automatically. Its private bounded compilation cache lasts only for one bridge or worker lifetime. Persistent records can contain application data and should follow the host's retention, tenancy, access-control, and deletion policies.
 
 Checked artifacts contain executable derived representation and contract/source fingerprints, but no credentials or cached host decisions. Semantic graphs can include constants and source-derived facts. Treat both according to the source program's sensitivity.
 

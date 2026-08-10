@@ -142,6 +142,8 @@ The docs call artifacts a disposable optional cache optimization, but cache/stor
 
 **YAGNI test:** require measured compile latency plus a real cache/store consumer before stabilizing an externally supplied artifact format. An SDK-private in-memory compiled handle, or source-only execution, may be sufficient until then.
 
+Resolution: ordinary source work now uses a bounded bridge-local cache of private verified compilations. Artifact serialization requires `includeArtifact: true` and remains separate from the cache. Persistent storage remains a host responsibility and a separate optional feature.
+
 ## Tier 2: strong simplification candidates
 
 ### 7. Operation, effect, and capability as three identities for each action

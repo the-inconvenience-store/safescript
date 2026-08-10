@@ -290,7 +290,7 @@ describe('direct RuntimeBridge walking skeleton', () => {
           capabilities: [capability],
         });
         expect(completed.facts.preparation.diagnostics).toEqual([]);
-        expect(completed.facts.preparation.artifact.length).toBeGreaterThan(0);
+        expect(completed.facts.preparation.artifact).toBeUndefined();
       }
     }
   });
@@ -341,9 +341,10 @@ describe('direct RuntimeBridge walking skeleton', () => {
 
   it('checks, executes one typed action, and verifies artifact mode', async () => {
     const bridge = createDirectRuntimeBridge();
-    const checked = await bridge.check(checkRequest);
+    const checked = await bridge.check({ ...checkRequest, includeArtifact: true });
     expect(checked.status).toBe('accepted');
     if (checked.status !== 'accepted') return;
+    if (!checked.artifact) throw new Error('artifact serialization was not requested');
     expect(checked.diagnostics).toEqual([]);
     expect(checked.summary).toEqual({ effects: [effect], capabilities: [capability] });
     let calls = 0;
@@ -392,15 +393,23 @@ describe('direct RuntimeBridge walking skeleton', () => {
       },
     });
     expect([below.status, alreadyWon.status, calls]).toEqual(['completed', 'completed', 0]);
-    const rejected = await bridge.execute(executeRequest({ kind: 'source', source: checkRequest }), {
-      handleAction: async (request) =>
-        ({
-          requestId: request.requestId,
-          result: { tag: 'rejected', value: { code: 'denied', detail: 'safe detail' } },
-        }) as never,
-    });
+    const rejected = await bridge.execute(
+      executeRequest({ kind: 'source', source: { ...checkRequest, includeArtifact: true } }),
+      {
+        handleAction: async (request) =>
+          ({
+            requestId: request.requestId,
+            result: { tag: 'rejected', value: { code: 'denied', detail: 'safe detail' } },
+          }) as never,
+      },
+    );
     expect(rejected.status).toBe('failed');
-    if (rejected.status === 'failed') expect(rejected.error.code).toBe('action_outcome_invalid');
+    if (rejected.status === 'failed') {
+      expect(rejected.error.code).toBe('action_outcome_invalid');
+      expect(rejected.facts.preparation.kind).toBe('source');
+      if (rejected.facts.preparation.kind === 'source')
+        expect(rejected.facts.preparation.artifact?.length).toBeGreaterThan(0);
+    }
   });
 
   it('fails closed before dispatch for source, artifact, and resource violations', async () => {
@@ -413,8 +422,9 @@ describe('direct RuntimeBridge walking skeleton', () => {
       },
     };
     expect((await bridge.check(ambient)).status).toBe('rejected');
-    const checked = await bridge.check(checkRequest);
+    const checked = await bridge.check({ ...checkRequest, includeArtifact: true });
     if (checked.status !== 'accepted') throw new Error('fixture rejected');
+    if (!checked.artifact) throw new Error('artifact serialization was not requested');
     const corrupt = [...checked.artifact];
     corrupt[0] = 0;
     const corruptResult = await bridge.execute(executeRequest({ kind: 'artifact', bytes: corrupt }), {
@@ -922,9 +932,10 @@ export async function onDealUpdated(`,
       registry: actionRegistry,
     } as const;
     const bridge = createDirectRuntimeBridge();
-    const checked = await bridge.check(request);
+    const checked = await bridge.check({ ...request, includeArtifact: true });
     expect(checked.status).toBe('accepted');
     if (checked.status !== 'accepted') return;
+    if (!checked.artifact) throw new Error('artifact serialization was not requested');
     const calls: string[] = [];
     const releases: ((task: string) => void)[] = [];
     const execution = bridge.execute(

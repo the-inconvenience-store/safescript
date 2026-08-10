@@ -1970,13 +1970,15 @@ export interface CheckRequest {
   readonly slotId: SlotId;
   readonly source: SourceProgram;
   readonly limits: CompileLimits;
+  /** Whether accepted source should also be serialized as portable artifact bytes. */
+  readonly includeArtifact?: boolean;
 }
 
 /** Accepted source, rejected source diagnostics, or a bridge-envelope failure. */
 export type CheckResult =
   | Readonly<{
       status: 'accepted';
-      artifact: CanonicalBytes;
+      artifact?: CanonicalBytes;
       summary: ProgramSummary;
       provenance: CompilerProvenance;
       usage: CompileUsage;
@@ -2167,7 +2169,7 @@ export interface TraceResult {
 export type ExecutionPreparation =
   | Readonly<{
       kind: 'source';
-      artifact: CanonicalBytes;
+      artifact?: CanonicalBytes;
       summary: ProgramSummary;
       provenance: CompilerProvenance;
       usage: CompileUsage;

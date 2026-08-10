@@ -8,9 +8,12 @@ import {
   deriveIdempotencyKey,
   encodeCanonical,
   diagnosticRepair,
+  hash,
   ids,
   isActionOutcome,
+  programHash,
   resultSchema,
+  sourceHash,
   type ActionOutcome,
   type ActionRequest,
   type ActionRecord,
@@ -45,9 +48,15 @@ import {
   STANDARD_SEMANTIC_GRAPH_LIMITS,
   MAX_DIAGNOSTIC_MESSAGE_LENGTH,
   MAX_FAILURE_DETAIL_LENGTH,
+  LANGUAGE_PROFILE,
 } from '@safescript/contracts';
 
-import { createArtifact, verifyArtifact, type CheckedArtifact } from './artifact.js';
+import { createVerifiedCompilation, serializeArtifact, verifyArtifact, type VerifiedCompilation } from './artifact.js';
+import {
+  CompilationCache,
+  STANDARD_COMPILATION_CACHE_LIMITS,
+  type CompilationCacheLimits,
+} from './compilation-cache.js';
 import { compileProgramModules, measureCompilerSource } from './compiler.js';
 import { interpret, InterpreterFault } from './interpreter.js';
 import { allocationFuel, byteFuel, hostActionFuel, scanFuel, SEMANTIC_STEP_FUEL } from './resource-schedule.js';
@@ -62,14 +71,17 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
 interface Compiled {
-  readonly artifact: CheckedArtifact;
+  readonly compilation: VerifiedCompilation;
   readonly usage: CompileUsage;
   readonly slot: SlotDefinition;
+  readonly weight: number;
 }
 
-type AcceptedCheck = Extract<CheckResult, { readonly status: 'accepted' }>;
 type RejectedCheck = Extract<CheckResult, { readonly status: 'rejected' }>;
-type InternalCheckResult = Exclude<CheckResult, AcceptedCheck> | (AcceptedCheck & { readonly compiled: Compiled });
+type InternalCheckResult =
+  | RejectedCheck
+  | Extract<CheckResult, { readonly status: 'bridge_error' }>
+  | Readonly<{ status: 'accepted'; compiled: Compiled }>;
 
 interface ActiveInvocation {
   cancelled: boolean;
@@ -193,7 +205,72 @@ function compileLimitsValid(limits: CompileLimits, ceiling: CompileLimits): bool
   );
 }
 
-function checkCompile(request: CheckRequest): InternalCheckResult {
+function cacheText(value: unknown): string {
+  if (value === undefined) return '"$undefined"';
+  if (typeof value === 'bigint') return `{"$bigint":${JSON.stringify(String(value))}}`;
+  if (Array.isArray(value)) return `[${value.map(cacheText).join(',')}]`;
+  if (value !== null && typeof value === 'object')
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${cacheText(item)}`)
+      .join(',')}}`;
+  const encoded = JSON.stringify(value);
+  if (encoded === undefined) throw new TypeError('unsupported cache key value');
+  return encoded;
+}
+
+type AcceptedCheck = Extract<CheckResult, { readonly status: 'accepted' }>;
+
+function projectAcceptedCheck(request: CheckRequest, compiled: Compiled): AcceptedCheck | RejectedCheck {
+  const artifact = request.includeArtifact
+    ? serializeArtifact(request, compiled.slot, compiled.compilation, COMPILER_NAME)
+    : undefined;
+  if (request.includeArtifact && !artifact)
+    return Object.freeze({
+      status: 'rejected',
+      diagnostics: Object.freeze(
+        request.limits.includeDiagnostics
+          ? [diagnostic(request, 'SS_COMPILER_LIMIT', 'serialized artifact exceeds its encoding limit')]
+          : [],
+      ),
+      usage: compiled.usage,
+    });
+  return Object.freeze({
+    status: 'accepted',
+    ...(artifact === undefined ? {} : { artifact }),
+    summary: compiled.compilation.program.program.summary,
+    provenance: Object.freeze({ compiler: COMPILER }),
+    usage: compiled.usage,
+    diagnostics: Object.freeze([]),
+  });
+}
+
+function compilationCacheKey(request: CheckRequest): string {
+  return hash(
+    'program',
+    encoder.encode(
+      cacheText({
+        compiler: COMPILER_NAME,
+        language: LANGUAGE_PROFILE,
+        registry: request.registry,
+        slotId: request.slotId,
+        source: {
+          entry: request.source.entry,
+          modules: request.source.modules.map((module) => ({
+            id: module.id,
+            hash: sourceHash(Uint8Array.from(module.source)),
+          })),
+        },
+        limits: request.limits,
+      }),
+    ),
+  );
+}
+
+async function checkCompile(
+  request: CheckRequest,
+  cache: CompilationCache<InternalCheckResult>,
+): Promise<InternalCheckResult> {
   const sourceBytes = request.source.modules.reduce((total, module) => total + module.source.length, 0);
   let compileUsage = usage(sourceBytes);
   const reject = (code: CompilerDiagnosticCode, message: string, start = 0, end = 0): RejectedCheck =>
@@ -204,15 +281,13 @@ function checkCompile(request: CheckRequest): InternalCheckResult {
       ),
       usage: compileUsage,
     });
+  if (request.includeArtifact !== undefined && typeof request.includeArtifact !== 'boolean')
+    return { status: 'bridge_error', error: bridgeError('check', 'invalid_request', 'invalid artifact selection') };
   const slot = validateRegistry(request.registry, request.slotId);
   if (typeof slot === 'string') return reject('SS_CONTRACT_INVALID', slot);
   if (!compileLimitsValid(request.limits, slot.compileLimits))
     return reject('SS_COMPILER_LIMIT', 'compile limits exceed the slot ceiling');
-  if (
-    request.source.modules.length === 0 ||
-    request.source.modules.length > request.limits.modules ||
-    request.source.modules.length === 0
-  )
+  if (request.source.modules.length === 0 || request.source.modules.length > request.limits.modules)
     return reject('SS_MODULE_SET_INVALID', 'module set is outside the selected language minor');
   const module = request.source.modules.find((candidate) => candidate.id === request.source.entry);
   if (!module) return reject('SS_MODULE_SET_INVALID', 'entry module is absent');
@@ -236,37 +311,42 @@ function checkCompile(request: CheckRequest): InternalCheckResult {
     )
   )
     return reject('SS_COMPILER_LIMIT', 'type-depth or derived-template limit exceeded');
-  const compiled = compileProgramModules(
-    texts as readonly Readonly<{ id: ModuleId; source: string }>[],
-    request.source.entry,
-    request.registry,
-    slot,
+  const identity = programHash(request.source);
+  if (!identity.ok) return reject('SS_MODULE_SET_INVALID', 'source program identity is invalid');
+  const key = compilationCacheKey(request);
+  return cache.getOrLoad(
+    key,
+    () => {
+      const compiled = compileProgramModules(
+        texts as readonly Readonly<{ id: ModuleId; source: string }>[],
+        request.source.entry,
+        request.registry,
+        slot,
+      );
+      compileUsage = usage(sourceBytes, compiled.syntaxNodes);
+      if (
+        compiled.imports > request.limits.imports ||
+        compiled.declarations > request.limits.declarations ||
+        compiled.syntaxNodes > request.limits.syntaxNodes ||
+        compiled.syntaxDepth > request.limits.syntaxDepth
+      )
+        return reject('SS_COMPILER_LIMIT', 'import, declaration, or syntax limit exceeded');
+      if (!compiled.ok)
+        return reject(compiled.failure.code, compiled.failure.message, compiled.failure.start, compiled.failure.end);
+      const verified = verifyProgram(compiled.program, request.registry, slot);
+      if (!verified) return reject('SS_INTERNAL_IR_INVALID', 'lowered program failed private typed-IR verification');
+      return Object.freeze({
+        status: 'accepted' as const,
+        compiled: Object.freeze({
+          compilation: createVerifiedCompilation(verified, compiled.handler),
+          usage: compileUsage,
+          slot,
+          weight: sourceBytes + compiled.syntaxNodes * 64,
+        }),
+      });
+    },
+    (result) => (result.status === 'accepted' ? result.compiled.weight : undefined),
   );
-  compileUsage = usage(sourceBytes, compiled.syntaxNodes);
-  if (
-    compiled.imports > request.limits.imports ||
-    compiled.declarations > request.limits.declarations ||
-    compiled.syntaxNodes > request.limits.syntaxNodes ||
-    compiled.syntaxDepth > request.limits.syntaxDepth
-  )
-    return reject('SS_COMPILER_LIMIT', 'import, declaration, or syntax limit exceeded');
-  if (!compiled.ok)
-    return reject(compiled.failure.code, compiled.failure.message, compiled.failure.start, compiled.failure.end);
-  const verified = verifyProgram(compiled.program, request.registry, slot);
-  if (!verified) return reject('SS_INTERNAL_IR_INVALID', 'lowered program failed private typed-IR verification');
-  const artifact = createArtifact(request, slot, verified, compiled.handler, COMPILER_NAME);
-  if (!artifact) return reject('SS_MODULE_SET_INVALID', 'source program identity is invalid');
-  const accepted = Object.freeze({
-    status: 'accepted' as const,
-    artifact: artifact.bytes,
-    summary: artifact.program.program.summary,
-    provenance: Object.freeze({
-      compiler: COMPILER,
-    }),
-    usage: compileUsage,
-    diagnostics: Object.freeze([]),
-  });
-  return Object.freeze({ ...accepted, compiled: Object.freeze({ artifact, usage: compileUsage, slot }) });
 }
 
 function executionUsage(usageValue: MutableUsage): ExecutionUsage {
@@ -497,7 +577,7 @@ class ExecutionTrace {
   }
 }
 
-function actionInstructions(artifact: CheckedArtifact): readonly StructuredAction[] {
+function actionInstructions(artifact: VerifiedCompilation): readonly StructuredAction[] {
   return structuredActions(artifact.program.program);
 }
 
@@ -511,7 +591,7 @@ class ActionDispatcher {
     private readonly request: ExecutionRequest,
     private readonly host: RuntimeBridgeHost,
     private readonly active: ActiveInvocation,
-    private readonly artifact: CheckedArtifact,
+    private readonly artifact: VerifiedCompilation,
     private readonly records: ActionRecord[],
     private readonly meter: ExecutionMeter,
     private readonly usage: MutableUsage,
@@ -677,23 +757,34 @@ class ActionDispatcher {
  * @remarks The bridge owns compiler/runtime semantics and action-request formation, but never current host authority or
  * operation handlers. Those remain behind the supplied `RuntimeBridgeHost` adapter.
  */
+export interface DirectRuntimeBridgeOptions {
+  /** False disables reuse; otherwise omitted fields use the documented bridge-local defaults. */
+  readonly compilationCache?: false | Partial<CompilationCacheLimits>;
+}
+
 export class DirectRuntimeBridge implements RuntimeBridge {
   private closed = false;
   private readonly active = new Map<string, ActiveInvocation>();
   private readonly executions = new Set<Promise<ExecutionResult>>();
+  private readonly compilationCache: CompilationCache<InternalCheckResult>;
+
+  constructor(options: DirectRuntimeBridgeOptions = {}) {
+    const selected = options.compilationCache;
+    this.compilationCache = new CompilationCache(
+      selected === false
+        ? { maxEntries: 0, maxWeight: 0 }
+        : {
+            maxEntries: selected?.maxEntries ?? STANDARD_COMPILATION_CACHE_LIMITS.maxEntries,
+            maxWeight: selected?.maxWeight ?? STANDARD_COMPILATION_CACHE_LIMITS.maxWeight,
+          },
+    );
+  }
 
   async check(request: CheckRequest): Promise<CheckResult> {
     if (this.closed) return { status: 'bridge_error', error: bridgeError('check', 'bridge_closed') };
-    const result = checkCompile(request);
+    const result = await checkCompile(request, this.compilationCache);
     if (result.status !== 'accepted') return result;
-    return Object.freeze({
-      status: result.status,
-      artifact: result.artifact,
-      summary: result.summary,
-      provenance: result.provenance,
-      usage: result.usage,
-      diagnostics: result.diagnostics,
-    });
+    return projectAcceptedCheck(request, result.compiled);
   }
 
   async inspect(request: InspectRequest): Promise<InspectResult> {
@@ -715,20 +806,14 @@ export class DirectRuntimeBridge implements RuntimeBridge {
       )
     )
       return { status: 'bridge_error', error: bridgeError('inspect', 'invalid_request', 'invalid graph limits') };
-    const result = checkCompile(request);
+    const result = await checkCompile(request, this.compilationCache);
     if (result.status !== 'accepted') return result;
-    const check: AcceptedCheck = Object.freeze({
-      status: result.status,
-      artifact: result.artifact,
-      summary: result.summary,
-      provenance: result.provenance,
-      usage: result.usage,
-      diagnostics: result.diagnostics,
-    });
+    const check = projectAcceptedCheck(request, result.compiled);
+    if (check.status !== 'accepted') return check;
     let graph: ReturnType<typeof deriveSemanticGraph> | undefined;
     try {
       graph = request.views.includes('semantic_graph')
-        ? deriveSemanticGraph(request, result.compiled.slot, result.compiled.artifact, COMPILER, graphLimits)
+        ? deriveSemanticGraph(request, result.compiled.slot, result.compiled.compilation, COMPILER, graphLimits)
         : undefined;
     } catch {
       return { status: 'bridge_error', error: bridgeError('inspect', 'adapter_failure') };
@@ -801,10 +886,10 @@ export class DirectRuntimeBridge implements RuntimeBridge {
         }).ok)
     )
       return { status: 'not_started', error: bridgeError('execute', 'invalid_request', 'invalid bounded bytes') };
-    let artifact: CheckedArtifact;
+    let artifact: VerifiedCompilation;
     let preparation: ExecutionPreparation;
     if (request.program.kind === 'source') {
-      const compilation = checkCompile(request.program.source);
+      const compilation = await checkCompile(request.program.source, this.compilationCache);
       if (compilation.status === 'rejected')
         return { status: 'not_started', diagnostics: compilation.diagnostics, usage: compilation.usage };
       if (compilation.status === 'bridge_error') return { status: 'bridge_error', error: compilation.error };
@@ -816,14 +901,17 @@ export class DirectRuntimeBridge implements RuntimeBridge {
           status: 'not_started',
           error: bridgeError('execute', 'invalid_request', 'source compile inputs do not match execution'),
         };
-      artifact = compilation.compiled.artifact;
+      artifact = compilation.compiled.compilation;
+      const projected = projectAcceptedCheck(request.program.source, compilation.compiled);
+      if (projected.status !== 'accepted')
+        return { status: 'not_started', diagnostics: projected.diagnostics, usage: projected.usage };
       preparation = Object.freeze({
         kind: 'source',
-        artifact: compilation.artifact,
-        summary: compilation.summary,
-        provenance: compilation.provenance,
-        usage: compilation.usage,
-        diagnostics: compilation.diagnostics,
+        ...(projected.artifact === undefined ? {} : { artifact: projected.artifact }),
+        summary: projected.summary,
+        provenance: projected.provenance,
+        usage: projected.usage,
+        diagnostics: projected.diagnostics,
       });
     } else {
       const verified = verifyArtifact(request.program.bytes, request.registry, slot, COMPILER_NAME);
@@ -933,6 +1021,7 @@ export class DirectRuntimeBridge implements RuntimeBridge {
   async close(): Promise<CloseResult> {
     if (this.closed) return { status: 'closed' };
     this.closed = true;
+    this.compilationCache.clear();
     // Close follows ordinary cancellation semantics so late host results cannot replay or resume an invocation.
     for (const active of this.active.values()) {
       active.cancelled = true;
