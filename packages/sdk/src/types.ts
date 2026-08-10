@@ -27,7 +27,6 @@ import {
   type SemanticGraphLimits,
   type Sha256Digest,
   type SlotId,
-  type TraceMode,
 } from '@safescript/contracts';
 import type { EngineOptions } from '@safescript/engine';
 
@@ -114,7 +113,7 @@ export interface ExecuteRequest<K extends PropertyKey, I, C> {
   readonly fixedInstant?: InstantValue;
   readonly randomSeed?: Uint8Array | CanonicalBytes;
   readonly limits?: Partial<ExecutionLimits>;
-  readonly trace?: TraceMode;
+  readonly trace?: boolean;
   readonly signal?: AbortSignal;
 }
 
@@ -141,7 +140,7 @@ export interface ExecutionHookContext<K extends PropertyKey, I, C> {
   readonly input: I;
   readonly context: C;
   readonly limits: ExecutionLimits;
-  readonly trace: TraceMode;
+  readonly trace: boolean;
   readonly signal: AbortSignal;
   readonly idempotencySeed?: CanonicalBytes;
   readonly fixedInstant?: InstantValue;

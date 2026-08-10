@@ -130,7 +130,7 @@ const fixtures: readonly FixtureInput[] = [
       program: { kind: 'source', source: checkRequest },
       input: [],
       limits: STANDARD_EXECUTION_LIMITS,
-      trace: 'none',
+      trace: false,
     }),
   },
   {

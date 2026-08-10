@@ -67,7 +67,7 @@ Useful invocation inputs include:
 - `fixedInstant`: deterministic value for `Temporal.Now.instant()`;
 - `randomSeed`: deterministic source for `Math.random()`;
 - `limits`: invocation ceilings that can only lower configured ceilings;
-- `trace`: `none`, `summary`, or `semantic`;
+- `trace`: `true` to collect bounded trace records; omitted or `false` to disable collection;
 - `signal`: external cancellation.
 
 Execution returns closed status unions rather than leaking compiler or handler exceptions:

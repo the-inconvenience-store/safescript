@@ -2143,8 +2143,6 @@ export type InspectResult =
     }>
   | Extract<CheckResult, { status: 'rejected' | 'bridge_error' }>;
 
-/** Closed trace detail levels understood by all runtime adapters. */
-export type TraceMode = 'none' | 'summary' | 'semantic';
 /** Source to compile and execute in one call, or previously checked artifact bytes to reverify. */
 export type ExecutableProgram =
   Readonly<{ kind: 'source'; source: CheckRequest }> | Readonly<{ kind: 'artifact'; bytes: CanonicalBytes }>;
@@ -2159,7 +2157,8 @@ export interface ExecuteRequest {
   readonly idempotencySeed?: CanonicalBytes;
   readonly fixedInstant?: InstantValue;
   readonly randomSeed?: CanonicalBytes;
-  readonly trace: TraceMode;
+  /** Whether to collect bounded semantic trace records for this invocation. */
+  readonly trace: boolean;
 }
 
 /** Bounded canonical trace records and an explicit truncation marker. */

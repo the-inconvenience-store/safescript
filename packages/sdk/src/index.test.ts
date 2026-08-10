@@ -1038,13 +1038,17 @@ describe('createSafeScript', () => {
       context: {},
       randomSeed: [256],
     });
-    const invalidTrace = await safe.execute({
-      slot: 'main',
-      program: { kind: 'artifact', bytes: [] },
-      input: { value: 1n },
-      context: {},
-      trace: 'verbose' as 'none',
-    });
+    const invalidTraces = await Promise.all(
+      ['none', 'summary', 'semantic'].map((trace) =>
+        safe.execute({
+          slot: 'main',
+          program: { kind: 'artifact', bytes: [] },
+          input: { value: 1n },
+          context: {},
+          trace: trace as unknown as boolean,
+        }),
+      ),
+    );
     const invalidSignal = await safe.execute({
       slot: 'main',
       program: { kind: 'artifact', bytes: [] },
@@ -1060,7 +1064,7 @@ describe('createSafeScript', () => {
       limits: { maxBytes: 0 },
     });
     expect(hookCalls).toBe(0);
-    for (const result of [invalidInput, invalidSeed, invalidTrace, invalidSignal, overLimitInput]) {
+    for (const result of [invalidInput, invalidSeed, ...invalidTraces, invalidSignal, overLimitInput]) {
       expect(result).toMatchObject({ status: 'bridge_error', error: { code: 'invalid_request' } });
     }
   });

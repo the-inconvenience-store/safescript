@@ -722,7 +722,7 @@ describe('process RuntimeBridge state machine', () => {
         program: { kind: 'source', source: checkRequest },
         input: [0xf6],
         limits: STANDARD_EXECUTION_LIMITS,
-        trace: 'none',
+        trace: false,
       },
       {
         handleAction: async (request) => {
@@ -976,7 +976,7 @@ describe('process RuntimeBridge state machine', () => {
           program: { kind: 'source', source: checkRequest },
           input: [0xf6],
           limits: STANDARD_EXECUTION_LIMITS,
-          trace: 'none',
+          trace: false,
         },
         {
           handleAction: async (request) => {

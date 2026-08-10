@@ -196,7 +196,7 @@ class RequestCodec<C, O extends Operations, S extends Slots> {
         limits: { maxDepth: limits.maxDepth, maxNodes: limits.maxNodes, maxBytes: limits.maxBytes },
       });
       if (!input.ok) return bridgeError('execute', 'invalid_request');
-      const trace = request.trace ?? 'none';
+      const trace = request.trace ?? false;
       const program =
         request.program.kind === 'source'
           ? { kind: 'source' as const, source: this.check(slot, request.program.source) }
@@ -207,7 +207,7 @@ class RequestCodec<C, O extends Operations, S extends Slots> {
       const randomSeed = request.randomSeed === undefined ? undefined : [...request.randomSeed];
       if (
         !program ||
-        !['none', 'summary', 'semantic'].includes(trace) ||
+        typeof trace !== 'boolean' ||
         (program.kind === 'artifact' && !validBytes(program.bytes, limits.maxBytes)) ||
         (idempotencySeed !== undefined && !validBytes(idempotencySeed, limits.maxBytes)) ||
         (randomSeed !== undefined && !validBytes(randomSeed, limits.maxBytes)) ||

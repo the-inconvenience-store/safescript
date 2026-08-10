@@ -140,7 +140,7 @@ describe('SafeScript CLI', () => {
         randomSeed: { $bytes: 'AwQ=' },
         fixedInstant: { epochSeconds: { $bigint: '1' }, nanoseconds: 0 },
         limits: { fuel: 100 },
-        trace: 'semantic',
+        trace: true,
       }),
     );
     expect(await runCli(['execute', '--contract', 'contract.json'], executeIo.io)).toBe(EXIT.program);
@@ -165,7 +165,7 @@ describe('SafeScript CLI', () => {
       randomSeed: Uint8Array.of(3, 4),
       fixedInstant: { epochSeconds: 1n, nanoseconds: 0 },
       limits: { fuel: 100 },
-      trace: 'semantic',
+      trace: true,
     });
     await safe.close();
     expect(cliExecution).toEqual(JSON.parse(JSON.stringify(directExecution)));

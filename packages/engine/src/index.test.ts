@@ -223,7 +223,7 @@ function executeRequest(
     input: encoded(ref(typeIds.event), input),
     limits,
     idempotencySeed: [1, 2, 3],
-    trace: 'none',
+    trace: false,
   };
 }
 
@@ -847,7 +847,7 @@ export async function onDealUpdated(`,
       {
         ...executeRequest({ kind: 'source', source: request }, event('open', 1_999_999n)),
         registry: dataRegistry,
-        trace: 'semantic',
+        trace: true,
         fixedInstant: { epochSeconds: 1_786_060_800n, nanoseconds: 0 },
         randomSeed: [1, 2, 3, 4],
       },
@@ -1367,7 +1367,7 @@ describe('execution validation, limits, and host outcomes', () => {
         ...STANDARD_EXECUTION_LIMITS,
         ...override,
       }),
-      trace: 'semantic' as const,
+      trace: true,
     };
     const result = await createDirectRuntimeBridge().execute(request, unreachableHost);
     if (limit === 'traceBytes') {

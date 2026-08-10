@@ -58,5 +58,4 @@ export type {
   RuntimeBridge,
   Schema,
   SemVer,
-  TraceMode,
 } from '@safescript/contracts';

@@ -92,6 +92,8 @@ There is also a mismatch between the breadth of the TypeScript claim and the che
 
 ### 4a. Public trace modes that are behaviorally identical
 
+**Resolved:** `safescript-u8a` replaced these string modes with one boolean trace selector. The text below records the pre-change evidence that led to that decision.
+
 **Confidence: very high.**
 
 `TraceMode` publicly promises `none | summary | semantic` (`packages/contracts/src/index.ts:2147`). The SDK validates and transports all three (`packages/sdk/src/facade.ts:199-210`; `packages/worker/src/protocol.ts:259`), and the engine guide documents the distinction (`docs/engine.md:73-77`). The engine, however, only branches on whether the value is `none`; `summary` and `semantic` both enable the same `ExecutionTrace` collector (`packages/engine/src/bridge.ts:477-496`, `packages/engine/src/bridge.ts:800-807`, `packages/engine/src/bridge.ts:866`).

@@ -74,7 +74,7 @@ Suspension is not durable execution. A process failure loses interpreter state u
 
 The bridge tracks unique active invocation IDs. Cancellation sets an in-memory signal checked by the interpreter and gateway. It can stop future work and ignore a late action completion; it cannot undo an external effect.
 
-Trace mode is `none`, `summary`, or `semantic`. Trace records are canonical and byte-bounded. When the trace ceiling is reached, trace collection truncates atomically and marks `truncated` without changing program semantics.
+Set `trace` to `true` to collect trace records or `false` to disable collection. Trace records are canonical and byte-bounded. When the trace ceiling is reached, trace collection truncates atomically and marks `truncated` without changing program semantics.
 
 ## Semantic inspection
 

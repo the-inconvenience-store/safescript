@@ -792,7 +792,7 @@ export class DirectRuntimeBridge implements RuntimeBridge {
         (!isByteArray(request.idempotencySeed) || request.idempotencySeed.length > request.limits.maxBytes)) ||
       (request.randomSeed !== undefined &&
         (!isByteArray(request.randomSeed) || request.randomSeed.length > request.limits.maxBytes)) ||
-      !['none', 'summary', 'semantic'].includes(request.trace) ||
+      typeof request.trace !== 'boolean' ||
       (request.fixedInstant !== undefined &&
         !encodeCanonical({ kind: 'instant' }, request.fixedInstant, {
           limits: valueLimits(request.limits),
@@ -851,7 +851,7 @@ export class DirectRuntimeBridge implements RuntimeBridge {
       return { status: 'not_started', error: bridgeError('execute', 'invalid_request', 'slot input is not canonical') };
     const meter = new ExecutionMeter(usageValue, request.limits, request.registry);
     meter.observe(input.value, request.input.length);
-    const trace = new ExecutionTrace(request.trace !== 'none', request.limits.traceBytes, usageValue);
+    const trace = new ExecutionTrace(request.trace, request.limits.traceBytes, usageValue);
     const dispatcher = new ActionDispatcher(request, host, active, artifact, records, meter, usageValue);
     const random = seededRandom(request.randomSeed);
     let callDepth = 0;

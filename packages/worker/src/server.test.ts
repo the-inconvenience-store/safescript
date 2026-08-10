@@ -227,7 +227,7 @@ describe('standalone runtime worker server', () => {
       program: { kind: 'source', source: checkRequest },
       input: [0xf6],
       limits: STANDARD_EXECUTION_LIMITS,
-      trace: 'none',
+      trace: false,
     });
     if (!checkPayload.ok || !inspectPayload.ok || !executePayload.ok) throw new Error('request encoding failed');
     await server.receive(hostEnvelope('bridge.check.request', 2n, checkPayload.value));

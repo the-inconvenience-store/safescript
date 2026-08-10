@@ -256,7 +256,7 @@ const executeRequest = record([
   { name: 'idempotency_seed', schema: bytes(), optional: true },
   { name: 'fixed_instant', schema: instant, optional: true },
   { name: 'random_seed', schema: bytes(), optional: true },
-  { name: 'trace', schema: oneOf(literal('none'), literal('summary'), literal('semantic')) },
+  { name: 'trace', schema: boolean() },
 ]);
 const cancelRequest = record([{ name: 'invocation_id', schema: text() }]);
 

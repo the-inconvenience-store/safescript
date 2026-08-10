@@ -24,7 +24,6 @@ import {
   type ScriptedAction,
   type SourceProgram,
   type TestExpectation,
-  type TraceMode,
 } from '@safescript/sdk';
 
 /** Successful command, program failure, and CLI/bridge misuse exit statuses. */
@@ -350,7 +349,7 @@ async function perform(command: Command, contractValue: unknown, requestValue: u
       ...(request.fixedInstant === undefined ? {} : { fixedInstant: request.fixedInstant as InstantValue }),
       ...(request.randomSeed === undefined ? {} : { randomSeed: request.randomSeed as Uint8Array }),
       ...(request.limits === undefined ? {} : { limits: object(request.limits, 'request.limits') }),
-      ...(request.trace === undefined ? {} : { trace: request.trace as TraceMode }),
+      ...(request.trace === undefined ? {} : { trace: request.trace as boolean }),
     });
   } finally {
     await safe.close();

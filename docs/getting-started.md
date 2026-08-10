@@ -193,7 +193,7 @@ if (checked.status !== 'accepted') {
     input: { workspaceId: 'acme', title: 'Follow up' },
     context: { allowedWorkspaces: ['acme'] },
     idempotencySeed: new TextEncoder().encode('demo-run-1'),
-    trace: 'summary',
+    trace: true,
   });
 
   console.log(result);
