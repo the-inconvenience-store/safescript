@@ -19,7 +19,7 @@ host action while the CRM state and activity panels update. **Reset CRM** restor
 The code is arranged in the order data travels through the application:
 
 1. [`src/actions.ts`](src/actions.ts) defines host operations such as `notes.create` and `followups.schedule`, including
-   their request/result schemas, effects, capabilities, costs, and idempotency.
+   their request/result schemas, operation permissions, costs, and idempotency.
 2. [`src/contract.ts`](src/contract.ts) places those actions in the CRM automation slot and defines its event/result.
 3. [`src/scripts/index.ts`](src/scripts/index.ts) contains the canonical restricted TypeScript programs. Every action
    payload is written explicitly; there is no source-generating `mutation()` helper hiding what crosses the boundary.

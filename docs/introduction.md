@@ -10,14 +10,14 @@ Many products want programmable behavior: CRM automations, device rules, applica
 
 SafeScript changes the integration model:
 
-1. The host defines closed data schemas, extension slots, operations, effects, capabilities, and limits.
+1. The host defines closed data schemas, extension slots, allowed operations, and limits.
 2. The compiler accepts only an explicit TypeScript subset and only registered modules.
 3. The runtime interprets verified IR and meters semantic work.
 4. Every host operation becomes a typed action request.
 5. The SDK gateway validates that request before optional host hooks and at-most-once handler dispatch.
 6. The result and ordered execution facts cross back as serializable values.
 
-Static effect and capability summaries answer “what might this program request?” They never answer “is this request allowed now?”
+The static reachable-operation summary answers “what might this program request?” It never answers “is this request allowed now?”
 
 ## The three participants
 

@@ -22,7 +22,7 @@ function typeNames(types: readonly TypeDefinition[]): ReadonlyMap<TypeId, string
   const idsByName = new Map<string, TypeId>();
   for (const type of types) {
     const name = declarationTypeName(type.id);
-    if (['Context', 'Effect', 'Result'].includes(name) || idsByName.has(name)) {
+    if (['Context', 'Result'].includes(name) || idsByName.has(name)) {
       throw new TypeError(`conflicting declaration name ${name}`);
     }
     names.set(type.id, name);
@@ -90,14 +90,13 @@ function hostDeclarations(operations: readonly OperationDefinition[], names: Rea
       .map(([segment, child]) => {
         if (child.operation) {
           const operation = child.operation;
-          return `readonly ${propertyName(segment)}: (input: ${names.get(operation.input)}) => Effect<${JSON.stringify(String(operation.effect))}, Result<${names.get(operation.output)}, ${names.get(operation.error)}>>`;
+          return `readonly ${propertyName(segment)}: (input: ${names.get(operation.input)}) => Promise<Result<${names.get(operation.output)}, ${names.get(operation.error)}>>`;
         }
         return `readonly ${propertyName(segment)}: Readonly<{ ${render(child)} }>`;
       })
       .join('; ');
   return [
     'export type Result<T, E> = Readonly<{ tag: "ok"; value: T }> | Readonly<{ tag: "error"; value: E }>;',
-    'export type Effect<E extends string, T> = Promise<T> & Readonly<{ readonly __effect?: E }>;',
     `export interface Context { ${render(root)} }`,
   ].join('\n');
 }

@@ -46,7 +46,7 @@ Code that reads `checked.artifact` must add `includeArtifact: true` and handle t
 
 ## Program summaries
 
-Accepted checks report the statically reachable effect and capability IDs. A summary helps review, indexing, or host policy preflight, but does not prove that an action will run and does not grant runtime authority.
+Accepted checks report the statically reachable operation IDs. A summary helps review, indexing, or host policy preflight, but does not prove that an action will run and does not grant runtime authority.
 
 ## Semantic graph
 
@@ -55,8 +55,8 @@ Accepted checks report the statically reachable effect and capability IDs. A sum
 - stable schema/compiler/language/contract/slot/source identities;
 - declaration, expression, control, input, output, constant, and action nodes;
 - contains, control, data, input, and output edges;
-- source locations, types, symbols, action sites, operations, effects, capabilities, constants, and operators where relevant;
-- aggregate authorities and static resource counts.
+- source locations, types, symbols, action sites, operations, constants, and operators where relevant;
+- reachable operations and static resource counts.
 
 Graph node IDs are derived from semantic meaning and remain stable across formatting-only changes. Source spans are navigation metadata, not identity.
 
@@ -77,7 +77,7 @@ Graph export has independent node, edge, and byte limits. Accepted source can re
 - additional supported patterns;
 - stable compiler diagnostic codes with category and repair action.
 
-Only operations allowed by both the slot's effects and capabilities appear in its host declarations. The bundle identifies the exact contract fingerprint and current language profile.
+Only operations in the slot's operation allow-list appear in its host declarations. The bundle identifies the exact contract fingerprint and current language profile.
 
 Authoring bundles intentionally exclude private IR, compiler passes, and semantic-graph details. They help an author produce valid source; they do not replace checking. A host should regenerate a bundle when the contract, slot, or supported language changes.
 

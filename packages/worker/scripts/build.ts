@@ -33,7 +33,7 @@ const buildDigest = createHash('sha256')
 const manifest = {
   schema: 1,
   packageVersion: packageManifest.version,
-  compilerBuild: 'structured-ir-current',
+  compilerBuild: 'structured-ir-operation-permissions',
   entry: 'entry.js',
   buildDigest,
 };

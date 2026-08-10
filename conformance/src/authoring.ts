@@ -1,11 +1,10 @@
 /** Blind-agent authoring evidence and the computed usability gate. */
 import type {
-  CapabilityId,
   CompileUsage,
   CompilerDiagnosticCode,
   DiagnosticCategory,
-  EffectId,
   ExecutionUsage,
+  OperationId,
 } from '@safescript/contracts';
 
 export type AuthoringScenario = 'crm' | 'application-extension' | 'code-mode' | 'device-rule';
@@ -22,10 +21,8 @@ export interface AgentAuthoringEvidence {
   readonly repairTurns: number;
   readonly finalAccepted: boolean;
   readonly semanticallyCorrect: boolean;
-  readonly expectedEffects: readonly EffectId[];
-  readonly actualEffects: readonly EffectId[];
-  readonly expectedCapabilities: readonly CapabilityId[];
-  readonly actualCapabilities: readonly CapabilityId[];
+  readonly expectedOperations: readonly OperationId[];
+  readonly actualOperations: readonly OperationId[];
   readonly compileUsage?: CompileUsage;
   readonly executionUsage?: ExecutionUsage;
   readonly resourceBehavior: 'within-limits' | 'expected-exhaustion' | 'unexpected-failure';
@@ -85,11 +82,7 @@ export function evaluateAuthoringGate(
   const count = evidence.length;
   const rate = (predicate: (run: AgentAuthoringEvidence) => boolean) =>
     count === 0 ? 0 : evidence.filter(predicate).length / count;
-  const summaries = evidence.map(
-    (run) =>
-      sameValues(run.expectedEffects, run.actualEffects) &&
-      sameValues(run.expectedCapabilities, run.actualCapabilities),
-  );
+  const summaries = evidence.map((run) => sameValues(run.expectedOperations, run.actualOperations));
   const metrics = {
     firstCheckRate: rate((run) => run.firstCheckAccepted),
     finalAcceptanceRate: rate((run) => run.finalAccepted),
@@ -119,7 +112,7 @@ export function evaluateAuthoringGate(
       failures.push({
         scenario: run.scenario,
         owner: 'language',
-        reason: 'effect or capability summary was inaccurate',
+        reason: 'operation summary was inaccurate',
       });
     if (run.repairTurns > thresholds.maximumRepairTurnsPerRun)
       failures.push({ scenario: run.scenario, owner: 'compiler-diagnostics', reason: 'repair-turn limit exceeded' });

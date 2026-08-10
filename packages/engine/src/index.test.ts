@@ -141,8 +141,6 @@ const definitions: TypeDefinition[] = [
     fingerprint: hash('type', new Uint8Array([7])),
   },
 ];
-const effect = ids.effect('effect:tasks.create');
-const capability = ids.capability('capability:tasks.write');
 const operation = ids.operation('operation:tasks.create');
 const slot = ids.slot('slot:deal.updated');
 const fingerprint = (value: number) => hash('contract', Uint8Array.of(value));
@@ -150,16 +148,12 @@ const registry: ContractRegistry = {
   id: ids.contract('contract:crm'),
   digest: fingerprint(20),
   schemas: defineSchemaRegistry(definitions),
-  effects: [{ id: effect, fingerprint: fingerprint(21) }],
-  capabilities: [{ id: capability, fingerprint: fingerprint(22) }],
   operations: [
     {
       id: operation,
       input: typeIds.taskInput,
       output: typeIds.task,
       error: typeIds.taskError,
-      effect,
-      capability,
       effectCost: 10,
       idempotency: 'required',
       fingerprint: fingerprint(23),
@@ -170,8 +164,7 @@ const registry: ContractRegistry = {
       id: slot,
       input: typeIds.event,
       output: typeIds.result,
-      effects: [effect],
-      capabilities: [capability],
+      operations: [operation],
       compileLimits: STANDARD_COMPILE_LIMITS,
       executionLimits: STANDARD_EXECUTION_LIMITS,
       fingerprint: fingerprint(24),
@@ -179,8 +172,6 @@ const registry: ContractRegistry = {
   ],
   definitions: [
     ...definitions.map(({ id, fingerprint: value }) => ({ id, fingerprint: value })),
-    { id: effect, fingerprint: fingerprint(21) },
-    { id: capability, fingerprint: fingerprint(22) },
     { id: operation, fingerprint: fingerprint(23) },
     { id: slot, fingerprint: fingerprint(24) },
   ],
@@ -296,10 +287,7 @@ describe('direct RuntimeBridge walking skeleton', () => {
     if (completed.status === 'completed') {
       expect(completed.facts.preparation.kind).toBe('source');
       if (completed.facts.preparation.kind === 'source') {
-        expect(completed.facts.preparation.summary).toEqual({
-          effects: [effect],
-          capabilities: [capability],
-        });
+        expect(completed.facts.preparation.summary).toEqual({ operations: [operation] });
         expect(completed.facts.preparation.diagnostics).toEqual([]);
         expect(completed.facts.preparation.artifact).toBeUndefined();
       }
@@ -307,31 +295,22 @@ describe('direct RuntimeBridge walking skeleton', () => {
   });
 
   it('resolves host actions from the registry instead of a tasks.create special case', async () => {
-    const notificationEffect = ids.effect('effect:notifications.send');
-    const notificationCapability = ids.capability('capability:notifications.write');
     const notificationOperationId = ids.operation('operation:notifications.send');
     const notificationOperation = {
       ...(registry.operations[0] as ContractRegistry['operations'][number]),
       id: notificationOperationId,
-      effect: notificationEffect,
-      capability: notificationCapability,
     };
     const notificationSlot = {
       ...(registry.slots[0] as ContractRegistry['slots'][number]),
-      effects: [notificationEffect],
-      capabilities: [notificationCapability],
+      operations: [notificationOperationId],
     };
     const notificationRegistry: ContractRegistry = {
       ...registry,
       digest: fingerprint(30),
-      effects: [{ id: notificationEffect, fingerprint: fingerprint(31) }],
-      capabilities: [{ id: notificationCapability, fingerprint: fingerprint(32) }],
       operations: [notificationOperation],
       slots: [notificationSlot],
       definitions: [
         ...definitions.map(({ id, fingerprint: value }) => ({ id, fingerprint: value })),
-        { id: notificationEffect, fingerprint: fingerprint(31) },
-        { id: notificationCapability, fingerprint: fingerprint(32) },
         { id: notificationOperationId, fingerprint: notificationOperation.fingerprint },
         { id: slot, fingerprint: notificationSlot.fingerprint },
       ],
@@ -346,8 +325,7 @@ describe('direct RuntimeBridge walking skeleton', () => {
       },
     });
     expect(checked.status).toBe('accepted');
-    if (checked.status === 'accepted')
-      expect(checked.summary).toEqual({ effects: [notificationEffect], capabilities: [notificationCapability] });
+    if (checked.status === 'accepted') expect(checked.summary).toEqual({ operations: [notificationOperationId] });
   });
 
   it('checks, executes one typed action, and verifies artifact mode', async () => {
@@ -357,7 +335,7 @@ describe('direct RuntimeBridge walking skeleton', () => {
     if (checked.status !== 'accepted') return;
     if (!checked.artifact) throw new Error('artifact serialization was not requested');
     expect(checked.diagnostics).toEqual([]);
-    expect(checked.summary).toEqual({ effects: [effect], capabilities: [capability] });
+    expect(checked.summary).toEqual({ operations: [operation] });
     let calls = 0;
     const completed = await bridge.execute(executeRequest({ kind: 'artifact', bytes: checked.artifact }), {
       handleAction: async (request) => {
@@ -542,7 +520,7 @@ describe('compiler validation through the RuntimeBridge interface', () => {
       expect(graph.nodes.some((node: { semanticKind: string }) => node.semanticKind === 'variable')).toBe(true);
       expect(graph.nodes.some((node: { semanticKind: string }) => node.semanticKind === 'host-action')).toBe(true);
       expect(graph.resources.actionNodes).toHaveLength(1);
-      expect(graph.authorities[0].actionNodes).toHaveLength(1);
+      expect(graph.operations).toEqual([operation]);
     }
     let calls = 0;
     const completed = await bridge.execute(

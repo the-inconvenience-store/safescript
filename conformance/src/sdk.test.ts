@@ -37,8 +37,6 @@ const errorType: ContractType<HostError> = {
   id: ids.type('type:conformance.error'),
   schema: { kind: 'string' },
 };
-const effect = ids.effect('effect:conformance.read');
-const capability = ids.capability('capability:conformance.read');
 const operationId = ids.operation('operation:conformance.read');
 const slotId = ids.slot('slot:conformance.run');
 const moduleId = ids.module('module:conformance/sdk');
@@ -53,8 +51,6 @@ const contract = defineContract({
       input: inputType,
       output: outputType,
       error: errorType,
-      effect,
-      capability,
       effectCost: 1,
       idempotency: 'required' as const,
     },
@@ -64,8 +60,7 @@ const contract = defineContract({
       id: slotId,
       input: inputType,
       output: outputType,
-      effects: [effect],
-      capabilities: [capability],
+      operations: [operationId],
     },
   },
 });
@@ -176,8 +171,6 @@ describe('public SDK conformance', () => {
           requestId: ids.request(request.invocationId, 0),
           slotId,
           operationId,
-          effectId: effect,
-          capabilityId: capability,
           actionSiteId,
           source: { module: moduleId, start: 0, end: 1 },
           input: request.input,

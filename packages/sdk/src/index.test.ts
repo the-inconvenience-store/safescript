@@ -53,8 +53,6 @@ const errorType: ContractType<TestError> = {
     ],
   },
 };
-const effect = ids.effect('effect:test.read');
-const capability = ids.capability('capability:test.read');
 const operationId = ids.operation('operation:test.read');
 const slotId = ids.slot('slot:test.main');
 const invocationId = ids.invocation('invocation:0123456789abcdef0123456789abcdef');
@@ -67,8 +65,6 @@ const contract = defineContract({
       input: inputType,
       output: outputType,
       error: errorType,
-      effect,
-      capability,
       effectCost: 1,
       idempotency: 'none',
     },
@@ -78,8 +74,7 @@ const contract = defineContract({
       id: slotId,
       input: inputType,
       output: outputType,
-      effects: [effect],
-      capabilities: [capability],
+      operations: [operationId],
       compileLimits: { sourceBytes: 1000 },
       executionLimits: { fuel: 1000 },
     },
@@ -142,8 +137,6 @@ function action(request: BridgeExecuteRequest, sequence = 0): ActionRequest {
     requestId: ids.request(request.invocationId, sequence),
     slotId,
     operationId,
-    effectId: effect,
-    capabilityId: capability,
     actionSiteId: derivedActionSiteId(Uint8Array.of(1)),
     source: { module: ids.module('module:main'), start: 0, end: 1 },
     input: request.input,
@@ -157,7 +150,7 @@ describe('defineContract', () => {
     expect(contract.registry.digest).toBe(contract.fingerprint);
     expect(contract.declarations).toContain('export type TestInput');
     expect(contract.declarations).toContain('readonly test: Readonly<{ readonly read:');
-    expect(contract.declarations).toContain('Effect<"effect:test.read", Result<TestOutput, TestError>>');
+    expect(contract.declarations).toContain('Promise<Result<TestOutput, TestError>>');
     expect(
       ts.transpileModule(contract.declarations, {
         compilerOptions: { target: ts.ScriptTarget.ESNext },
@@ -170,7 +163,10 @@ describe('defineContract', () => {
       defineContract({
         ...contract,
         operations: {},
-        slots: { ...contract.slots, bad: { ...contract.slots.main, effects: [ids.effect('effect:test.missing')] } },
+        slots: {
+          ...contract.slots,
+          bad: { ...contract.slots.main, operations: [ids.operation('operation:test.missing')] },
+        },
       }),
     ).toThrow(ContractDefinitionError);
   });
@@ -245,11 +241,11 @@ describe('defineContract', () => {
         }),
     ],
     [
-      'unknown capability',
+      'unknown operation',
       () =>
         defineContract({
           ...contract,
-          slots: { main: { ...contract.slots.main, capabilities: [ids.capability('capability:test.missing')] } },
+          slots: { main: { ...contract.slots.main, operations: [ids.operation('operation:test.missing')] } },
         }),
     ],
     [
@@ -257,7 +253,7 @@ describe('defineContract', () => {
       () =>
         defineContract({
           ...contract,
-          slots: { main: { ...contract.slots.main, effects: [effect, effect] } },
+          slots: { main: { ...contract.slots.main, operations: [operationId, operationId] } },
         }),
     ],
     [
@@ -732,7 +728,7 @@ export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutp
     expect(JSON.stringify(result)).not.toContain('SECRET_REPEATED_HOOK_FAILURE');
   });
 
-  it('rejects uncorrelated bridge actions and accepts compatible contract requirements', async () => {
+  it('rejects uncorrelated or unauthorized bridge actions', async () => {
     const bridge = new FakeBridge();
     let handlers = 0;
     bridge.executeResult = async (request, host) => {
@@ -760,6 +756,7 @@ export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutp
         requestId: ids.request(otherInvocation, 0),
       }),
       (request) => ({ ...request, requestId: ids.request(request.invocationId, 1) }),
+      (request) => ({ ...request, operationId: ids.operation('operation:test.missing') }),
       (request) => ({
         ...request,
         idempotencyKey: 'invalid' as NonNullable<ActionRequest['idempotencyKey']>,
@@ -774,7 +771,7 @@ export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutp
       };
       await safe.execute({ slot: 'main', program: { kind: 'artifact', bytes: [] }, input: { value: 1n }, context: {} });
     }
-    expect(bridge.actions.map((outcome) => outcome.result.tag)).toEqual(['failed', 'failed', 'failed']);
+    expect(bridge.actions.map((outcome) => outcome.result.tag)).toEqual(['failed', 'failed', 'failed', 'failed']);
     expect(handlers).toBe(0);
 
     bridge.executeResult = async (request, host) => {
@@ -1528,7 +1525,7 @@ export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutp
       expect: {
         status: 'failed',
         output: 'wrong',
-        effects: [effect],
+        operations: [operationId],
         actions: [],
         resources: { fuel: 999 },
       },
@@ -1538,7 +1535,7 @@ export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutp
       'actions.length',
       'status',
       'output',
-      'effects',
+      'operations',
       'resources.fuel',
     ]);
   });

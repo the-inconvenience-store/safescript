@@ -711,8 +711,6 @@ class ActionDispatcher {
       requestId,
       slotId: this.request.slotId,
       operationId: operation.id,
-      effectId: operation.effect,
-      capabilityId: operation.capability,
       actionSiteId: instruction.actionSiteId,
       source: instruction.source,
       input,

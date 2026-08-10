@@ -3,14 +3,13 @@ import {
   COMPILER_DIAGNOSTIC_CODES,
   diagnosticRepair,
   languageProfile,
-  type CapabilityId,
   type ContractRegistry,
   type CompilerDiagnosticCode,
   type CompileLimits,
   type DiagnosticRepair,
-  type EffectId,
   type ExecutionLimits,
   type LanguageProfile,
+  type OperationId,
   type Schema,
   type SchemaRegistry,
   type SlotId,
@@ -33,8 +32,7 @@ export interface AuthoringBundle {
     id: SlotId;
     input: TypeId;
     output: TypeId;
-    effects: readonly EffectId[];
-    capabilities: readonly CapabilityId[];
+    operations: readonly OperationId[];
     compileLimits: CompileLimits;
     executionLimits: ExecutionLimits;
   }>;
@@ -178,11 +176,8 @@ export function createRegistryAuthoringBundle(
   const slot = registry.slots.find((candidate) => candidate.id === slotId);
   if (!slot) throw new TypeError(`unknown slot ${slotId}`);
   const profile = languageProfile();
-  const allowedEffects = new Set(slot.effects);
-  const allowedCapabilities = new Set(slot.capabilities);
-  const operations = registry.operations.filter(
-    (operation) => allowedEffects.has(operation.effect) && allowedCapabilities.has(operation.capability),
-  );
+  const allowedOperations = new Set(slot.operations);
+  const operations = registry.operations.filter((operation) => allowedOperations.has(operation.id));
   const declarations = generateDeclarations(registry.schemas.types, operations, true);
   const context = {
     contract: { id: registry.id, fingerprint: registry.digest },
@@ -191,8 +186,7 @@ export function createRegistryAuthoringBundle(
       id: slot.id,
       input: slot.input,
       output: slot.output,
-      effects: slot.effects,
-      capabilities: slot.capabilities,
+      operations: slot.operations,
       compileLimits: slot.compileLimits,
       executionLimits: slot.executionLimits,
     },

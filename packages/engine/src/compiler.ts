@@ -185,7 +185,7 @@ export function compileProgramModules(
  * Parses one module, rejects syntax outside the current allow-list, and lowers the accepted handler to verified IR.
  *
  * @remarks TypeScript supplies syntax trees and source spans only. SafeScript-owned checks define accepted source,
- * host-operation resolution, type behavior, effects, capabilities, and execution semantics.
+ * host-operation resolution, type behavior, operation permissions, and execution semantics.
  * @internal
  */
 export function compileProgram(

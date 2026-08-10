@@ -52,8 +52,6 @@ interface CliContractOperation {
   readonly input: string;
   readonly output: string;
   readonly error: string;
-  readonly effect: string;
-  readonly capability: string;
   readonly effectCost: number;
   readonly idempotency: 'none' | 'required';
 }
@@ -62,8 +60,7 @@ interface CliContractSlot {
   readonly id: string;
   readonly input: string;
   readonly output: string;
-  readonly effects: readonly string[];
-  readonly capabilities: readonly string[];
+  readonly operations: readonly string[];
   readonly compileLimits?: Partial<CompileLimits>;
   readonly executionLimits?: Partial<ExecutionLimits>;
 }

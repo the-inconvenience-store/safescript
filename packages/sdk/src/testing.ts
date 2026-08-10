@@ -132,14 +132,15 @@ export function compareExpectations<O>(
       mismatch('output', expected.output, execution.status === 'completed' ? execution.output : undefined),
     );
   }
-  if (expected?.effects !== undefined) {
+  if (expected?.operations !== undefined) {
     const actual =
       execution.status === 'completed' || execution.status === 'failed' || execution.status === 'cancelled'
         ? execution.facts.actions
             .filter((record) => record.phase === 'requested')
-            .map((record) => record.request.effectId)
+            .map((record) => record.request.operationId)
         : [];
-    if (stable(expected.effects) !== stable(actual)) mismatches.push(mismatch('effects', expected.effects, actual));
+    if (stable(expected.operations) !== stable(actual))
+      mismatches.push(mismatch('operations', expected.operations, actual));
   }
   if (expected?.actions !== undefined) {
     const actual =

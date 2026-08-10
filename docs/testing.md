@@ -28,7 +28,7 @@ const report = await safe.test({
   expect: {
     status: 'completed',
     output: { tag: 'ok', value: null },
-    effects: [ids.effect('effect:tasks.create')],
+    operations: [ids.operation('operation:tasks.create')],
     resources: { hostCalls: 1 },
   },
 });
@@ -40,7 +40,7 @@ The scripted host checks action order, operation, canonical input, request uniqu
 
 A scripted declared `Err` covers the extension-visible path of a production `beforeAction` stop. To test callers that handle a `beforeExecute` rejection, provide `execution: { status: "rejected", code, detail? }`. Test hook ordering, host policy, audit forwarding, and handler integration through the production SDK gateway rather than `safe.test`.
 
-Expectations may cover status, output, effects, action facts, diagnostics, and selected resource usage. The report always contains the observed execution, making failures inspectable without rerunning. Test mismatches do not throw.
+Expectations may cover status, output, operations, action facts, diagnostics, and selected resource usage. The report always contains the observed execution, making failures inspectable without rerunning. Test mismatches do not throw.
 
 Use fixed time and randomness whenever source calls their deterministic intrinsics. Fix invocation and idempotency seeds when asserting exact action facts or keys.
 

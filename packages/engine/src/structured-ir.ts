@@ -1,9 +1,7 @@
 /** Closed structured control-flow IR used by the additive SafeScript 1.1 language minor. */
 import type {
   ActionSiteId,
-  CapabilityId,
   ContractRegistry,
-  EffectId,
   OperationId,
   ProgramSummary,
   Schema,
@@ -97,8 +95,6 @@ export type StructuredExpression =
   | Readonly<{
       tag: 'action';
       operationId: OperationId;
-      effectId: EffectId;
-      capabilityId: CapabilityId;
       actionSiteId: ActionSiteId;
       inputType: Schema;
       resultType: Schema;
@@ -388,10 +384,7 @@ function expression(
       const operation = registry.operations.find((candidate) => candidate.id === value.operationId);
       if (
         !!operation &&
-        operation.effect === value.effectId &&
-        operation.capability === value.capabilityId &&
-        slot.effects.includes(operation.effect) &&
-        slot.capabilities.includes(operation.capability) &&
+        slot.operations.includes(operation.id) &&
         typeof value.actionSiteId === 'string' &&
         schema(value.inputType, registry) &&
         schema(value.resultType, registry) &&
@@ -526,10 +519,8 @@ export function verifyStructuredProgram(
     typeof value.contextParameter !== 'string' ||
     !Array.isArray(value.functions) ||
     !object(value.summary) ||
-    !Array.isArray(value.summary.effects) ||
-    !value.summary.effects.every((effect) => typeof effect === 'string') ||
-    !Array.isArray(value.summary.capabilities) ||
-    !value.summary.capabilities.every((capability) => typeof capability === 'string')
+    !Array.isArray(value.summary.operations) ||
+    !value.summary.operations.every((operation) => typeof operation === 'string')
   )
     return false;
   const names = new Set<string>();
@@ -551,10 +542,8 @@ export function verifyStructuredProgram(
   const program = value as unknown as StructuredProgram;
   const actions = structuredActions(program);
   return (
-    stable([...new Set(actions.map((action) => action.effectId))].sort()) ===
-      stable([...program.summary.effects].sort()) &&
-    stable([...new Set(actions.map((action) => action.capabilityId))].sort()) ===
-      stable([...program.summary.capabilities].sort())
+    stable([...new Set(actions.map((action) => action.operationId))].sort()) ===
+    stable([...program.summary.operations].sort())
   );
 }
 

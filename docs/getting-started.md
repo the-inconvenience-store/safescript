@@ -66,19 +66,16 @@ const outputType: ContractType<ExtensionResult> = {
   schema: resultSchema({ kind: 'unit' }, { kind: 'ref', type: errorType.id }),
 };
 
-const createEffect = ids.effect('effect:tasks.create');
-const createCapability = ids.capability('capability:tasks.create');
+const createTask = ids.operation('operation:tasks.create');
 
 const contract = defineContract({
   id: ids.contract('contract:demo'),
   operations: {
     createTask: {
-      id: ids.operation('operation:tasks.create'),
+      id: createTask,
       input: eventType,
       output: taskType,
       error: errorType,
-      effect: createEffect,
-      capability: createCapability,
       effectCost: 1,
       idempotency: 'required',
     },
@@ -88,8 +85,7 @@ const contract = defineContract({
       id: ids.slot('slot:demo.on-event'),
       input: eventType,
       output: outputType,
-      effects: [createEffect],
-      capabilities: [createCapability],
+      operations: [createTask],
     },
   },
 });

@@ -179,8 +179,6 @@ const operationDefinition = record([
   { name: 'input', schema: text() },
   { name: 'output', schema: text() },
   { name: 'error', schema: text() },
-  { name: 'effect', schema: text() },
-  { name: 'capability', schema: text() },
   { name: 'effect_cost', schema: uint() },
   { name: 'idempotency', schema: oneOf(literal('none'), literal('required')) },
   { name: 'fingerprint', schema: text(64) },
@@ -189,8 +187,7 @@ const slotDefinition = record([
   { name: 'id', schema: text() },
   { name: 'input', schema: text() },
   { name: 'output', schema: text() },
-  { name: 'effects', schema: array(text()) },
-  { name: 'capabilities', schema: array(text()) },
+  { name: 'operations', schema: array(text()) },
   { name: 'compile_limits', schema: compileLimits },
   { name: 'execution_limits', schema: executionLimits },
   { name: 'fingerprint', schema: text(64) },
@@ -199,8 +196,6 @@ const registry = record([
   { name: 'id', schema: text() },
   { name: 'digest', schema: text(64) },
   { name: 'schemas', schema: record([{ name: 'types', schema: array(typeDefinition) }]) },
-  { name: 'effects', schema: array(fingerprintDefinition) },
-  { name: 'capabilities', schema: array(fingerprintDefinition) },
   { name: 'operations', schema: array(operationDefinition) },
   { name: 'slots', schema: array(slotDefinition) },
   { name: 'definitions', schema: array(fingerprintDefinition) },
@@ -270,10 +265,7 @@ const compileUsage = record([
   { name: 'source_bytes', schema: uint() },
   { name: 'syntax_nodes', schema: uint() },
 ]);
-const programSummary = record([
-  { name: 'effects', schema: array(text()) },
-  { name: 'capabilities', schema: array(text()) },
-]);
+const programSummary = record([{ name: 'operations', schema: array(text()) }]);
 const compilerProvenance = record([{ name: 'compiler', schema: compilerVersion }]);
 const diagnostic = record([
   { name: 'code', schema: text() },
@@ -332,8 +324,6 @@ const actionRequest = record([
   { name: 'request_id', schema: text() },
   { name: 'slot_id', schema: text() },
   { name: 'operation_id', schema: text() },
-  { name: 'effect_id', schema: text() },
-  { name: 'capability_id', schema: text() },
   { name: 'action_site_id', schema: text() },
   { name: 'source', schema: sourceLocation },
   { name: 'input', schema: bytes() },

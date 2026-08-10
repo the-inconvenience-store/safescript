@@ -37,7 +37,6 @@ export function createCrmWebApp() {
                   );
                   return {
                     operationId: record.request.operationId,
-                    effectId: record.request.effectId,
                     outcome: resolution?.phase === 'resolved' ? resolution.outcome.result.tag : 'unresolved',
                   };
                 })

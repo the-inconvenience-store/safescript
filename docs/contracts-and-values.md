@@ -4,14 +4,12 @@ The host contract is the single source of truth for what an extension can receiv
 
 ## Stable identities
 
-SafeScript uses explicit prefixed IDs for contracts, types, effects, capabilities, operations, slots, and modules. For example:
+SafeScript uses explicit prefixed IDs for contracts, types, operations, slots, and modules. For example:
 
 ```ts
 ids.contract('contract:crm');
 ids.type('type:crm.deal');
 ids.operation('operation:tasks.create');
-ids.effect('effect:tasks.create');
-ids.capability('capability:tasks.write');
 ids.slot('slot:crm.automation');
 ids.module('module:main');
 ```
@@ -56,7 +54,6 @@ An operation declares:
 
 - a stable operation ID;
 - input, successful output, and error types;
-- an effect and capability;
 - non-negative semantic effect cost;
 - whether an idempotency key is required.
 
@@ -67,10 +64,12 @@ Operation error types are entirely contract-owned. They do not require a `policy
 A slot is a host-owned extension entry point. It fixes:
 
 - input and output types;
-- allowed effects and capabilities;
+- allowed operation IDs;
 - optional compile and execution ceilings.
 
-An operation is statically eligible only when both its effect and capability occur in the slot. Slot, deployment, and invocation limits are combined by taking the minimum for every dimension, so a caller can lower but never raise a host ceiling.
+An operation is statically eligible only when its operation ID occurs in the slot. Slot, deployment, and invocation limits are combined by taking the minimum for every dimension, so a caller can lower but never raise a host ceiling.
+
+Effect and capability IDs are not part of the current contract. Reachable operations provide the implemented static summary, and the host reauthorizes each concrete operation at runtime. Hosts migrating from the old shape must replace operation `effect` and `capability` fields plus slot `effects` and `capabilities` lists with one slot `operations` list. Derived registries, worker messages, and artifacts must be regenerated; SafeScript does not translate the old shape.
 
 ## Derived contract products
 

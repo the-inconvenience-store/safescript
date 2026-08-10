@@ -16,8 +16,7 @@ const contractJson = {
       id: 'slot:cli.main',
       input: 'type:cli.input',
       output: 'type:cli.output',
-      effects: [],
-      capabilities: [],
+      operations: [],
     },
   },
 } as const;
@@ -72,8 +71,7 @@ function directContract() {
         id: 'slot:cli.main' as never,
         input,
         output,
-        effects: [],
-        capabilities: [],
+        operations: [],
       },
     },
   });

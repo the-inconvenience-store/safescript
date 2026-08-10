@@ -47,8 +47,7 @@ const resultType: ContractType<AutomationResult> = {
   id: ids.type('type:crm.automation-result'),
   schema: resultSchema({ kind: 'unit' }, { kind: 'ref', type: crmActionErrorType.id }),
 };
-const allEffects = Object.values(crmActions).map(({ effect }) => effect);
-const allCapabilities = Object.values(crmActions).map(({ capability }) => capability);
+const allOperations = Object.values(crmActions).map(({ id }) => id);
 
 export const crmContract = defineContract({
   id: ids.contract('contract:example.crm'),
@@ -58,8 +57,7 @@ export const crmContract = defineContract({
       id: ids.slot('slot:crm.automation'),
       input: eventType,
       output: resultType,
-      effects: allEffects,
-      capabilities: allCapabilities,
+      operations: allOperations,
     },
   },
 });

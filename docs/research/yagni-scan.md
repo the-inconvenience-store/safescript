@@ -160,6 +160,8 @@ The full design anticipates captured capabilities and higher-order analysis (`do
 
 **YAGNI test:** use operation IDs as the initial permission and effect-summary unit. Add separately reusable effect categories or capability values only when a host needs one-to-many grouping or first-class retained authority.
 
+Resolution: operation IDs are now the sole static action identity, slot permission unit, and reachable-action summary. Effect and capability IDs, registry collections, action-request fields, graph aggregates, and generated declaration markers were removed. The gateway still resolves and reauthorizes every current operation. Old contract shapes, worker messages, and artifacts are not translated and must be regenerated from host definitions and canonical source.
+
 ### 8. Four lifecycle hooks
 
 **Confidence: medium-high.**

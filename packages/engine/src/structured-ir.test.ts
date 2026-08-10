@@ -44,8 +44,7 @@ const slot: SlotDefinition = {
   id: slotId,
   input: inputId,
   output: outputId,
-  effects: [],
-  capabilities: [],
+  operations: [],
   compileLimits: STANDARD_COMPILE_LIMITS,
   executionLimits: STANDARD_EXECUTION_LIMITS,
   fingerprint: hash('contract', Uint8Array.of(4)),
@@ -54,8 +53,6 @@ const registry: ContractRegistry = {
   id: ids.contract('contract:test'),
   digest: hash('contract', Uint8Array.of(5)),
   schemas: defineSchemaRegistry(definitions),
-  effects: [],
-  capabilities: [],
   operations: [],
   slots: [slot],
   definitions: [
@@ -92,7 +89,7 @@ function validProgram(): StructuredProgram {
         source: location,
       },
     ],
-    summary: { effects: [], capabilities: [] },
+    summary: { operations: [] },
   };
 }
 
@@ -121,40 +118,32 @@ describe('structured IR verification', () => {
     ['missing handler', changed((program) => (program.handler = 'missing'))],
     ['duplicate function', changed((program) => program.functions.push(structuredClone(program.functions[0])))],
     ['malformed source', changed((program) => (program.functions[0].body[0].source.start = -1))],
-    ['summary mismatch', changed((program) => program.summary.effects.push('effect:not-used'))],
+    ['summary mismatch', changed((program) => program.summary.operations.push('operation:not-used'))],
     ['malformed schema', changed((program) => (program.inputType = { kind: 'list', item: null }))],
   ])('rejects %s', (_name, candidate) => {
     expect(verifyProgram(candidate, registry, slot)).toBeUndefined();
   });
 
   it('binds every action to a permitted current operation and its exact schemas', () => {
-    const effect = ids.effect('effect:test.write');
-    const capability = ids.capability('capability:test.write');
     const operationId = ids.operation('operation:test.write');
-    const permittedSlot = { ...slot, effects: [effect], capabilities: [capability] };
+    const permittedSlot = { ...slot, operations: [operationId] };
     const operation = {
       id: operationId,
       input: inputId,
       output: outputId,
       error: outputId,
-      effect,
-      capability,
       effectCost: 1,
       idempotency: 'none' as const,
       fingerprint: fingerprint(8),
     };
     const permittedRegistry = {
       ...registry,
-      effects: [{ id: effect, fingerprint: fingerprint(6) }],
-      capabilities: [{ id: capability, fingerprint: fingerprint(7) }],
       operations: [operation],
       slots: [permittedSlot],
     };
     const action = {
       tag: 'action' as const,
       operationId,
-      effectId: effect,
-      capabilityId: capability,
       actionSiteId: derivedActionSiteId(Uint8Array.of(9)),
       inputType: { kind: 'ref' as const, type: inputId },
       resultType: resultSchema({ kind: 'ref', type: outputId }, { kind: 'ref', type: outputId }),
@@ -169,14 +158,12 @@ describe('structured IR verification', () => {
       functions: [
         { ...handler, body: [{ tag: 'expression' as const, expression: action, source: location }, ...handler.body] },
       ],
-      summary: { effects: [effect], capabilities: [capability] },
+      summary: { operations: [operationId] },
     };
     expect(verifyProgram(program, permittedRegistry, permittedSlot)).toBeDefined();
 
     for (const mutate of [
       (candidate: typeof action) => Object.assign(candidate, { operationId: ids.operation('operation:missing') }),
-      (candidate: typeof action) => Object.assign(candidate, { effectId: ids.effect('effect:wrong') }),
-      (candidate: typeof action) => Object.assign(candidate, { capabilityId: ids.capability('capability:wrong') }),
       (candidate: typeof action) => Object.assign(candidate, { inputType: { kind: 'unit' } }),
       (candidate: typeof action) => Object.assign(candidate, { resultType: { kind: 'unit' } }),
       (candidate: typeof action) => Object.assign(candidate, { actionSiteId: 'invalid' }),

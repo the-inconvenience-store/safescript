@@ -10,7 +10,6 @@ import {
   type CheckResult,
   type CloseResult,
   type CompileLimits,
-  type EffectId,
   type EffectState,
   type ExecutionLimits,
   type ExecutionResult as BridgeExecutionResult,
@@ -232,7 +231,7 @@ export type ScriptedExecutionRejection = Readonly<{
 export interface TestExpectation<O> {
   readonly status?: ExecutionResult<O>['status'];
   readonly output?: O;
-  readonly effects?: readonly EffectId[];
+  readonly operations?: readonly OperationId[];
   readonly actions?: readonly unknown[];
   readonly diagnostics?: readonly unknown[];
   readonly resources?: Partial<

@@ -195,8 +195,6 @@ function structuredExpression(
         type,
         actionSiteId: expression.actionSiteId,
         operationId: expression.operationId,
-        effectId: expression.effectId,
-        capabilityId: expression.capabilityId,
         ...(operation ? { effectCost: operation.effectCost, idempotency: operation.idempotency } : {}),
       });
       context.builder.edge('contains', parent, node);
@@ -432,18 +430,6 @@ export function deriveSemanticGraph(
     .map((node) => node.id);
   const controlNodes = builder.nodes.filter((node) => node.kind === 'control').map((node) => node.id);
   const actionNodes = builder.nodes.filter((node) => node.kind === 'action').map((node) => node.id);
-  const authorities = [
-    ...artifact.program.program.summary.effects.map((id) => ({
-      kind: 'effect' as const,
-      id,
-      actionNodes: builder.nodes.filter((node) => node.effectId === id).map((node) => node.id),
-    })),
-    ...artifact.program.program.summary.capabilities.map((id) => ({
-      kind: 'capability' as const,
-      id,
-      actionNodes: builder.nodes.filter((node) => node.capabilityId === id).map((node) => node.id),
-    })),
-  ];
   const graph: SemanticGraph = Object.freeze({
     sourceHash: hash('source', encoder.encode(canonical(sources))) as unknown as SemanticGraph['sourceHash'],
     programHash: sourceProgramHash.value,
@@ -457,9 +443,7 @@ export function deriveSemanticGraph(
     root,
     nodes: Object.freeze(builder.nodes),
     edges: Object.freeze(builder.edges),
-    effects: artifact.program.program.summary.effects,
-    capabilities: artifact.program.program.summary.capabilities,
-    authorities: Object.freeze(authorities.map((authority) => Object.freeze(authority))),
+    operations: artifact.program.program.summary.operations,
     resources: Object.freeze({
       declarations: declarationNodes.length,
       expressions: expressionNodes.length,

@@ -159,12 +159,7 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
             .map((node: { operationId: string }) => node.operationId),
         ),
       ).toEqual(new Set(reference.expectedOperations));
-      expect(
-        graph.authorities
-          .filter((entry: { kind: string }) => entry.kind === 'effect')
-          .map((entry: { id: string }) => entry.id)
-          .sort(),
-      ).toEqual(reference.expectedOperations.map((operation) => operation.replace('operation:', 'effect:')).sort());
+      expect(graph.operations).toEqual([...reference.expectedOperations].sort());
     }
     await bridge.close();
   });
@@ -263,18 +258,7 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
       expect(checked.status).toBe('accepted');
       if (checked.status !== 'accepted') return;
       if (!checked.artifact) throw new Error('artifact serialization was not requested');
-      expect(checked.summary.effects).toEqual(
-        reference.expectedOperations.map((operation) => ids.effect(operation.replace('operation:', 'effect:'))).sort(),
-      );
-      expect(checked.summary.capabilities).toEqual(
-        reference.expectedOperations
-          .map(
-            (operation) =>
-              referenceRegistry.operations.find((candidate) => candidate.id === ids.operation(operation))?.capability,
-          )
-          .filter((capability) => capability !== undefined)
-          .sort(),
-      );
+      expect(checked.summary.operations).toEqual(reference.expectedOperations.map(ids.operation).sort());
       const calls: string[] = [];
       const request = executionRequest(reference, { kind: 'artifact', bytes: checked.artifact }, 'd');
       const result = await bridge.execute(

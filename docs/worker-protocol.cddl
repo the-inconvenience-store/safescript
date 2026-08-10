@@ -225,8 +225,6 @@ action-request-record = {
   request_id: identifier,
   slot_id: identifier,
   operation_id: identifier,
-  effect_id: identifier,
-  capability_id: identifier,
   action_site_id: identifier,
   source: source-provenance,
   input: canonical-bytes,
@@ -278,7 +276,7 @@ execution-preparation =
   { kind: "artifact", ir_digest: sha256 }
 
 trace-result = { records: [* canonical-bytes], truncated: bool }
-program-summary = { effects: [* identifier], capabilities: [* identifier] }
+program-summary = { operations: [* identifier] }
 compiler-provenance = {
   compiler: compiler-version,
 }
@@ -343,8 +341,6 @@ contract-registry = {
   id: identifier,
   digest: sha256,
   schemas: { types: [* type-definition] },
-  effects: [* fingerprint-definition],
-  capabilities: [* fingerprint-definition],
   operations: [* operation-definition],
   slots: [* slot-definition],
   definitions: [* fingerprint-definition],
@@ -357,8 +353,6 @@ operation-definition = {
   input: identifier,
   output: identifier,
   error: identifier,
-  effect: identifier,
-  capability: identifier,
   effect_cost: uint,
   idempotency: "none" / "required",
   fingerprint: sha256,
@@ -367,8 +361,7 @@ slot-definition = {
   id: identifier,
   input: identifier,
   output: identifier,
-  effects: [* identifier],
-  capabilities: [* identifier],
+  operations: [* identifier],
   compile_limits: compile-limits,
   execution_limits: execution-limits,
   fingerprint: sha256,

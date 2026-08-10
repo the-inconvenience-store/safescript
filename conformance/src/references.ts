@@ -100,32 +100,16 @@ const definitions: readonly TypeDefinition[] = [
   },
 ];
 
-const operations = [
-  ['tasks.create', 'tasks.create', 'tasks.write'],
-  ['notifications.send', 'notifications.send', 'notifications.send'],
-  ['http.fetch', 'http.fetch', 'http.request'],
-  ['profiles.enrich', 'profiles.enrich', 'profiles.read'],
-  ['actuator.set', 'actuator.set', 'actuator.write'],
-] as const;
+const operations = ['tasks.create', 'notifications.send', 'http.fetch', 'profiles.enrich', 'actuator.set'] as const;
 const fingerprint = (value: number) => hash('contract', Uint8Array.of(value));
-const operationDefinitions = operations.map(([name, effect, capability], index) => ({
+const operationDefinitions = operations.map((name, index) => ({
   id: ids.operation(`operation:${name}`),
   input: typeIds.actionInput,
   output: typeIds.actionOutput,
   error: typeIds.actionError,
-  effect: ids.effect(`effect:${effect}`),
-  capability: ids.capability(`capability:${capability}`),
   effectCost: index + 1,
   idempotency: 'required' as const,
   fingerprint: fingerprint(30 + index),
-}));
-const effects = operationDefinitions.map((operation, index) => ({
-  id: operation.effect,
-  fingerprint: fingerprint(40 + index),
-}));
-const capabilities = operationDefinitions.map((operation, index) => ({
-  id: operation.capability,
-  fingerprint: fingerprint(50 + index),
 }));
 const slotId = ids.slot('slot:reference.run');
 
@@ -133,16 +117,13 @@ export const referenceRegistry: ContractRegistry = {
   id: ids.contract('contract:reference.integrations'),
   digest: fingerprint(20),
   schemas: defineSchemaRegistry(definitions),
-  effects,
-  capabilities,
   operations: operationDefinitions,
   slots: [
     {
       id: slotId,
       input: typeIds.event,
       output: typeIds.result,
-      effects: effects.map(({ id }) => id),
-      capabilities: capabilities.map(({ id }) => id),
+      operations: operationDefinitions.map(({ id }) => id),
       compileLimits: STANDARD_COMPILE_LIMITS,
       executionLimits: STANDARD_EXECUTION_LIMITS,
       fingerprint: fingerprint(60),
@@ -150,8 +131,6 @@ export const referenceRegistry: ContractRegistry = {
   ],
   definitions: [
     ...definitions.map(({ id, fingerprint: value }) => ({ id, fingerprint: value })),
-    ...effects,
-    ...capabilities,
     ...operationDefinitions.map(({ id, fingerprint: value }) => ({ id, fingerprint: value })),
     { id: slotId, fingerprint: fingerprint(60) },
   ],

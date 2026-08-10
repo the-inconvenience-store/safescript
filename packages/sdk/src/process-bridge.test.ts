@@ -52,8 +52,6 @@ const gatewayErrorType: ContractType<string> = {
   id: ids.type('type:test.process-gateway.error'),
   schema: { kind: 'string' },
 };
-const gatewayEffect = ids.effect('effect:test.process-gateway.read');
-const gatewayCapability = ids.capability('capability:test.process-gateway.read');
 const gatewayOperationId = ids.operation('operation:test.process-gateway.read');
 const gatewaySlotId = ids.slot('slot:test.process-gateway.main');
 const gatewayContract = defineContract({
@@ -64,8 +62,6 @@ const gatewayContract = defineContract({
       input: gatewayInputType,
       output: gatewayOutputType,
       error: gatewayErrorType,
-      effect: gatewayEffect,
-      capability: gatewayCapability,
       effectCost: 1,
       idempotency: 'none',
     },
@@ -75,8 +71,7 @@ const gatewayContract = defineContract({
       id: gatewaySlotId,
       input: gatewayInputType,
       output: gatewayOutputType,
-      effects: [gatewayEffect],
-      capabilities: [gatewayCapability],
+      operations: [gatewayOperationId],
       compileLimits: { sourceBytes: 1_000 },
       executionLimits: { fuel: 1_000, hostCalls: 1 },
     },
@@ -94,8 +89,6 @@ function gatewayAction(request: Parameters<RuntimeBridge['execute']>[0]): Action
     requestId: ids.request(request.invocationId, 0),
     slotId: gatewaySlotId,
     operationId: gatewayOperationId,
-    effectId: gatewayEffect,
-    capabilityId: gatewayCapability,
     actionSiteId: derivedActionSiteId(Uint8Array.of(1)),
     source: { module: ids.module('module:test.process-gateway'), start: 0, end: 1 },
     input: request.input,
@@ -106,8 +99,6 @@ const checkRequest = {
     id: 'contract:test.process-bridge',
     digest,
     schemas: { types: [] },
-    effects: [],
-    capabilities: [],
     operations: [],
     slots: [],
     definitions: [],
@@ -127,8 +118,6 @@ const actionRequest = {
   requestId: 'request:11111111111111111111111111111111:0',
   slotId: 'slot:test.process-bridge',
   operationId: 'operation:test.process-bridge',
-  effectId: 'effect:test.process-bridge',
-  capabilityId: 'capability:test.process-bridge',
   actionSiteId: `action-site:${digest}`,
   source: { module: 'module:test.process-bridge', start: 0, end: 1 },
   input: [0xf6],

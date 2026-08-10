@@ -33,7 +33,7 @@ A host operation is the only path to an external effect. Its generated declarati
 
 ## Static eligibility versus host authority
 
-The compiler checks that every reachable action's effect and capability are allowed by the selected slot and reports a summary. That protects against source requesting operations outside its declared envelope.
+The compiler checks that every reachable operation is allowed by the selected slot and reports an operation summary. That protects against source requesting operations outside its declared envelope.
 
 The summary is not authorization. At runtime, the gateway revalidates every action before any hook or handler. A host may enforce current authority in an optional `beforeAction` hook, its trusted handler, a downstream service, or several layers. A previously checked artifact crosses exactly the same gateway and configured host callbacks as source execution.
 
@@ -44,7 +44,7 @@ SafeScript guarantees the validated interception point, not authorization. A del
 An action request binds:
 
 - contract, slot, invocation, and request identity;
-- operation, effect, and capability identity;
+- operation identity;
 - verified IR and source action-site provenance;
 - canonical typed input;
 - optional derived idempotency key.

@@ -28,7 +28,7 @@ The contract JSON mirrors the SDK definition using serializable references:
 - `types` is an array of `{ id, schema }`;
 - operation `input`, `output`, and `error` fields contain type IDs;
 - slot `input` and `output` fields contain type IDs;
-- effects, capabilities, costs, idempotency, and limits remain declarative JSON values.
+- operation allow-lists, costs, idempotency, and limits remain declarative JSON values.
 
 The CLI cannot load executable hooks or handlers. Execution and tests therefore use the deterministic scripted-action shape from the SDK. This makes the CLI useful for offline checking, inspection, corpus tests, and machine integration, not production host dispatch or host-policy testing.
 

@@ -9,7 +9,7 @@ For a check request, the direct bridge:
 1. validates the contract registry, slot, source module set, UTF-8, and requested ceilings;
 2. measures source, module, import, declaration, syntax-depth, type-depth, template, and diagnostic work;
 3. parses with the pinned TypeScript compiler API without invoking ambient module resolution;
-4. applies SafeScript-owned syntax, type, control-flow, module, effect, and capability rules;
+4. applies SafeScript-owned syntax, type, control-flow, module, and operation-permission rules;
 5. lowers accepted code to typed SafeScript IR;
 6. independently verifies structured IR shape and depth, schemas, handler, actions, summaries, and slot permissions;
 7. creates a private verified compilation and retains accepted results in the bridge-local cache;
@@ -77,7 +77,7 @@ When the interpreter reaches a host operation, it:
 
 1. reserves host-call capacity and fuel;
 2. canonically encodes the typed input;
-3. constructs a correlated action request with invocation, request, contract, slot, operation, effect, capability, action-site, source, and optional idempotency facts;
+3. constructs a correlated action request with invocation, request, contract, slot, operation, action-site, source, and optional idempotency facts;
 4. records the request;
 5. suspends only the in-memory invocation while the SDK gateway handles it;
 6. validates the correlated terminal outcome;

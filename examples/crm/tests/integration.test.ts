@@ -170,7 +170,7 @@ describe('CRM example integration', () => {
       expect: {
         status: 'completed',
         output: { tag: 'ok', value: null },
-        effects: [ids.effect('effect:tasks.create')],
+        operations: [ids.operation('operation:tasks.create')],
       },
     });
     expect(report.passed).toBe(true);
@@ -258,7 +258,7 @@ describe('CRM example integration', () => {
       const run = await app.fetch(new Request('http://fixture.test/api/run/won-onboarding-task', { method: 'POST' }));
       const result = (await run.json()) as {
         readonly status: string;
-        readonly actions: readonly Readonly<{ operationId: string; effectId: string; outcome: string }>[];
+        readonly actions: readonly Readonly<{ operationId: string; outcome: string }>[];
         readonly state: Readonly<{
           deals: Readonly<Record<string, Readonly<{ contactId: string; stage: string }>>>;
           recentEvents: readonly Readonly<{ automationId: string; dealId: string; stage: string }>[];
@@ -267,9 +267,7 @@ describe('CRM example integration', () => {
       };
       expect(run.status).toBe(200);
       expect(result.status).toBe('completed');
-      expect(result.actions).toEqual([
-        { operationId: 'operation:tasks.create', effectId: 'effect:tasks.create', outcome: 'completed' },
-      ]);
+      expect(result.actions).toEqual([{ operationId: 'operation:tasks.create', outcome: 'completed' }]);
       expect(result.state.deals['deal-100']?.contactId).toBe('contact-100');
       expect(result.state.deals['deal-100']?.stage).toBe('won');
       expect(result.state.recentEvents[0]).toMatchObject({

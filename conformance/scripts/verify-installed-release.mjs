@@ -24,8 +24,7 @@ const contract = sdk.defineContract({
       id: contracts.ids.slot('slot:release.run'),
       input: unit,
       output: unit,
-      effects: [],
-      capabilities: [],
+      operations: [],
     },
   },
 });

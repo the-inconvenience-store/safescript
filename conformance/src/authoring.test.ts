@@ -11,8 +11,7 @@ import {
 import { blindApplicationExtensionReference, blindDeviceRuleReference } from './authoring-fixtures.js';
 
 const scenarios: AuthoringScenario[] = ['crm', 'application-extension', 'code-mode', 'device-rule'];
-const effect = ids.effect('effect:authoring.test');
-const capability = ids.capability('capability:authoring.test');
+const operation = ids.operation('operation:authoring.test');
 
 function evidence(scenario: AuthoringScenario, firstCheckAccepted: boolean): AgentAuthoringEvidence {
   return {
@@ -23,10 +22,8 @@ function evidence(scenario: AuthoringScenario, firstCheckAccepted: boolean): Age
     repairTurns: firstCheckAccepted ? 0 : 1,
     finalAccepted: true,
     semanticallyCorrect: true,
-    expectedEffects: [effect],
-    actualEffects: [effect],
-    expectedCapabilities: [capability],
-    actualCapabilities: [capability],
+    expectedOperations: [operation],
+    actualOperations: [operation],
     resourceBehavior: 'within-limits',
     privateCompilerKnowledgeUsed: false,
   };
@@ -56,7 +53,7 @@ describe('agent authoring usability gate', () => {
     const result = evaluateAuthoringGate([
       { ...first, finalAccepted: false, diagnostics: [] },
       { ...second, semanticallyCorrect: false },
-      { ...third, actualCapabilities: [] },
+      { ...third, actualOperations: [] },
       { ...fourth, repairTurns: 3 },
     ]);
     expect(result.passed).toBe(false);

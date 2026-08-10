@@ -18,10 +18,6 @@ export type Branded<T, Name extends string> = T & { readonly [brand]: Name };
 export type ContractId = Branded<string, 'ContractId'>;
 /** Stable identity of one schema declared by a host contract. */
 export type TypeId = Branded<string, 'TypeId'>;
-/** Stable identity of a statically tracked class of host action. */
-export type EffectId = Branded<string, 'EffectId'>;
-/** Stable identity of authority required to request an operation. */
-export type CapabilityId = Branded<string, 'CapabilityId'>;
 /** Stable identity used to route an action request to a host handler. */
 export type OperationId = Branded<string, 'OperationId'>;
 /** Stable identity of a host-defined extension entry point. */
@@ -55,8 +51,8 @@ const SHA256 = /^[0-9a-f]{64}$/;
 const INVOCATION = /^[0-9a-f]{32}$/;
 const MAX_ID_NAME_BYTES = 128;
 
-type ContractOwnedId = TypeId | EffectId | CapabilityId | OperationId | SlotId;
-type IdPrefix = 'contract' | 'type' | 'effect' | 'capability' | 'operation' | 'slot' | 'module';
+type ContractOwnedId = TypeId | OperationId | SlotId;
+type IdPrefix = 'contract' | 'type' | 'operation' | 'slot' | 'module';
 
 function parseNamedId<Id extends string>(prefix: IdPrefix, value: string): Id {
   const expected = `${prefix}:`;
@@ -77,8 +73,6 @@ function parseNamedId<Id extends string>(prefix: IdPrefix, value: string): Id {
 export const ids = Object.freeze({
   contract: (value: string): ContractId => parseNamedId('contract', value),
   type: (value: string): TypeId => parseNamedId('type', value),
-  effect: (value: string): EffectId => parseNamedId('effect', value),
-  capability: (value: string): CapabilityId => parseNamedId('capability', value),
   operation: (value: string): OperationId => parseNamedId('operation', value),
   slot: (value: string): SlotId => parseNamedId('slot', value),
   module: (value: string): ModuleId => parseNamedId('module', value),
@@ -1747,8 +1741,6 @@ export interface ActionRequest {
   readonly requestId: RequestId;
   readonly slotId: SlotId;
   readonly operationId: OperationId;
-  readonly effectId: EffectId;
-  readonly capabilityId: CapabilityId;
   readonly actionSiteId: ActionSiteId;
   readonly source: SourceProvenance;
   readonly input: CanonicalBytes;
@@ -1807,24 +1799,12 @@ export interface DefinitionFingerprint {
   readonly id: ContractOwnedId;
   readonly fingerprint: Sha256Digest;
 }
-/** Registered effect identity and structural fingerprint. */
-export interface EffectDefinition {
-  readonly id: EffectId;
-  readonly fingerprint: Sha256Digest;
-}
-/** Registered capability identity and structural fingerprint. */
-export interface CapabilityDefinition {
-  readonly id: CapabilityId;
-  readonly fingerprint: Sha256Digest;
-}
 /** Language-neutral operation metadata used by the compiler, runtime, and SDK gateway. */
 export interface OperationDefinition {
   readonly id: OperationId;
   readonly input: TypeId;
   readonly output: TypeId;
   readonly error: TypeId;
-  readonly effect: EffectId;
-  readonly capability: CapabilityId;
   readonly effectCost: number;
   readonly idempotency: 'none' | 'required';
   readonly fingerprint: Sha256Digest;
@@ -1834,8 +1814,7 @@ export interface SlotDefinition {
   readonly id: SlotId;
   readonly input: TypeId;
   readonly output: TypeId;
-  readonly effects: readonly EffectId[];
-  readonly capabilities: readonly CapabilityId[];
+  readonly operations: readonly OperationId[];
   readonly compileLimits: CompileLimits;
   readonly executionLimits: ExecutionLimits;
   readonly fingerprint: Sha256Digest;
@@ -1850,8 +1829,6 @@ export interface ContractRegistry {
   readonly id: ContractId;
   readonly digest: Sha256Digest;
   readonly schemas: SchemaRegistry;
-  readonly effects: readonly EffectDefinition[];
-  readonly capabilities: readonly CapabilityDefinition[];
   readonly operations: readonly OperationDefinition[];
   readonly slots: readonly SlotDefinition[];
   readonly definitions: readonly DefinitionFingerprint[];
@@ -1873,7 +1850,7 @@ export function checkDefinitionCompatibility(
   const current = new Map(registry.definitions.map((definition) => [definition.id, definition.fingerprint] as const));
   for (const definition of required) {
     const [prefix, name] = String(definition.id).split(':', 2);
-    if (!['type', 'effect', 'capability', 'operation', 'slot'].includes(prefix ?? '') || !HOST_NAME.test(name ?? '')) {
+    if (!['type', 'operation', 'slot'].includes(prefix ?? '') || !HOST_NAME.test(name ?? '')) {
       failures.push({ code: 'invalid_definition_id', id: definition.id });
     } else if (!current.has(definition.id)) {
       failures.push({ code: 'missing_definition', id: definition.id });
@@ -1943,10 +1920,9 @@ export interface ExecutionUsage {
   readonly traceBytes: number;
   readonly outputBytes: number;
 }
-/** Statically reachable effects and capabilities; this summary does not grant runtime authority. */
+/** Statically reachable operations; this summary does not grant runtime authority. */
 export interface ProgramSummary {
-  readonly effects: readonly EffectId[];
-  readonly capabilities: readonly CapabilityId[];
+  readonly operations: readonly OperationId[];
 }
 /** Compiler identity that produced an accepted artifact. */
 export interface CompilerProvenance {
@@ -2056,8 +2032,6 @@ export interface SemanticGraphNode {
   readonly symbolId?: SymbolId;
   readonly actionSiteId?: ActionSiteId;
   readonly operationId?: OperationId;
-  readonly effectId?: EffectId;
-  readonly capabilityId?: CapabilityId;
   readonly constant?: null | boolean | number | string;
   readonly operator?: string;
   readonly effectCost?: number;
@@ -2085,13 +2059,6 @@ export interface SemanticGraphResources {
   readonly actionNodes: readonly SemanticNodeId[];
 }
 
-/** One aggregate authority fact and the action sites that contribute it. */
-export interface SemanticGraphAuthority {
-  readonly kind: 'effect' | 'capability';
-  readonly id: EffectId | CapabilityId;
-  readonly actionNodes: readonly SemanticNodeId[];
-}
-
 /** Complete, disposable source-semantic projection for one accepted program. */
 export interface SemanticGraph {
   readonly sourceHash: SourceHash;
@@ -2103,9 +2070,7 @@ export interface SemanticGraph {
   readonly root: SemanticNodeId;
   readonly nodes: readonly SemanticGraphNode[];
   readonly edges: readonly SemanticGraphEdge[];
-  readonly effects: readonly EffectId[];
-  readonly capabilities: readonly CapabilityId[];
-  readonly authorities: readonly SemanticGraphAuthority[];
+  readonly operations: readonly OperationId[];
   readonly resources: SemanticGraphResources;
   readonly sources: readonly Readonly<{ module: ModuleId; hash: SourceHash }>[];
 }

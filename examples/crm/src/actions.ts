@@ -53,14 +53,12 @@ export const crmActionErrorType: ContractType<CrmActionError> = {
   schema: errorSchema,
 };
 
-/** Defines one SDK operation and its effect, capability, and cost. */
+/** Defines one SDK operation and its deterministic runtime cost. */
 const defineCrmAction = (name: string, effectCost = 1) => ({
   id: ids.operation(`operation:${name}`),
   input: inputType,
   output: outputType,
   error: crmActionErrorType,
-  effect: ids.effect(`effect:${name}`),
-  capability: ids.capability(`capability:${name}`),
   effectCost,
   idempotency: 'required' as const,
 });

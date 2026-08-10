@@ -102,7 +102,7 @@ if (inspected.status === 'accepted' && inspected.views.semantic_graph) {
 }
 ```
 
-The graph contains declarations, control flow, data flow, action sites, effects, capabilities, types, and stable semantic IDs. It is a read-only projection, not an executable node format. The editor owns how a user's visual change becomes TypeScript, then submits the new source to `safe.check` before execution.
+The graph contains declarations, control flow, data flow, action sites, reachable operations, types, and stable semantic IDs. It is a read-only projection, not an executable node format. The editor owns how a user's visual change becomes TypeScript, then submits the new source to `safe.check` before execution.
 
 The [CRM example](examples/crm/README.md) demonstrates this projection model.
 

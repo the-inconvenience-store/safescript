@@ -47,7 +47,7 @@ There is no automatic direct fallback. `worker_start_failed`, `worker_start_time
 
 `check` compiles a complete source module set for one named slot. It returns one of:
 
-- `accepted`, with reachable effect/capability summary, compiler provenance, usage, and diagnostics;
+- `accepted`, with reachable operation summary, compiler provenance, usage, and diagnostics;
 - `rejected`, with stable diagnostics and compile usage;
 - `bridge_error`, for an invalid envelope, incompatible bridge, closed facade, or adapter failure.
 
@@ -94,7 +94,7 @@ Every started result includes preparation provenance, ordered requested/resolved
 
 When execution reaches an action, the SDK gateway:
 
-1. validates invocation, contract, slot, operation, effect, capability, action site, and source correlation;
+1. validates invocation, contract, slot, operation, action site, and source correlation;
 2. decodes the action input with the declared schema;
 3. constructs immutable hook context with host context, decoded input, request facts, optional idempotency key, and abort signal;
 4. awaits `beforeAction` when configured;
@@ -127,7 +127,7 @@ The key is derived from a host-provided seed plus the contract, operation, actio
 
 ## Deterministic tests
 
-`safe.test` runs the same compiler and runtime bridge with a scripted action host. It never calls production hooks or handlers. A test can fix time, randomness, invocation ID, and idempotency seed; script ordered actions and declared outcomes; optionally script an execution rejection; and compare status, output, effects, actions, diagnostics, and resource counters.
+`safe.test` runs the same compiler and runtime bridge with a scripted action host. It never calls production hooks or handlers. A test can fix time, randomness, invocation ID, and idempotency seed; script ordered actions and declared outcomes; optionally script an execution rejection; and compare status, output, operations, actions, diagnostics, and resource counters.
 
 It returns `{ passed, mismatches, execution }` and does not throw for an extension mismatch. See [testing and conformance](testing.md) for examples.
 

@@ -11,13 +11,9 @@ import {
   hash,
   ids,
   type CanonicalBytes,
-  type CapabilityDefinition,
-  type CapabilityId,
   type CompileLimits,
   type ContractId,
   type ContractRegistry,
-  type EffectDefinition,
-  type EffectId,
   type ExecutionLimits,
   type OperationDefinition,
   type OperationId,
@@ -51,8 +47,6 @@ export interface Operation<I, O, E> {
   readonly input: ContractType<I>;
   readonly output: ContractType<O>;
   readonly error: ContractType<E>;
-  readonly effect: EffectId;
-  readonly capability: CapabilityId;
   readonly effectCost: number;
   readonly idempotency: 'none' | 'required';
 }
@@ -62,8 +56,7 @@ export interface Slot<I, O> {
   readonly id: SlotId;
   readonly input: ContractType<I>;
   readonly output: ContractType<O>;
-  readonly effects: readonly EffectId[];
-  readonly capabilities: readonly CapabilityId[];
+  readonly operations: readonly OperationId[];
   readonly compileLimits?: Partial<CompileLimits>;
   readonly executionLimits?: Partial<ExecutionLimits>;
 }
@@ -131,36 +124,19 @@ function defineTypes(types: ReadonlyMap<TypeId, ContractType<unknown>>): readonl
     .map((type) => ({ id: type.id, schema: type.schema, fingerprint: fingerprint('type', type.schema) }));
 }
 
-interface DerivedOperations {
-  readonly operations: readonly OperationDefinition[];
-  readonly effects: ReadonlyMap<EffectId, EffectDefinition>;
-  readonly capabilities: ReadonlyMap<CapabilityId, CapabilityDefinition>;
-}
-
-function defineOperations<O extends Operations>(source: O): DerivedOperations {
-  const effects = new Map<EffectId, EffectDefinition>();
-  const capabilities = new Map<CapabilityId, CapabilityDefinition>();
+function defineOperations<O extends Operations>(source: O): readonly OperationDefinition[] {
   const operations = Object.values(source)
     .map((operation): OperationDefinition => {
       ids.operation(operation.id);
-      ids.effect(operation.effect);
-      ids.capability(operation.capability);
       if (!Number.isSafeInteger(operation.effectCost) || operation.effectCost < 0)
         throw new TypeError(`invalid effect cost for ${operation.id}`);
       if (operation.idempotency !== 'none' && operation.idempotency !== 'required')
         throw new TypeError(`invalid idempotency for ${operation.id}`);
-      effects.set(operation.effect, { id: operation.effect, fingerprint: fingerprint('contract', operation.effect) });
-      capabilities.set(operation.capability, {
-        id: operation.capability,
-        fingerprint: fingerprint('contract', operation.capability),
-      });
       const record = {
         id: operation.id,
         input: operation.input.id,
         output: operation.output.id,
         error: operation.error.id,
-        effect: operation.effect,
-        capability: operation.capability,
         effectCost: operation.effectCost,
         idempotency: operation.idempotency,
       };
@@ -169,44 +145,32 @@ function defineOperations<O extends Operations>(source: O): DerivedOperations {
     .sort((left, right) => String(left.id).localeCompare(String(right.id)));
   if (new Set(operations.map((operation) => operation.id)).size !== operations.length)
     throw new TypeError('duplicate operation id');
-  return { operations, effects, capabilities };
+  return operations;
 }
 
-function validateSlotPermissions(
-  slot: Slot<unknown, unknown>,
-  effects: ReadonlyMap<EffectId, EffectDefinition>,
-  capabilities: ReadonlyMap<CapabilityId, CapabilityDefinition>,
-): void {
-  for (const effect of slot.effects) {
-    ids.effect(effect);
-    if (!effects.has(effect)) throw new TypeError(`unknown effect ${effect}`);
+function validateSlotPermissions(slot: Slot<unknown, unknown>, operations: ReadonlySet<OperationId>): void {
+  for (const operation of slot.operations) {
+    ids.operation(operation);
+    if (!operations.has(operation)) throw new TypeError(`unknown operation ${operation}`);
   }
-  for (const capability of slot.capabilities) {
-    ids.capability(capability);
-    if (!capabilities.has(capability)) throw new TypeError(`unknown capability ${capability}`);
-  }
-  if (
-    new Set(slot.effects).size !== slot.effects.length ||
-    new Set(slot.capabilities).size !== slot.capabilities.length
-  )
+  if (new Set(slot.operations).size !== slot.operations.length)
     throw new TypeError(`duplicate slot permission ${slot.id}`);
 }
 
 function defineSlots<S extends Slots>(
   source: S,
-  effects: ReadonlyMap<EffectId, EffectDefinition>,
-  capabilities: ReadonlyMap<CapabilityId, CapabilityDefinition>,
+  operations: readonly OperationDefinition[],
 ): readonly SlotDefinition[] {
+  const operationIds = new Set(operations.map((operation) => operation.id));
   const slots = Object.values(source)
     .map((slot): SlotDefinition => {
       ids.slot(slot.id);
-      validateSlotPermissions(slot, effects, capabilities);
+      validateSlotPermissions(slot, operationIds);
       const record = {
         id: slot.id,
         input: slot.input.id,
         output: slot.output.id,
-        effects: Object.freeze([...slot.effects]),
-        capabilities: Object.freeze([...slot.capabilities]),
+        operations: Object.freeze([...slot.operations]),
         compileLimits: completeLimits(STANDARD_COMPILE_LIMITS, slot.compileLimits),
         executionLimits: completeLimits(STANDARD_EXECUTION_LIMITS, slot.executionLimits),
       };
@@ -215,10 +179,6 @@ function defineSlots<S extends Slots>(
     .sort((left, right) => String(left.id).localeCompare(String(right.id)));
   if (new Set(slots.map((slot) => slot.id)).size !== slots.length) throw new TypeError('duplicate slot id');
   return slots;
-}
-
-function sortedDefinitions<T extends { readonly id: string }>(values: Iterable<T>): readonly T[] {
-  return [...values].sort((left, right) => String(left.id).localeCompare(String(right.id)));
 }
 
 function defineCodecs(
@@ -259,14 +219,12 @@ export function defineContract<const O extends Operations, const S extends Slots
     const uniqueTypes = referencedTypes(definition);
     const typeDefinitions = defineTypes(uniqueTypes);
     const schemas = defineSchemaRegistry(typeDefinitions);
-    const derived = defineOperations(definition.operations);
-    const operations = derived.operations;
-    const slots = defineSlots(definition.slots, derived.effects, derived.capabilities);
-    const sortedEffects = sortedDefinitions(derived.effects.values());
-    const sortedCapabilities = sortedDefinitions(derived.capabilities.values());
-    const definitions = [...typeDefinitions, ...sortedEffects, ...sortedCapabilities, ...operations, ...slots].map(
-      ({ id, fingerprint: value }) => ({ id, fingerprint: value }),
-    );
+    const operations = defineOperations(definition.operations);
+    const slots = defineSlots(definition.slots, operations);
+    const definitions = [...typeDefinitions, ...operations, ...slots].map(({ id, fingerprint: value }) => ({
+      id,
+      fingerprint: value,
+    }));
     const digest = fingerprint('contract', {
       id: definition.id,
       definitions,
@@ -275,8 +233,6 @@ export function defineContract<const O extends Operations, const S extends Slots
       id: definition.id,
       digest,
       schemas,
-      effects: sortedEffects,
-      capabilities: sortedCapabilities,
       operations,
       slots,
       definitions,

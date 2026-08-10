@@ -25,7 +25,7 @@ const ARTIFACT_SCHEMA: Schema = Object.freeze({ kind: 'string' });
 const ARTIFACT_FORMAT = 3;
 
 /** Exact compiler-semantics identity used by artifacts and cache keys. */
-export const COMPILER_BUILD = 'structured-ir-current';
+export const COMPILER_BUILD = 'structured-ir-operation-permissions';
 
 interface ArtifactRecord {
   readonly magic: 'SafeScript checked artifact';

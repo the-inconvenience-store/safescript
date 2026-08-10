@@ -23,31 +23,25 @@ const failureType: ContractType<Failure> = {
     ],
   },
 };
-const allowedEffect = ids.effect('effect:authoring.allowed');
-const deniedEffect = ids.effect('effect:authoring.denied');
-const allowedCapability = ids.capability('capability:authoring.allowed');
-const deniedCapability = ids.capability('capability:authoring.denied');
+const allowedOperation = ids.operation('operation:authoring.allowed');
+const deniedOperation = ids.operation('operation:authoring.denied');
 
 const contract = defineContract({
   id: ids.contract('contract:authoring.test'),
   operations: {
     allowed: {
-      id: ids.operation('operation:authoring.allowed'),
+      id: allowedOperation,
       input: valueType,
       output: valueType,
       error: failureType,
-      effect: allowedEffect,
-      capability: allowedCapability,
       effectCost: 1,
       idempotency: 'none' as const,
     },
     denied: {
-      id: ids.operation('operation:authoring.denied'),
+      id: deniedOperation,
       input: valueType,
       output: valueType,
       error: failureType,
-      effect: deniedEffect,
-      capability: deniedCapability,
       effectCost: 1,
       idempotency: 'none' as const,
     },
@@ -57,8 +51,7 @@ const contract = defineContract({
       id: ids.slot('slot:authoring.run'),
       input: valueType,
       output: valueType,
-      effects: [allowedEffect],
-      capabilities: [allowedCapability],
+      operations: [allowedOperation],
     },
   },
 });
@@ -71,7 +64,7 @@ describe('agent authoring bundle', () => {
     expect(Object.isFrozen(first)).toBe(true);
     expect(first.contract.fingerprint).toBe(contract.fingerprint);
     expect(first.profile.name).toBe('SafeScript restricted TypeScript');
-    expect(first.slot.effects).toEqual([allowedEffect]);
+    expect(first.slot.operations).toEqual([allowedOperation]);
     const declarations = first.files.find((file) => file.name === 'host-api.d.ts')?.content ?? '';
     expect(declarations).toContain('readonly allowed:');
     expect(declarations).not.toContain('readonly denied:');

@@ -106,10 +106,7 @@ class InvocationGateway<C, O extends Operations, S extends Slots> {
         request.requestId === ids.request(this.invocationId, this.sequence) &&
         /^[0-9a-f]{64}$/.test(request.irDigest) &&
         request.slotId === this.slot.id &&
-        request.effectId === entry.operation.effect &&
-        request.capabilityId === entry.operation.capability &&
-        this.slot.effects.includes(request.effectId) &&
-        this.slot.capabilities.includes(request.capabilityId) &&
+        this.slot.operations.includes(request.operationId) &&
         requiresKey === (request.idempotencyKey !== undefined) &&
         (!requiresKey || /^[0-9a-f]{64}$/.test(request.idempotencyKey ?? '')) &&
         Number.isSafeInteger(request.source.start) &&

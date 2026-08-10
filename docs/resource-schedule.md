@@ -48,7 +48,7 @@ The standard profile is a conservative product maximum, not a calibration of
 permanent operation prices. Separate ceilings bound fuel, allocation count and
 bytes, collection size, call depth, host calls, concurrency, traces, values,
 and output. Hosts and slots should lower individual dimensions to fit their
-domain. Effect/capability summaries do not authorise work. The host
+domain. Reachable-operation summaries do not authorise work. The host
 decides whether current policy runs in a hook, handler, downstream service, or
 several layers, and reauthorises each operation at the gateway.
 

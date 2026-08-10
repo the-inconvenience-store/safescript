@@ -96,8 +96,7 @@ const assignmentOperators = new Map<ts.SyntaxKind, Extract<StructuredStatement, 
 ]);
 
 class Lowerer {
-  readonly effects = new Set<OperationDefinition['effect']>();
-  readonly capabilities = new Set<OperationDefinition['capability']>();
+  readonly operations = new Set<OperationDefinition['id']>();
   readonly mutable = new Set<string>();
   private actionOrdinal = 0;
   constructor(
@@ -270,20 +269,12 @@ class Lowerer {
     const operation = this.registry.operations.find(
       (candidate) => String(candidate.id) === `operation:${parts.join('.')}`,
     );
-    if (
-      !operation ||
-      !this.slot.effects.includes(operation.effect) ||
-      !this.slot.capabilities.includes(operation.capability) ||
-      node.arguments.length !== 1
-    )
+    if (!operation || !this.slot.operations.includes(operation.id) || node.arguments.length !== 1)
       this.fail(node, 'SS_INVALID_ACTION', 'host operation is not registered for this slot');
-    this.effects.add(operation.effect);
-    this.capabilities.add(operation.capability);
+    this.operations.add(operation.id);
     return {
       tag: 'action',
       operationId: operation.id,
-      effectId: operation.effect,
-      capabilityId: operation.capability,
       actionSiteId: derivedActionSiteId(
         new TextEncoder().encode(
           `${this.moduleId}\0${operation.id}\0${this.actionOrdinal++}\0${node.getText(this.file)}`,
@@ -657,10 +648,7 @@ export function compileStructuredProgram(
         eventParameter: (handler.parameters[0]?.name as ts.Identifier).text,
         contextParameter: contextName,
         functions: Object.freeze(functions),
-        summary: Object.freeze({
-          effects: Object.freeze([...lowerer.effects].sort()),
-          capabilities: Object.freeze([...lowerer.capabilities].sort()),
-        }),
+        summary: Object.freeze({ operations: Object.freeze([...lowerer.operations].sort()) }),
       }),
     };
   } catch (error) {
