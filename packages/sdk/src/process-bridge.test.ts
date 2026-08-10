@@ -58,7 +58,6 @@ const gatewayOperationId = ids.operation('operation:test.process-gateway.read');
 const gatewaySlotId = ids.slot('slot:test.process-gateway.main');
 const gatewayContract = defineContract({
   id: ids.contract('contract:test.process-gateway'),
-  version: { major: 1, minor: 0, patch: 0 },
   operations: {
     read: {
       id: gatewayOperationId,
@@ -76,7 +75,6 @@ const gatewayContract = defineContract({
       id: gatewaySlotId,
       input: gatewayInputType,
       output: gatewayOutputType,
-      languageVersion: { major: 1, minor: 1 },
       effects: [gatewayEffect],
       capabilities: [gatewayCapability],
       compileLimits: { sourceBytes: 1_000 },
@@ -90,9 +88,7 @@ type GatewaySlots = typeof gatewayContract.slots;
 
 function gatewayAction(request: Parameters<RuntimeBridge['execute']>[0]): ActionRequest {
   return {
-    abiVersion: { major: 2, minor: 0 },
     contractId: gatewayContract.id,
-    requiredContractVersion: gatewayContract.version,
     irDigest: hash('ir', Uint8Array.of(1)) as unknown as IrDigest,
     invocationId: request.invocationId,
     requestId: ids.request(request.invocationId, 0),
@@ -106,12 +102,8 @@ function gatewayAction(request: Parameters<RuntimeBridge['execute']>[0]): Action
   };
 }
 const checkRequest = {
-  abiVersion: { major: 2, minor: 0 },
-  languageVersion: { major: 1, minor: 1 },
   registry: {
-    abiVersion: { major: 2, minor: 0 },
     id: 'contract:test.process-bridge',
-    version: { major: 1, minor: 0, patch: 0 },
     digest,
     schemas: { types: [] },
     effects: [],
@@ -129,9 +121,7 @@ const checkRequest = {
 } as unknown as CheckRequest;
 
 const actionRequest = {
-  abiVersion: { major: 2, minor: 0 },
   contractId: 'contract:test.process-bridge',
-  requiredContractVersion: { major: 1, minor: 0, patch: 0 },
   irDigest: digest,
   invocationId: 'invocation:11111111111111111111111111111111',
   requestId: 'request:11111111111111111111111111111111:0',
@@ -342,9 +332,7 @@ describe('process RuntimeBridge state machine', () => {
     if (!nodePath) throw new Error('test requires the supported Node runtime');
 
     const bridge = createNodeProcessRuntimeBridge({ nodePath });
-    expect(
-      await bridge.cancel({ abiVersion: { major: 2, minor: 0 }, invocationId: actionRequest.invocationId }),
-    ).toEqual({ status: 'not_active' });
+    expect(await bridge.cancel({ invocationId: actionRequest.invocationId })).toEqual({ status: 'not_active' });
     expect(await bridge.close()).toEqual({ status: 'closed' });
   });
 
@@ -371,9 +359,7 @@ describe('process RuntimeBridge state machine', () => {
       handshakeTimeoutMs: 1_000,
     });
 
-    expect(
-      await bridge.cancel({ abiVersion: { major: 2, minor: 0 }, invocationId: actionRequest.invocationId }),
-    ).toEqual({
+    expect(await bridge.cancel({ invocationId: actionRequest.invocationId })).toEqual({
       status: 'bridge_error',
       error: { code: 'worker_start_failed', phase: 'cancel' },
     });
@@ -421,7 +407,6 @@ describe('process RuntimeBridge state machine', () => {
     expect(transport.sent.filter((envelope) => envelope.kind === 'bridge.check.request')).toHaveLength(1);
 
     const cancellation = bridge.cancel({
-      abiVersion: { major: 2, minor: 0 },
       invocationId: actionRequest.invocationId,
     });
     const cancelRequest = await transport.request('bridge.cancel.request');
@@ -731,7 +716,6 @@ describe('process RuntimeBridge state machine', () => {
     });
     const execution = bridge.execute(
       {
-        abiVersion: { major: 2, minor: 0 },
         registry: checkRequest.registry,
         slotId: checkRequest.slotId,
         invocationId: actionRequest.invocationId,
@@ -745,7 +729,6 @@ describe('process RuntimeBridge state machine', () => {
           observed.push(request.requestId);
           await handlerMayFinish;
           return {
-            abiVersion: request.abiVersion,
             requestId: request.requestId,
             result: { tag: 'completed', value: [0xf6] },
           };
@@ -987,7 +970,6 @@ describe('process RuntimeBridge state machine', () => {
     expect(
       await process.execute(
         {
-          abiVersion: { major: 2, minor: 0 },
           registry: checkRequest.registry,
           slotId: checkRequest.slotId,
           invocationId: actionRequest.invocationId,
@@ -1000,7 +982,6 @@ describe('process RuntimeBridge state machine', () => {
           handleAction: async (request) => {
             hostCalls.push(request.requestId);
             return {
-              abiVersion: request.abiVersion,
               requestId: request.requestId,
               result: { tag: 'completed', value: [0xf6] },
             };
@@ -1008,9 +989,7 @@ describe('process RuntimeBridge state machine', () => {
         },
       ),
     ).toMatchObject({ status: 'bridge_error' });
-    expect(
-      await process.cancel({ abiVersion: { major: 2, minor: 0 }, invocationId: actionRequest.invocationId }),
-    ).toEqual({ status: 'not_active' });
+    expect(await process.cancel({ invocationId: actionRequest.invocationId })).toEqual({ status: 'not_active' });
     expect(await process.close()).toEqual({ status: 'closed' });
     expect(hostCalls).toEqual([actionRequest.requestId]);
     expect(fake.calls).toEqual([

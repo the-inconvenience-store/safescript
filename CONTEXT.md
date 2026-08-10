@@ -33,7 +33,7 @@ The exact fingerprinted contract definitions that a checked program depends on a
 _Avoid_: Full contract snapshot
 
 **Typed IR**:
-The versioned, verified SafeScript control-flow form produced from accepted source. It uses typed single-assignment values and explicit basic blocks and contains no host handles or ambient authority.
+The verified SafeScript control-flow form produced from accepted source. It uses typed single-assignment values and explicit basic blocks and contains no host handles or ambient authority.
 _Avoid_: Generated JavaScript, bytecode plugin
 
 **Semantic program graph**:
@@ -57,7 +57,7 @@ The canonical fact that an invocation has proposed one typed host operation. It 
 _Avoid_: Command execution, permission grant
 
 **Action outcome**:
-The terminal ABI 2.0 resolution of an action request as a completed declared result or a host failure with explicit effect state. A host hook that stops an action supplies the operation's declared error rather than a protocol-level policy rejection.
+The terminal typed resolution of an action request as a completed declared result or a host failure with explicit effect state. A host hook that stops an action supplies the operation's declared error rather than a protocol-level policy rejection.
 _Avoid_: Host response, success flag
 
 **Lifecycle hook**:
@@ -89,5 +89,5 @@ A separately supervised local process that runs the SafeScript compiler and inte
 _Avoid_: Daemon, workflow worker, trusted plugin process
 
 **Worker protocol**:
-The versioned, language-neutral, bidirectional contract between a host adapter and a runtime worker. It carries runtime-bridge operations, typed action requests and outcomes, cancellation, lifecycle, and bounded execution facts without granting host authority.
+The language-neutral, bidirectional SafeScript 0.6.0 contract between a host adapter and a runtime worker. It carries runtime-bridge operations, typed action requests and outcomes, cancellation, lifecycle, and bounded execution facts without granting host authority.
 _Avoid_: Runtime bridge, remote service API, permission channel

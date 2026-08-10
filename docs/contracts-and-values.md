@@ -46,7 +46,7 @@ Generated extension declarations render `int64` as checked TypeScript `number` s
 
 The contracts package encodes and decodes values with a deterministic, schema-directed CBOR profile. It rejects malformed bytes, alternate non-canonical encodings, trailing data, unknown fields, missing fields, invalid Unicode, non-finite numbers, sparse arrays, accessor properties, and values outside configured depth/node/byte bounds.
 
-Canonical encoding provides stable cross-language bytes and prevents JavaScript object identity or insertion order from entering the ABI. The SDK codecs exposed on `contract.codecs` wrap the same validation for host types and throw a `TypeError` on misuse; the lower-level contract functions return a structured success/failure union.
+Canonical encoding provides stable cross-language bytes and prevents JavaScript object identity or insertion order from entering the typed boundary. The SDK codecs exposed on `contract.codecs` wrap the same validation for host types and throw a `TypeError` on misuse; the lower-level contract functions return a structured success/failure union.
 
 JSON without a closed target schema uses a bounded tagged `JsonValue`. JSON objects are represented as sorted key/value pairs, not arbitrary host objects. In extension code, `JSON.parse<T>` performs checked conversion and returns `Result`.
 
@@ -67,7 +67,6 @@ Operation error types are entirely contract-owned. They do not require a `policy
 A slot is a host-owned extension entry point. It fixes:
 
 - input and output types;
-- language version;
 - allowed effects and capabilities;
 - optional compile and execution ceilings.
 

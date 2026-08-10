@@ -22,16 +22,14 @@ import {
   type WorkerProtocolErrorPayload,
 } from '@safescript/worker';
 
-const fixtureUrl = new URL('../worker-protocol/v1/fixtures.json', import.meta.url);
+const fixtureUrl = new URL('../worker-protocol/fixtures.json', import.meta.url);
 const existing = JSON.parse(await readFile(fixtureUrl, 'utf8')) as Readonly<{ hostile: readonly unknown[] }>;
 const digest = '0'.repeat(64);
 const invocationId = ids.invocation(`invocation:${'1'.repeat(32)}`);
 const requestId = ids.request(invocationId, 0);
 const compileUsage = { sourceBytes: 0, syntaxNodes: 0, typeWork: 0 };
 const registry = {
-  abiVersion: { major: 2, minor: 0 } as const,
   id: ids.contract('contract:fixture'),
-  version: { major: 1, minor: 0, patch: 0 },
   digest,
   schemas: { types: [] },
   effects: [],
@@ -41,8 +39,6 @@ const registry = {
   definitions: [],
 };
 const checkRequest = {
-  abiVersion: { major: 2, minor: 0 } as const,
-  languageVersion: { major: 1, minor: 0 } as const,
   registry,
   slotId: ids.slot('slot:fixture'),
   source: {
@@ -52,9 +48,7 @@ const checkRequest = {
   limits: STANDARD_COMPILE_LIMITS,
 };
 const actionRequest = {
-  abiVersion: { major: 2, minor: 0 } as const,
   contractId: registry.id,
-  requiredContractVersion: registry.version,
   irDigest: hash('ir', Uint8Array.of(1)),
   invocationId,
   requestId,
@@ -67,7 +61,6 @@ const actionRequest = {
   input: [],
 };
 const actionOutcome = {
-  abiVersion: { major: 2, minor: 0 } as const,
   requestId,
   result: { tag: 'completed' as const, value: [] },
 };
@@ -108,7 +101,7 @@ const fixtures: readonly FixtureInput[] = [
     replyTo: 1n,
     payload: handshakePayload(WORKER_PROTOCOL_SESSION_INCOMPATIBLE_PAYLOAD, {
       code: 'incompatible_session',
-      dimensions: ['protocol_major'],
+      dimensions: ['version'],
     }),
   },
   { kind: 'bridge.check.request', replyTo: null, payload: bridgePayload('bridge.check.request', checkRequest) },
@@ -131,7 +124,6 @@ const fixtures: readonly FixtureInput[] = [
     kind: 'bridge.execute.request',
     replyTo: null,
     payload: bridgePayload('bridge.execute.request', {
-      abiVersion: { major: 2, minor: 0 },
       registry,
       slotId: checkRequest.slotId,
       invocationId,
@@ -150,7 +142,6 @@ const fixtures: readonly FixtureInput[] = [
     kind: 'bridge.cancel.request',
     replyTo: null,
     payload: bridgePayload('bridge.cancel.request', {
-      abiVersion: { major: 2, minor: 0 },
       invocationId,
     }),
   },
@@ -209,10 +200,6 @@ const valid = fixtures.map((fixture) => {
 
 await writeFile(
   fixtureUrl,
-  `${JSON.stringify(
-    { schemaVersion: '1.0.0', protocol: { major: 1, minor: 0 }, valid, hostile: existing.hostile },
-    null,
-    2,
-  )}\n`,
+  `${JSON.stringify({ format: 1, releaseVersion: '0.6.0', valid, hostile: existing.hostile }, null, 2)}\n`,
   'utf8',
 );

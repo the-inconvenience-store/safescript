@@ -4,7 +4,7 @@
  * @packageDocumentation
  */
 export { ContractDefinitionError, defineContract } from './contract.js';
-export { AUTHORING_BUNDLE_VERSION, createAuthoringBundle, createRegistryAuthoringBundle } from './authoring.js';
+export { createAuthoringBundle, createRegistryAuthoringBundle } from './authoring.js';
 export type { AuthoringBundle, AuthoringFile } from './authoring.js';
 export type { Codec, Contract, ContractDefinition, ContractType, Operation, Slot } from './contract.js';
 export { createSafeScript } from './facade.js';

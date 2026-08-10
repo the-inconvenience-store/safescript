@@ -1,12 +1,12 @@
-# Worker protocol 1.0 wire format
+# Worker protocol wire format
 
-This document defines the normative byte boundary between a SafeScript host adapter and a [runtime worker](../../CONTEXT.md#runtime-worker). The [CDDL schema](worker-protocol-1.0.cddl) and [versioned fixtures](../../conformance/worker-protocol/v1/fixtures.json) are part of this specification.
+This document defines the normative byte boundary between a SafeScript host adapter and a [runtime worker](../CONTEXT.md#runtime-worker). The [CDDL schema](worker-protocol.cddl) and [canonical fixtures](../conformance/worker-protocol/fixtures.json) are part of this specification.
 
 ## Normative language
 
 The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHOULD**, **SHOULD NOT**, and **MAY** are normative requirements. Protocol implementations MUST fail closed at the smallest scope whose state remains trustworthy. They MUST NOT expose raw exceptions, stack traces, undecoded bytes, or unbounded peer-controlled text through public results.
 
-SafeScript v2 is a product release. Worker protocol 1.0, control-envelope schema 1, ABI versions, language versions, IR versions, compiler builds, diagnostic catalogs, and artifact formats are independent compatibility dimensions.
+SafeScript 0.6.0 is the sole public compatibility contract. The control-envelope `version: 1` field is an internal wire-format marker, and compiler build identities bind checked artifacts and worker packages; neither is a separately selectable product contract.
 
 ## Reference stdio framing
 
@@ -39,7 +39,7 @@ Envelope schema 1 is a closed map with exactly five fields:
 
 Each peer allocates IDs monotonically from 1 and MUST NOT reuse an ID on one connection. It MUST close before exhaustion. Direction comes from the stream endpoint and session identity comes from the connection; neither is repeated in the envelope. Invocation IDs, action request IDs, and idempotency keys are payload-domain identities and MUST NOT be substituted for envelope IDs.
 
-`kind` MUST match `[a-z][a-z0-9]*(?:\.[a-z][a-z0-9_]*)+`, contain at most 64 ASCII bytes, and have a permanently reserved meaning once published. Protocol 1.0 kinds are listed in the [protocol manifest](../../conformance/worker-protocol/v1/manifest.json). Unknown kinds are never ignored.
+`kind` MUST match `[a-z][a-z0-9]*(?:\.[a-z][a-z0-9_]*)+`, contain at most 64 ASCII bytes, and have a permanently reserved meaning once published. Current kinds are listed in the [protocol manifest](../conformance/worker-protocol/manifest.json). Unknown kinds are never ignored.
 
 Under deterministic map ordering the envelope keys occur as `id`, `kind`, `payload`, `version`, `reply_to`. Source-language object insertion order has no effect.
 
@@ -65,19 +65,19 @@ Protocol record keys are stable lowercase ASCII snake-case text. Optional fields
 
 Canonical SafeScript domain values remain opaque schema-directed CBOR byte strings in fields typed as `canonical-bytes`. They are decoded only with the declared contract schema and existing [canonical-value rules](../contracts-and-values.md). Artifacts, semantic graphs, source bytes, and traces likewise remain bounded byte strings where their existing public record says bytes.
 
-The [CDDL](worker-protocol-1.0.cddl) defines every protocol payload. Its `bridge-*` records are the canonical wire projection of the public transport-neutral `RuntimeBridge`; they do not change bridge semantics or grant authority.
+The [CDDL](worker-protocol.cddl) defines every protocol payload. Its `bridge-*` records are the canonical wire projection of the public transport-neutral `RuntimeBridge`; they do not change bridge semantics or grant authority.
 
-Protocol 1.0 uses action ABI 2.0. Its action outcome is either a completed canonical operation `Result` or a host failure with explicit effect state; there is no protocol-level policy rejection. SDK lifecycle callbacks, credentials, host objects, invocation context, policy state, and hook diagnostics are deliberately absent from the wire schema.
+An action outcome is either a completed canonical operation `Result` or a host failure with explicit effect state; there is no protocol-level policy rejection. SDK lifecycle callbacks, credentials, host objects, invocation context, policy state, and hook diagnostics are deliberately absent from the wire schema.
 
 ## Schema evolution
 
 Envelope schema 1 is immutable. A future envelope that cannot be decoded by schema 1 requires a new envelope version and bootstrap rules; peers MUST NOT guess it.
 
-Worker protocol major versions are incompatible. Within one major, peers explicitly negotiate the highest common minor and named feature intersection before other work. Each selected version has closed schemas. Compatible evolution adds a negotiated message kind, variant, or optional field only in a new protocol minor; an older selected minor still rejects that field. Fields and kinds are never silently ignored, removed, reused, or assigned a new meaning.
+Peers require exact SafeScript 0.6.0 identity and may select only named features advertised by both sides. Schema changes ship with a new coordinated SafeScript release. Fields and kinds are never silently ignored, reused, or assigned a new meaning.
 
 ## Wire failures
 
-The following wire codes have stable meanings in protocol 1.0:
+The following wire codes have stable meanings in SafeScript 0.6.0:
 
 | Code                           | Meaning                                                      | Scope                                                |
 | ------------------------------ | ------------------------------------------------------------ | ---------------------------------------------------- |

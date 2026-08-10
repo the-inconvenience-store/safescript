@@ -52,14 +52,12 @@ const allCapabilities = Object.values(crmActions).map(({ capability }) => capabi
 
 export const crmContract = defineContract({
   id: ids.contract('contract:example.crm'),
-  version: { major: 1, minor: 0, patch: 0 },
   operations: crmActions,
   slots: {
     automation: {
       id: ids.slot('slot:crm.automation'),
       input: eventType,
       output: resultType,
-      languageVersion: { major: 1, minor: 1 },
       effects: allEffects,
       capabilities: allCapabilities,
     },

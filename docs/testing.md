@@ -80,7 +80,7 @@ The current corpus covers:
 - declared action errors versus host/malformed failures;
 - fixed time, seeded randomness, traces, outputs, and repeatable charges;
 - canonical value round trips and rejection of non-canonical bytes;
-- version compatibility and public package/release metadata.
+- exact SafeScript release identity and public package metadata.
 
 The authoring conformance gate also records blind-run evidence for generated authoring bundles and checks explicit success thresholds. This makes agent usability a release property rather than an anecdotal example.
 

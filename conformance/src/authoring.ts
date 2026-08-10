@@ -1,4 +1,4 @@
-/** Blind-agent authoring evidence and the computed V1 usability gate. */
+/** Blind-agent authoring evidence and the computed usability gate. */
 import type {
   CapabilityId,
   CompileUsage,
@@ -42,8 +42,8 @@ export interface AuthoringGateThresholds {
   readonly maximumUnexpectedResourceFailures: number;
 }
 
-/** Thresholds fixed from the checked-in blind-run baseline before the V1 release gate. */
-export const V1_AUTHORING_THRESHOLDS: AuthoringGateThresholds = Object.freeze({
+/** Thresholds fixed from the checked-in blind-run baseline before the release gate. */
+export const AUTHORING_THRESHOLDS: AuthoringGateThresholds = Object.freeze({
   scenarios: 4,
   minimumFirstCheckRate: 0.5,
   minimumFinalAcceptanceRate: 1,
@@ -79,7 +79,7 @@ function sameValues(left: readonly string[], right: readonly string[]): boolean 
 /** Evaluates evidence without model-specific exceptions or access to private compiler structures. */
 export function evaluateAuthoringGate(
   evidence: readonly AgentAuthoringEvidence[],
-  thresholds: AuthoringGateThresholds = V1_AUTHORING_THRESHOLDS,
+  thresholds: AuthoringGateThresholds = AUTHORING_THRESHOLDS,
 ): AuthoringGateResult {
   const failures: Array<{ scenario?: AuthoringScenario; owner: AuthoringFailureOwner; reason: string }> = [];
   const count = evidence.length;

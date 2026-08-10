@@ -6,7 +6,6 @@ import { EXIT, runCli } from './index.js';
 
 const contractJson = {
   id: 'contract:cli.test',
-  version: { major: 1, minor: 0, patch: 0 },
   types: [
     { id: 'type:cli.input', schema: { kind: 'string', maxBytes: 100 } },
     { id: 'type:cli.output', schema: { kind: 'string', maxBytes: 100 } },
@@ -17,7 +16,6 @@ const contractJson = {
       id: 'slot:cli.main',
       input: 'type:cli.input',
       output: 'type:cli.output',
-      languageVersion: { major: 1, minor: 0 },
       effects: [],
       capabilities: [],
     },
@@ -67,7 +65,6 @@ function directContract() {
   };
   return defineContract({
     id: 'contract:cli.test' as never,
-    version: { major: 1, minor: 0, patch: 0 },
     types: [input, output],
     operations: {},
     slots: {
@@ -75,7 +72,6 @@ function directContract() {
         id: 'slot:cli.main' as never,
         input,
         output,
-        languageVersion: { major: 1, minor: 0 },
         effects: [],
         capabilities: [],
       },

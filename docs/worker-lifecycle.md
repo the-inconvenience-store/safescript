@@ -1,6 +1,6 @@
 # Worker protocol state machine and lifecycle
 
-This document defines message ownership, correlation, connection lifecycle, cancellation, close, and worker-loss behavior for protocol 1.0.
+This document defines message ownership, correlation, connection lifecycle, cancellation, close, and worker-loss behavior for SafeScript 0.6.0.
 
 ## Roles and ownership
 
@@ -51,13 +51,13 @@ Only the worker may initiate `action.request`, and only while interpreting one a
 
 The host reserves response capacity before accepting the action and validates canonical input, registry metadata, and correlation before invoking any hook or handler. It MAY run `beforeAction`; a stop becomes a completed declared operation `Err`, while continuation or an absent hook permits at-most-once handler dispatch. After fixing the outcome, it MAY run `afterAction`, whose failure cannot change that outcome. It returns exactly one `action.outcome` containing a completed declared `Result` or host failure with explicit effect state.
 
-Callbacks, credentials, host objects, invocation context, hook decisions, and hook diagnostics are not protocol values. The worker observes only the action request and its ABI 2.0 outcome.
+Callbacks, credentials, host objects, invocation context, hook decisions, and hook diagnostics are not protocol values. The worker observes only the action request and its typed outcome.
 
 An envelope ID, invocation ID, action request ID, and idempotency key are distinct. None substitutes for another. A repeated envelope or action request never dispatches a handler. The protocol never retries an action.
 
 ## Cancellation
 
-`bridge.cancel.request` is an independently correlated, idempotent host request containing ABI version and invocation ID. Its terminal status is `accepted`, `not_active`, or `bridge_error`, matching the public bridge.
+`bridge.cancel.request` is an independently correlated, idempotent host request containing the invocation ID. Its terminal status is `accepted`, `not_active`, or `bridge_error`, matching the public bridge.
 
 Cancellation is best effort. Once observed, the worker prevents future interpreter work and action initiation and returns a cancelled execute result with facts observed through termination. The host may ignore a late handler completion but cannot undo an external effect. An action without a validated terminal outcome is never inferred to be unperformed.
 

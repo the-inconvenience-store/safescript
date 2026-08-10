@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
-  ACTION_ABI_VERSION,
   COMPILER_DIAGNOSTIC_CODES,
   DIAGNOSTIC_CATALOG,
-  DIAGNOSTIC_CATALOG_VERSION,
   EXECUTION_ERROR_CODES,
   HOST_FAILURE_CODES,
   JSON_VALUE_REGISTRY,
@@ -13,13 +11,11 @@ import {
   MAX_FAILURE_PATH_SEGMENTS,
   canonicalJson,
   canonicalize,
-  checkCompatibility,
   decodeCanonical,
   defineSchemaRegistry,
   encodeCanonical,
   hash,
   ids,
-  isActionAbiVersion,
   isActionOutcome,
   isHookDiagnostics,
   optionSchema,
@@ -29,23 +25,18 @@ import {
   type TypeDefinition,
 } from './index.js';
 
-describe('action ABI 2.0 isolation', () => {
-  it('accepts only ABI 2.0 action outcomes and never translates v1 rejections', () => {
+describe('action outcome validation', () => {
+  it('accepts only the current closed action outcome shape', () => {
     const invocationId = ids.invocation('invocation:0123456789abcdef0123456789abcdef');
     const requestId = ids.request(invocationId, 0);
-    expect(ACTION_ABI_VERSION).toEqual({ major: 2, minor: 0 });
-    expect(isActionAbiVersion(ACTION_ABI_VERSION)).toBe(true);
-    expect(isActionAbiVersion({ major: 1, minor: 0 })).toBe(false);
     expect(
       isActionOutcome({
-        abiVersion: ACTION_ABI_VERSION,
         requestId,
         result: { tag: 'completed', value: [0x82, 0x62, 0x6f, 0x6b, 0xf6] },
       }),
     ).toBe(true);
     expect(
       isActionOutcome({
-        abiVersion: { major: 1, minor: 0 },
         requestId,
         result: { tag: 'rejected', value: { code: 'denied' } },
       }),
@@ -241,7 +232,7 @@ describe('recursive schemas and JSON', () => {
   });
 });
 
-describe('identities and compatibility', () => {
+describe('identities', () => {
   it('validates typed identifiers and full domain-separated hashes', () => {
     const invocation = ids.invocation('invocation:0123456789abcdef0123456789abcdef');
     expect(String(ids.request(invocation, 7))).toBe('request:0123456789abcdef0123456789abcdef:7');
@@ -251,28 +242,6 @@ describe('identities and compatibility', () => {
       'd8e0671485299b0d850838d8b99972fa4c6d404061f3ea340761e1e6a3fdb5c1',
     );
     expect(hash('source', Uint8Array.of(1))).not.toBe(hash('ir', Uint8Array.of(1)));
-  });
-
-  it('fails closed on independent version dimensions', () => {
-    const contractId = ids.contract('contract:test.host');
-    const failures = checkCompatibility(
-      {
-        language: { major: 1, minor: 1 },
-        ir: { major: 1, minor: 0 },
-        abi: { major: 2, minor: 0 },
-        contractId,
-        contract: { major: 1, minor: 2, patch: 0 },
-      },
-      {
-        language: { major: 1, minor: 2 },
-        ir: { major: 2, minor: 0 },
-        abi: { major: 2, minor: 0 },
-        contractId,
-        contract: { major: 1, minor: 1, patch: 0 },
-      },
-    );
-    expect(failures.map((failure) => failure.dimension)).toEqual(['language', 'ir']);
-    expect(Object.isFrozen(failures)).toBe(true);
   });
 });
 
@@ -288,7 +257,6 @@ describe('stable failure catalog', () => {
       'capacity_exceeded',
       'fingerprint_mismatch',
       'graph_limit_exceeded',
-      'incompatible_version',
       'invalid_contract_digest',
       'invalid_definition_id',
       'invalid_request',
@@ -319,14 +287,12 @@ describe('stable failure catalog', () => {
     expect([...COMPILER_DIAGNOSTIC_CODES]).toEqual(
       [...COMPILER_DIAGNOSTIC_CODES].sort((left, right) => left.localeCompare(right)),
     );
-    expect(DIAGNOSTIC_CATALOG_VERSION).toEqual({ major: 1, minor: 4, patch: 0 });
     for (const entry of DIAGNOSTIC_CATALOG) {
       expect(Object.isFrozen(entry)).toBe(true);
       expect(Object.isFrozen(entry.fields)).toBe(true);
       expect(entry.owner).not.toContain('pass');
       expect(entry.meaning.length).toBeLessThanOrEqual(MAX_FAILURE_DETAIL_LENGTH);
       expect(new Set(entry.fields).size).toBe(entry.fields.length);
-      expect(entry.deprecatedSince === undefined || entry.replacement !== undefined).toBe(true);
     }
   });
 

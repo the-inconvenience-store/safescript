@@ -48,7 +48,7 @@ The standard execution profile bounds:
 | One value nodes            |           32,768 |
 | One value bytes            |            1 MiB |
 
-Fuel represents specified language work rather than elapsed time. Charges commit before their protected operation. The normative charges and compatibility rule are in the [V1 semantic resource schedule](v1-resource-schedule.md).
+Fuel represents specified language work rather than elapsed time. Charges commit before their protected operation. The normative charges and compatibility rule are in the [Semantic resource schedule](resource-schedule.md).
 
 Execution facts report actual fuel, allocations, allocated bytes, peak retained/value/collection/call/concurrency measures, host calls, trace bytes, and output bytes. Resource exhaustion returns the exact exhausted dimension in bounded detail and never causes an implicit retry.
 
@@ -89,3 +89,29 @@ Every started execution returns:
 - through the SDK, the invocation ID.
 
 Facts are in-memory return data. The host may persist them, but SafeScript does not claim they are a durable audit trail. For action semantics, see the [security model](security.md).
+
+## Worker protocol limits
+
+The worker session applies these standard operational ceilings before decoding or queueing work:
+
+| Dimension                         | Standard maximum |
+| --------------------------------- | ---------------: |
+| Envelope frame bytes              |       16,777,216 |
+| Nested payload bytes              |       16,700,000 |
+| Decoded depth                     |              128 |
+| Decoded nodes                     |        1,000,000 |
+| In-flight messages per peer       |               64 |
+| Pending terminal replies per peer |              128 |
+| Queued outbound bytes per peer    |       33,554,432 |
+| Partial frame                     |       10 seconds |
+| Worker startup                    |       30 seconds |
+| Handshake                         |        5 seconds |
+| Graceful close                    |        5 seconds |
+| Captured stderr                   |     65,536 bytes |
+| Restart attempts                  | 3 per 60 seconds |
+
+Protocol, worker, deployment, slot, and request ceilings compose by minimum. Capacity is reserved before protected decoding, allocation, compilation, interpretation, or dispatch. Whole-frame writes are serialized, reads apply backpressure, and cancellation and terminal replies retain reserved capacity so saturation cannot deadlock a session.
+
+Wall time, OS scheduling, process RSS, pipe buffers, protocol bytes, queue wait, startup, handshake, handler latency, and restart counts are operational observations. They are never charged as semantic fuel or included in deterministic execution facts.
+
+Stable worker failures include `incompatible_session`, `unexpected_message`, `invalid_correlation`, `duplicate_message_id`, `message_id_exhausted`, `capacity_exceeded`, `worker_start_failed`, `worker_start_timeout`, `worker_lost`, `worker_crash_loop`, `worker_close_timeout`, and `worker_identity_mismatch`. Worker loss never replays work.

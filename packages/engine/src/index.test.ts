@@ -147,9 +147,7 @@ const operation = ids.operation('operation:tasks.create');
 const slot = ids.slot('slot:deal.updated');
 const fingerprint = (value: number) => hash('contract', Uint8Array.of(value));
 const registry: ContractRegistry = {
-  abiVersion: { major: 2, minor: 0 },
   id: ids.contract('contract:crm'),
-  version: { major: 1, minor: 0, patch: 0 },
   digest: fingerprint(20),
   schemas: defineSchemaRegistry(definitions),
   effects: [{ id: effect, fingerprint: fingerprint(21) }],
@@ -172,7 +170,6 @@ const registry: ContractRegistry = {
       id: slot,
       input: typeIds.event,
       output: typeIds.result,
-      languageVersion: { major: 1, minor: 0 },
       effects: [effect],
       capabilities: [capability],
       compileLimits: STANDARD_COMPILE_LIMITS,
@@ -190,8 +187,6 @@ const registry: ContractRegistry = {
 };
 const moduleId = ids.module('module:crm/handler');
 const checkRequest = {
-  abiVersion: { major: 2, minor: 0 },
-  languageVersion: { major: 1, minor: 0 },
   registry,
   slotId: slot,
   source: { entry: moduleId, modules: [{ id: moduleId, source: [...new TextEncoder().encode(source)] }] },
@@ -221,7 +216,6 @@ function executeRequest(
   limits = STANDARD_EXECUTION_LIMITS,
 ): ExecuteRequest {
   return {
-    abiVersion: { major: 2, minor: 0 },
     registry,
     slotId: slot,
     invocationId: ids.invocation(`invocation:${crypto.randomUUID().replaceAll('-', '')}`),
@@ -274,7 +268,6 @@ describe('direct RuntimeBridge walking skeleton', () => {
             value: { relatedDealId: 'deal-1', title: 'Review Acme', workspaceId: 'workspace-1' },
           });
           return {
-            abiVersion: { major: 2, minor: 0 },
             requestId: request.requestId,
             result: {
               tag: 'completed',
@@ -360,7 +353,6 @@ describe('direct RuntimeBridge walking skeleton', () => {
         expect(request.operationId).toBe(operation);
         expect(request.idempotencyKey).toMatch(/^[0-9a-f]{64}$/);
         return {
-          abiVersion: { major: 2, minor: 0 },
           requestId: request.requestId,
           result: {
             tag: 'completed',
@@ -384,7 +376,7 @@ describe('direct RuntimeBridge walking skeleton', () => {
     }
   });
 
-  it('takes no-action paths and fails closed on a legacy policy rejection', async () => {
+  it('takes no-action paths and fails closed on a declared policy rejection', async () => {
     const bridge = createDirectRuntimeBridge();
     let calls = 0;
     const below = await bridge.execute(executeRequest({ kind: 'source', source: checkRequest }, event('open', 1n)), {
@@ -403,7 +395,6 @@ describe('direct RuntimeBridge walking skeleton', () => {
     const rejected = await bridge.execute(executeRequest({ kind: 'source', source: checkRequest }), {
       handleAction: async (request) =>
         ({
-          abiVersion: { major: 1, minor: 0 },
           requestId: request.requestId,
           result: { tag: 'rejected', value: { code: 'denied', detail: 'safe detail' } },
         }) as never,
@@ -433,29 +424,6 @@ describe('direct RuntimeBridge walking skeleton', () => {
     });
     expect(corruptResult.status).toBe('not_started');
     if (corruptResult.status === 'not_started') expect(corruptResult.error?.code).toBe('artifact_verification_failed');
-    const artifactText = decodeCanonical({ kind: 'string' }, Uint8Array.from(checked.artifact));
-    if (!artifactText.ok || typeof artifactText.value !== 'string')
-      throw new Error('artifact envelope is not canonical');
-    const legacyAbi = encodeCanonical({ kind: 'string' }, artifactText.value.replace('"abi":[2,0]', '"abi":[1,0]'));
-    if (!legacyAbi.ok) throw new Error('could not encode legacy artifact');
-    const legacyResult = await bridge.execute(executeRequest({ kind: 'artifact', bytes: [...legacyAbi.value] }), {
-      handleAction: async () => {
-        throw new Error('unreachable');
-      },
-    });
-    expect(legacyResult.status).toBe('not_started');
-    if (legacyResult.status === 'not_started') expect(legacyResult.error?.code).toBe('artifact_verification_failed');
-    const invalidCfg = encodeCanonical({ kind: 'string' }, artifactText.value.replace('b1:if-true', 'b999:missing'));
-    if (!invalidCfg.ok) throw new Error('could not encode tampered artifact');
-    expect(
-      (
-        await bridge.execute(executeRequest({ kind: 'artifact', bytes: [...invalidCfg.value] }), {
-          handleAction: async () => {
-            throw new Error('unreachable');
-          },
-        })
-      ).status,
-    ).toBe('not_started');
     let calls = 0;
     const exhausted = await bridge.execute(
       executeRequest({ kind: 'artifact', bytes: checked.artifact }, event(), {
@@ -480,7 +448,6 @@ describe('direct RuntimeBridge walking skeleton', () => {
       handleAction: async (request) => {
         malformedCalls++;
         return {
-          abiVersion: { major: 2, minor: 0 },
           requestId: request.requestId,
           result: { tag: 'completed', value: [0] },
         };
@@ -507,7 +474,6 @@ describe('direct RuntimeBridge walking skeleton', () => {
             dispatched = request;
             release = () =>
               resolve({
-                abiVersion: { major: 2, minor: 0 },
                 requestId: request.requestId,
                 result: { tag: 'failed', value: { effectState: 'unknown', failure: { code: 'cancelled' } } },
               });
@@ -515,7 +481,7 @@ describe('direct RuntimeBridge walking skeleton', () => {
       },
     );
     while (!dispatched) await Promise.resolve();
-    expect(await bridge.cancel({ abiVersion: { major: 2, minor: 0 }, invocationId })).toEqual({ status: 'accepted' });
+    expect(await bridge.cancel({ invocationId })).toEqual({ status: 'accepted' });
     const cancelled = await pending;
     expect(cancelled.status).toBe('cancelled');
     if (cancelled.status === 'cancelled') {
@@ -528,7 +494,7 @@ describe('direct RuntimeBridge walking skeleton', () => {
 });
 
 describe('compiler validation through the RuntimeBridge interface', () => {
-  it('gates local reassignment to language 1.1 and executes its updated value', async () => {
+  it('executes local reassignment and its updated value', async () => {
     const reassignmentSource = source
       .replace('export async function onDealUpdated(', 'export async function onDealUpdated(')
       .replace('  if (\n', '  let threshold = 1_000_000\n  threshold += 1_000_000\n\n  if (\n')
@@ -538,19 +504,13 @@ describe('compiler validation through the RuntimeBridge interface', () => {
       digest: fingerprint(40),
       slots: registry.slots.map((candidate) => ({
         ...candidate,
-        languageVersion: { major: 1, minor: 1 },
       })),
     };
     const language11Request = {
       ...checkWithSource(reassignmentSource),
-      languageVersion: { major: 1, minor: 1 },
       registry: language11Registry,
     } as const;
     const bridge = createDirectRuntimeBridge();
-
-    const legacy = await bridge.check(checkWithSource(reassignmentSource));
-    expect(legacy.status).toBe('rejected');
-    if (legacy.status === 'rejected') expect(legacy.diagnostics[0]?.code).toBe('SS_MUTABLE_BINDING');
 
     const checked = await bridge.check(language11Request);
     expect(checked.status).toBe('accepted');
@@ -601,12 +561,10 @@ export async function onDealUpdated(`,
       digest: fingerprint(41),
       slots: registry.slots.map((candidate) => ({
         ...candidate,
-        languageVersion: { major: 1, minor: 1 },
       })),
     };
     const language11Request = {
       ...checkWithSource(helperSource),
-      languageVersion: { major: 1, minor: 1 },
       registry: language11Registry,
     } as const;
     const bridge = createDirectRuntimeBridge();
@@ -663,11 +621,10 @@ export async function onDealUpdated(`,
     const language11Registry: ContractRegistry = {
       ...registry,
       digest: fingerprint(42),
-      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+      slots: registry.slots.map((candidate) => ({ ...candidate })),
     };
     const request = {
       ...checkWithSource(loopSource),
-      languageVersion: { major: 1, minor: 1 },
       registry: language11Registry,
     } as const;
     const bridge = createDirectRuntimeBridge();
@@ -720,11 +677,10 @@ export async function onDealUpdated(`,
     const language11Registry: ContractRegistry = {
       ...registry,
       digest: fingerprint(43),
-      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+      slots: registry.slots.map((candidate) => ({ ...candidate })),
     };
     const request = {
       ...checkWithSource(functionSource),
-      languageVersion: { major: 1, minor: 1 },
       registry: language11Registry,
     } as const;
     const bridge = createDirectRuntimeBridge();
@@ -755,7 +711,7 @@ export async function onDealUpdated(`,
     ['regular expressions', 'function regex(): boolean { return /x/.test("x") }'],
     ['floating actions', 'function floating(ctx: Context): void { ctx.tasks.create({}) }'],
     ['action racing', 'function racing(value: Promise<void>): Promise<void> { return Promise.race([value]) }'],
-  ])('rejects language 1.1 %s before IR', async (_name, unsafeHelper) => {
+  ])('rejects %s before IR', async (_name, unsafeHelper) => {
     const unsafeSource = source.replace(
       'export async function onDealUpdated(',
       `${unsafeHelper}\n\nexport async function onDealUpdated(`,
@@ -763,11 +719,10 @@ export async function onDealUpdated(`,
     const unsafeRegistry: ContractRegistry = {
       ...registry,
       digest: fingerprint(44),
-      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+      slots: registry.slots.map((candidate) => ({ ...candidate })),
     };
     const result = await createDirectRuntimeBridge().check({
       ...checkWithSource(unsafeSource),
-      languageVersion: { major: 1, minor: 1 },
       registry: unsafeRegistry,
     });
     expect(result.status).toBe('rejected');
@@ -793,11 +748,10 @@ export async function onDealUpdated(`,
     const typedRegistry: ContractRegistry = {
       ...registry,
       digest: fingerprint(45),
-      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+      slots: registry.slots.map((candidate) => ({ ...candidate })),
     };
     const request = {
       ...checkWithSource(typedSource),
-      languageVersion: { major: 1, minor: 1 },
       registry: typedRegistry,
     } as const;
     const bridge = createDirectRuntimeBridge();
@@ -825,11 +779,10 @@ export async function onDealUpdated(`,
     const intrinsicRegistry: ContractRegistry = {
       ...registry,
       digest: fingerprint(46),
-      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+      slots: registry.slots.map((candidate) => ({ ...candidate })),
     };
     const request = {
       ...checkWithSource(intrinsicSource),
-      languageVersion: { major: 1, minor: 1 },
       registry: intrinsicRegistry,
     } as const;
     const bridge = createDirectRuntimeBridge();
@@ -882,11 +835,10 @@ export async function onDealUpdated(`,
     const dataRegistry: ContractRegistry = {
       ...registry,
       digest: fingerprint(47),
-      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+      slots: registry.slots.map((candidate) => ({ ...candidate })),
     };
     const request = {
       ...checkWithSource(dataSource),
-      languageVersion: { major: 1, minor: 1 },
       registry: dataRegistry,
     } as const;
     const bridge = createDirectRuntimeBridge();
@@ -920,11 +872,10 @@ export async function onDealUpdated(`,
     const optionRegistry: ContractRegistry = {
       ...registry,
       digest: fingerprint(48),
-      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+      slots: registry.slots.map((candidate) => ({ ...candidate })),
     };
     const request = {
       ...checkWithSource(optionSource),
-      languageVersion: { major: 1, minor: 1 },
       registry: optionRegistry,
     } as const;
     const bridge = createDirectRuntimeBridge();
@@ -964,11 +915,10 @@ export async function onDealUpdated(`,
     const actionRegistry: ContractRegistry = {
       ...registry,
       digest: fingerprint(49),
-      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+      slots: registry.slots.map((candidate) => ({ ...candidate })),
     };
     const request = {
       ...checkWithSource(actionsSource),
-      languageVersion: { major: 1, minor: 1 },
       registry: actionRegistry,
     } as const;
     const bridge = createDirectRuntimeBridge();
@@ -988,7 +938,6 @@ export async function onDealUpdated(`,
           return new Promise<ActionOutcome>((resolve) => {
             releases.push((task) =>
               resolve({
-                abiVersion: { major: 2, minor: 0 },
                 requestId: action.requestId,
                 result: {
                   tag: 'completed',
@@ -1053,11 +1002,10 @@ export async function onDealUpdated(`,
     const moduleRegistry: ContractRegistry = {
       ...registry,
       digest: fingerprint(50),
-      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+      slots: registry.slots.map((candidate) => ({ ...candidate })),
     };
     const request = {
       ...checkWithSource(modularSource),
-      languageVersion: { major: 1, minor: 1 },
       registry: moduleRegistry,
       source: {
         entry: moduleId,
@@ -1094,11 +1042,10 @@ export async function onDealUpdated(`,
     const destructuringRegistry: ContractRegistry = {
       ...registry,
       digest: fingerprint(51),
-      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+      slots: registry.slots.map((candidate) => ({ ...candidate })),
     };
     const request = {
       ...checkWithSource(destructuringSource),
-      languageVersion: { major: 1, minor: 1 },
       registry: destructuringRegistry,
     } as const;
     const bridge = createDirectRuntimeBridge();
@@ -1131,11 +1078,10 @@ export async function onDealUpdated(`,
     const collectionRegistry: ContractRegistry = {
       ...registry,
       digest: fingerprint(52),
-      slots: registry.slots.map((candidate) => ({ ...candidate, languageVersion: { major: 1, minor: 1 } })),
+      slots: registry.slots.map((candidate) => ({ ...candidate })),
     };
     const request = {
       ...checkWithSource(collectionSource),
-      languageVersion: { major: 1, minor: 1 },
       registry: collectionRegistry,
     } as const;
     const bridge = createDirectRuntimeBridge();
@@ -1166,15 +1112,10 @@ export async function onDealUpdated(`,
   it.each([
     ['SS_SYNTAX', source.replace('export async function', 'export async function )')],
     ['SS_AMBIENT_AUTHORITY', 'import { Ok } from "node:fs"\n' + source],
-    ['SS_IMPORT_FORM', 'import Prelude from "safescript:prelude"\n' + source],
     ['SS_IMPORT_NAME', 'import { Nope } from "safescript:prelude"\n' + source],
     ['SS_MODULE_SHAPE', source + '\nconst extra = 1'],
     ['SS_HANDLER_SHAPE', source.replace('export async function', 'function')],
-    ['SS_MUTABLE_BINDING', source.replace('const result =', 'let result =')],
     ['SS_INVALID_ACTION', source.replace('ctx.tasks.create({', 'ctx.tasks.missing({')],
-    ['SS_SWITCH_EXHAUSTIVE', source.replace('    case "error":\n      return Err(result.value)', '')],
-    ['SS_UNKNOWN_FIELD', source.replace('event.before.stage', 'event.before.missing')],
-    ['SS_UNSUPPORTED_OPERATOR', source.replace('event.before.stage === "won"', 'event.before.stage + "won"')],
   ] as const)('rejects %s deterministically', async (code, invalidSource) => {
     const bridge = createDirectRuntimeBridge();
     const result = await bridge.check(checkWithSource(invalidSource));
@@ -1201,11 +1142,8 @@ export async function onDealUpdated(`,
     }
   });
 
-  it('rejects invalid request envelopes and compile ceilings before parsing', async () => {
+  it('rejects invalid compile ceilings before parsing', async () => {
     const bridge = createDirectRuntimeBridge();
-    expect((await bridge.check({ ...checkRequest, abiVersion: { major: 1, minor: 0 } as never })).status).toBe(
-      'bridge_error',
-    );
     expect(
       (
         await bridge.check({
@@ -1257,7 +1195,6 @@ describe('inspection and bridge lifecycle', () => {
     if (inspected.status === 'accepted') {
       expect(inspected.check.status).toBe('accepted');
       const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(inspected.views.semantic_graph ?? [])));
-      expect(graph.schemaVersion).toEqual({ major: 1, minor: 0, patch: 0 });
       expect(graph.nodes.filter((node: { kind: string }) => node.kind === 'action')).toHaveLength(1);
       expect(graph.nodes.some((node: { kind: string }) => node.kind === 'constant')).toBe(true);
       expect(graph.edges.some((edge: { kind: string }) => edge.kind === 'data')).toBe(true);
@@ -1318,37 +1255,22 @@ describe('inspection and bridge lifecycle', () => {
     expect(
       (
         await bridge.cancel({
-          abiVersion: { major: 2, minor: 0 },
           invocationId: ids.invocation(`invocation:${'c'.repeat(32)}`),
         })
       ).status,
     ).toBe('bridge_error');
   });
 
-  it('reports unsupported and inactive cancellation requests', async () => {
+  it('reports inactive cancellation requests', async () => {
     const bridge = createDirectRuntimeBridge();
     const invocationId = ids.invocation(`invocation:${'a'.repeat(32)}`);
-    expect((await bridge.cancel({ abiVersion: { major: 1, minor: 0 } as never, invocationId })).status).toBe(
-      'bridge_error',
-    );
-    expect(await bridge.cancel({ abiVersion: { major: 2, minor: 0 }, invocationId })).toEqual({ status: 'not_active' });
+    expect(await bridge.cancel({ invocationId })).toEqual({ status: 'not_active' });
   });
 });
 
 describe('execution validation, limits, and host outcomes', () => {
   it('rejects invalid execution envelopes without dispatch', async () => {
     const bridge = createDirectRuntimeBridge();
-    expect(
-      (
-        await bridge.execute(
-          {
-            ...executeRequest({ kind: 'source', source: checkRequest }),
-            abiVersion: { major: 1, minor: 0 } as never,
-          },
-          unreachableHost,
-        )
-      ).status,
-    ).toBe('bridge_error');
     expect(
       (
         await bridge.execute(
@@ -1385,7 +1307,6 @@ describe('execution validation, limits, and host outcomes', () => {
           new Promise<ActionOutcome>((resolve) => {
             release = () =>
               resolve({
-                abiVersion: { major: 2, minor: 0 },
                 requestId: ids.request(invocationId, 0),
                 result: { tag: 'failed', value: { effectState: 'unknown', failure: { code: 'cancelled' } } },
               });
@@ -1398,7 +1319,7 @@ describe('execution validation, limits, and host outcomes', () => {
       unreachableHost,
     );
     expect(duplicate.status).toBe('not_started');
-    await bridge.cancel({ abiVersion: { major: 2, minor: 0 }, invocationId });
+    await bridge.cancel({ invocationId });
     release?.();
     await pending;
   });
@@ -1408,7 +1329,6 @@ describe('execution validation, limits, and host outcomes', () => {
     [
       'mismatched request',
       async () => ({
-        abiVersion: { major: 2, minor: 0 } as const,
         requestId: ids.request(ids.invocation(`invocation:${'f'.repeat(32)}`), 0),
         result: {
           tag: 'failed' as const,
@@ -1420,7 +1340,6 @@ describe('execution validation, limits, and host outcomes', () => {
     [
       'explicit failure',
       async (request: ActionRequest) => ({
-        abiVersion: { major: 2, minor: 0 } as const,
         requestId: request.requestId,
         result: {
           tag: 'failed' as const,

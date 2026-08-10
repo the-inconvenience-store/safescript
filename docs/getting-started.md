@@ -71,7 +71,6 @@ const createCapability = ids.capability('capability:tasks.create');
 
 const contract = defineContract({
   id: ids.contract('contract:demo'),
-  version: { major: 1, minor: 0, patch: 0 },
   operations: {
     createTask: {
       id: ids.operation('operation:tasks.create'),
@@ -89,7 +88,6 @@ const contract = defineContract({
       id: ids.slot('slot:demo.on-event'),
       input: eventType,
       output: outputType,
-      languageVersion: { major: 1, minor: 1 },
       effects: [createEffect],
       capabilities: [createCapability],
     },

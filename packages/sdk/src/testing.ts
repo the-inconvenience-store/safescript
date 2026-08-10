@@ -13,7 +13,7 @@ import {
 
 import type { Contract, Operations, Slots } from './contract.js';
 import type { OperationEntry } from './gateway.js';
-import { ABI_VERSION, freeze, stable } from './shared.js';
+import { freeze, stable } from './shared.js';
 import type { ExecutionResult, ScriptedAction, TestExpectation, TestMismatch } from './types.js';
 
 function mismatch(path: string, expected: unknown, actual: unknown): TestMismatch {
@@ -47,7 +47,6 @@ export function createScriptedHost<O extends Operations, S extends Slots>(
       const script = scripts[index++];
       const fail = (): ActionOutcome =>
         freeze({
-          abiVersion: ABI_VERSION,
           requestId: action.requestId,
           result: {
             tag: 'failed',
@@ -84,7 +83,6 @@ export function createScriptedHost<O extends Operations, S extends Slots>(
       }
       if ('status' in script.outcome && script.outcome.status === 'failed') {
         return freeze({
-          abiVersion: ABI_VERSION,
           requestId: action.requestId,
           result: {
             tag: 'failed',
@@ -99,7 +97,6 @@ export function createScriptedHost<O extends Operations, S extends Slots>(
       );
       return encoded.ok
         ? freeze({
-            abiVersion: ABI_VERSION,
             requestId: action.requestId,
             result: { tag: 'completed', value: [...encoded.value] },
           })

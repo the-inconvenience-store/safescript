@@ -27,12 +27,12 @@ export type ReferenceResourceLedger = Readonly<{
 }>;
 
 /**
- * Normative V1.1 semantic resource evidence captured through the public runtime bridge.
+ * Normative Semantic resource evidence captured through the public runtime bridge.
  *
  * @remarks Changes are release-significant: update only when intentionally changing
  * language/runtime semantics, and rerun the complete resource conformance gate.
  */
-export const V1_REFERENCE_RESOURCE_LEDGERS: readonly ReferenceResourceLedger[] = Object.freeze([
+export const REFERENCE_RESOURCE_LEDGERS: readonly ReferenceResourceLedger[] = Object.freeze([
   {
     name: 'walking-skeleton',
     usage: {
@@ -107,8 +107,8 @@ export const V1_REFERENCE_RESOURCE_LEDGERS: readonly ReferenceResourceLedger[] =
   },
 ] satisfies readonly ReferenceResourceLedger[]);
 
-/** The locked standard profile consumed by the V1 conformance release gate. */
-export const V1_STANDARD_EXECUTION_LIMITS: ExecutionLimits = Object.freeze({
+/** The locked standard profile consumed by the conformance release gate. */
+export const REFERENCE_EXECUTION_LIMITS: ExecutionLimits = Object.freeze({
   maxDepth: 64,
   maxNodes: 32_768,
   maxBytes: 1024 * 1024,
@@ -139,7 +139,7 @@ function encode(schema: Schema, value: unknown): readonly number[] {
 }
 
 /** Measures the normative workloads through an injected public adapter. */
-export async function measureV1ReferenceResourceLedgers(
+export async function measureReferenceResourceLedgers(
   createBridge: RuntimeBridgeFactory,
 ): Promise<readonly ReferenceResourceLedger[]> {
   const input = encode(ref(referenceTypes.event), referenceInput);
@@ -149,13 +149,12 @@ export async function measureV1ReferenceResourceLedgers(
     try {
       const result = await bridge.execute(
         {
-          abiVersion: { major: 2, minor: 0 },
           registry: referenceRegistry,
           slotId: referenceTypes.slotId,
           invocationId: ids.invocation(`invocation:${String(index + 1).repeat(32)}`),
           program: { kind: 'source', source: referenceCheckRequest(reference) },
           input,
-          limits: V1_STANDARD_EXECUTION_LIMITS,
+          limits: REFERENCE_EXECUTION_LIMITS,
           idempotencySeed: [1, 2, 3],
           fixedInstant: { epochSeconds: 1_786_060_800n, nanoseconds: 0 },
           randomSeed: [1, 2, 3, 4],
@@ -168,7 +167,6 @@ export async function measureV1ReferenceResourceLedgers(
                 ? '{"ids":["sam","alex"],"next":"page-2"}'
                 : String(request.operationId);
             return {
-              abiVersion: { major: 2, minor: 0 },
               requestId: request.requestId,
               result: {
                 tag: 'completed',

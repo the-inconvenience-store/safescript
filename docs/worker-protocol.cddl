@@ -1,7 +1,7 @@
-; SafeScript worker protocol 1.0
+; SafeScript 0.6.0 worker protocol
 ; Maps are closed. Deterministic encoding and additional semantic constraints are
 ; defined by wire-protocol.md and the document owning each record.
-; Action records use ABI 2.0. SDK hooks, host context, credentials, policy state,
+; SDK hooks, host context, credentials, policy state,
 ; and hook diagnostics are host-local and have no wire representation.
 
 worker-envelope = {
@@ -34,20 +34,18 @@ message-payload =
 ; Handshake
 
 session-hello = {
-  protocol: protocol-range,
-  sdk: build-identity,
+  version: "0.6.0",
+  sdk_build: bounded-text,
   expected_worker: expected-worker,
   required_features: [* feature-name],
   optional_features: [* feature-name],
-  versions: supported-version-sets,
   limits: operational-limits,
 }
 
 session-welcome = {
-  protocol: version,
+  version: "0.6.0",
   features: [* feature-name],
   worker: worker-identity,
-  versions: supported-version-sets,
   limits: operational-limits,
   implementation: bounded-text,
 }
@@ -58,31 +56,19 @@ session-incompatible = {
   ? detail: bounded-text,
 }
 
-protocol-range = { major: uint, min_minor: uint, max_minor: uint }
-build-identity = { version: semver, build: bounded-text }
 expected-worker = {
-  package_version: semver,
+  version: "0.6.0",
   build_digest: sha256,
   override: bool,
 }
 worker-identity = {
-  package_version: semver,
-  compiler: compiler-version,
+  version: "0.6.0",
+  compiler_build: bounded-text,
   build_digest: sha256,
 }
-supported-version-sets = {
-  abi: [+ version],
-  language: [+ version],
-  ir: [+ version],
-  diagnostic_catalog: [+ semver],
-  artifact: [+ version],
-  authoring_bundle: [+ semver],
-}
 incompatibility-dimension =
-  "protocol_major" / "protocol_minor" / "required_feature" /
-  "bundled_worker_version" / "worker_build_digest" / "abi" /
-  "language" / "ir" / "diagnostic_catalog" / "artifact" /
-  "authoring_bundle" / "operational_limit"
+  "version" / "required_feature" / "worker_build_digest" /
+  "operational_limit"
 
 operational-limits = {
   max_frame_bytes: uint,
@@ -142,11 +128,9 @@ protocol-error-code =
   "invalid_correlation" / "duplicate_message_id" /
   "message_id_exhausted" / "capacity_exceeded"
 
-; Public RuntimeBridge ABI records
+; Public RuntimeBridge records
 
 check-request = {
-  abi_version: action-abi-version,
-  language_version: version,
   registry: contract-registry,
   slot_id: identifier,
   source: source-program,
@@ -166,8 +150,6 @@ check-result =
   { status: "bridge_error", error: bridge-error }
 
 inspect-request = {
-  abi_version: action-abi-version,
-  language_version: version,
   registry: contract-registry,
   slot_id: identifier,
   source: source-program,
@@ -196,7 +178,6 @@ check-accepted = {
 }
 
 execute-request = {
-  abi_version: action-abi-version,
   registry: contract-registry,
   slot_id: identifier,
   invocation_id: identifier,
@@ -225,18 +206,16 @@ execution-result =
   { status: "cancelled", error: execution-error, facts: execution-facts } /
   { status: "bridge_error", error: bridge-error }
 
-cancel-request = { abi_version: action-abi-version, invocation_id: identifier }
+cancel-request = { invocation_id: identifier }
 cancel-result =
   { status: "accepted" } /
   { status: "not_active" } /
   { status: "bridge_error", error: bridge-error }
 
-; Action ABI
+; Typed actions
 
 action-request-record = {
-  abi_version: action-abi-version,
   contract_id: identifier,
-  required_contract_version: semver,
   ir_digest: sha256,
   invocation_id: identifier,
   request_id: identifier,
@@ -251,7 +230,6 @@ action-request-record = {
 }
 
 action-outcome-record = {
-  abi_version: action-abi-version,
   request_id: identifier,
   result:
     { tag: "completed", value: canonical-bytes } /
@@ -299,11 +277,8 @@ trace-result = { records: [* canonical-bytes], truncated: bool }
 program-summary = { effects: [* identifier], capabilities: [* identifier] }
 compiler-provenance = {
   compiler: compiler-version,
-  language: version,
-  ir: version,
-  abi: action-abi-version,
 }
-compiler-version = { version: semver, build: bounded-text }
+compiler-version = { build: bounded-text }
 
 compile-usage = { source_bytes: uint, syntax_nodes: uint, type_work: uint }
 execution-usage = {
@@ -361,9 +336,7 @@ graph-error = {
 ; Contract registry and schema language
 
 contract-registry = {
-  abi_version: action-abi-version,
   id: identifier,
-  version: semver,
   digest: sha256,
   schemas: { types: [* type-definition] },
   effects: [* fingerprint-definition],
@@ -390,7 +363,6 @@ slot-definition = {
   id: identifier,
   input: identifier,
   output: identifier,
-  language_version: version,
   effects: [* identifier],
   capabilities: [* identifier],
   compile_limits: compile-limits,
@@ -449,8 +421,6 @@ execution-limits = {
   output_bytes: uint,
 }
 
-version = { major: uint, minor: uint }
-action-abi-version = { major: 2, minor: 0 }
 semver = { major: uint, minor: uint, patch: uint, ? prerelease: bounded-text }
 instant = { epoch_seconds: int, nanoseconds: 0..999999999 }
 canonical-bytes = bstr

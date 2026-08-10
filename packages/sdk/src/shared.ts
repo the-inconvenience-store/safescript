@@ -2,13 +2,7 @@
  * Private deterministic SDK helpers shared by contract and facade modules.
  * @packageDocumentation
  */
-import { ACTION_ABI_VERSION, type BridgeError, type CompileLimits, type ExecutionLimits } from '@safescript/contracts';
-
-/**
- * ABI emitted and accepted by the TypeScript SDK adapter.
- * @internal
- */
-export const ABI_VERSION = ACTION_ABI_VERSION;
+import type { BridgeError, CompileLimits, ExecutionLimits } from '@safescript/contracts';
 
 /**
  * Encodes host strings to exact UTF-8 bytes without ambient locale behavior.

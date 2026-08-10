@@ -584,14 +584,11 @@ export function deriveSemanticGraph(
     })),
   ];
   const graph: SemanticGraph = Object.freeze({
-    schemaVersion: Object.freeze({ major: 1, minor: 0, patch: 0 }),
     sourceHash: hash('source', encoder.encode(canonical(sources))) as unknown as SemanticGraph['sourceHash'],
     programHash: sourceProgramHash.value,
     compiler,
-    language: request.languageVersion,
     contract: Object.freeze({
       id: request.registry.id,
-      version: request.registry.version,
       digest: request.registry.digest,
     }),
     slotId: request.slotId,

@@ -1,6 +1,6 @@
 import type { WorkerProtocolCodecFailure, WorkerProtocolCodecResult } from './worker-protocol.js';
 
-/** Immutable protocol 1.0 ceiling for one envelope carried by a frame. */
+/** Immutable worker protocol ceiling for one envelope carried by a frame. */
 export const ABSOLUTE_WORKER_FRAME_BYTES = 16 * 1024 * 1024;
 
 /** Standard local-worker deadline for a partially received frame. */
@@ -47,7 +47,7 @@ function declaredLength(frame: Uint8Array): number {
   );
 }
 
-/** Copies one envelope into its exact protocol 1.0 length-prefixed frame. */
+/** Copies one envelope into its exact worker protocol length-prefixed frame. */
 export function encodeWorkerProtocolFrame(
   envelope: Uint8Array,
   options?: WorkerProtocolFrameOptions,

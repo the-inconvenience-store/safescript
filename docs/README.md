@@ -11,8 +11,8 @@ Start here:
 
 Go deeper:
 
-- [SafeScript v2 specification](v2/README.md) defines the planned worker protocol, process boundary, compatibility, and conformance requirements.
-- [Optional execution and action hooks design record](proposals/action-hooks.md) explains the accepted design now implemented by the SDK and action ABI 2.0.
+- [Worker protocol](worker-protocol.md), [handshake](worker-handshake.md), and [lifecycle](worker-lifecycle.md) define the process boundary.
+- [Conformance](conformance.md) defines the published worker and adapter evidence.
 - [Architecture and engine](engine.md) follows source through checking, typed IR, interpretation, and host actions.
 - [Contracts and values](contracts-and-values.md) explains schemas, stable identities, generated declarations, and canonical encoding.
 - [Security model](security.md) defines the trust boundary, validated action gateway, host authority responsibilities, failure behavior, and non-goals.
@@ -21,6 +21,6 @@ Go deeper:
 - [Testing and conformance](testing.md) covers deterministic extension tests and adapter-neutral compatibility evidence.
 - [CLI](cli.md) documents the offline JSON adapter.
 - [Current scope and roadmap](current-scope.md) separates what the repository implements from intentionally deferred work.
-- [V1 semantic resource schedule](v1-resource-schedule.md) is the normative fuel schedule.
+- [Semantic resource schedule](resource-schedule.md) is the normative fuel schedule.
 
 Repository-specific contributor guidance remains in [the agent documentation](agents/domain.md). The project vocabulary is also summarized in [the root glossary](../CONTEXT.md).

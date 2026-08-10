@@ -6,7 +6,7 @@ For a runnable first integration, start with [getting started](getting-started.m
 
 ## Define once at host startup
 
-Call `defineContract` with stable types, operations, and slots, then pass the result to `createSafeScript`. Both functions reject configuration problems synchronously. Contract validation catches duplicate or malformed IDs, conflicting schemas, declaration-name collisions, invalid versions or limits, and missing slot permissions.
+Call `defineContract` with stable types, operations, and slots, then pass the result to `createSafeScript`. Both functions reject configuration problems synchronously. Contract validation catches duplicate or malformed IDs, conflicting schemas, declaration-name collisions, invalid limits, and missing slot permissions.
 
 `createSafeScript` requires exactly one handler for every operation. Lifecycle hooks are optional. By default it creates an independent, lazy `SupervisedProcessRuntimeBridge` using the pinned local Node worker. A host can inject another conforming bridge; explicit direct mode is `bridge: createDirectRuntimeBridge()`. `ProcessRuntimeBridge` owns one already-created worker connection, enforces the negotiated codec, credit, queue, partial-frame, and stderr limits, and exposes its bounded operator-only stderr tail through `capturedStderr()`. `SupervisedProcessRuntimeBridge` adds lazy shared readiness, bounded restart and close policy, and no-replay recovery for later work.
 
@@ -37,7 +37,7 @@ const safe = createSafeScript({
 });
 ```
 
-There is no automatic direct fallback. `worker_start_failed`, `worker_start_timeout`, `worker_identity_mismatch`, `worker_lost`, `worker_crash_loop`, and `worker_close_timeout` are stable operational failures. A lost invocation is never replayed, and an unresolved external effect must be treated as unknown unless the host can prove otherwise. See [worker limits and failures](v2/limits-and-failures.md) and the [migration guide](v2/migration.md).
+There is no automatic direct fallback. `worker_start_failed`, `worker_start_timeout`, `worker_identity_mismatch`, `worker_lost`, `worker_crash_loop`, and `worker_close_timeout` are stable operational failures. A lost invocation is never replayed, and an unresolved external effect must be treated as unknown unless the host can prove otherwise. See [limits and diagnostics](limits-and-diagnostics.md) and the [worker lifecycle](worker-lifecycle.md).
 
 ## Check source
 
@@ -84,7 +84,7 @@ Every started result includes preparation provenance, ordered requested/resolved
 
 When execution reaches an action, the SDK gateway:
 
-1. validates ABI, invocation, contract, slot, operation, effect, capability, action site, and source correlation;
+1. validates invocation, contract, slot, operation, effect, capability, action site, and source correlation;
 2. decodes the action input with the declared schema;
 3. constructs immutable hook context with host context, decoded input, request facts, optional idempotency key, and abort signal;
 4. awaits `beforeAction` when configured;
@@ -121,12 +121,6 @@ The key is derived from a host-provided seed plus the contract, operation, actio
 
 It returns `{ passed, mismatches, execution }` and does not throw for an extension mismatch. See [testing and conformance](testing.md) for examples.
 
-## Migrating a v1 host
-
-The action ABI 2.0 hook API is intentionally isolated from v1 authorization adapters and artifacts. Move any required `authorise` logic into `beforeAction`, derive resource identifiers from its decoded `input` or a host-owned helper, and return a declared operation error on `stop`. Remove `resourceScope` and the universal `policy` error wrapper once callers and extension code use the new error type. An allow-all callback can be deleted. ABI 1.0 artifacts remain v1 inputs and are not translated or reinterpreted by the hook ABI; retain canonical source and regenerate artifacts.
-
-See the [accepted hook design record](proposals/action-hooks.md#migration) and [v2 migration guide](v2/migration.md) for the full compatibility boundary.
-
 ## Cancellation and close
 
 `cancel(invocationId)` aborts the SDK-side signal and asks the bridge to cancel the matching active invocation. It is idempotent: no matching active invocation returns `not_active`. Cancellation does not imply rollback and late host completion is ignored.
@@ -136,3 +130,11 @@ See the [accepted hook design record](proposals/action-hooks.md#migration) and [
 ## Authoring support
 
 `createAuthoringBundle(contract, slot)` produces slot-scoped declarations, restrictions, examples, and structured diagnostic repair guidance for an editor or coding agent. It intentionally excludes private IR and semantic graph internals. See [authoring bundles](artifacts-and-inspection.md#authoring-bundles).
+
+## Worker distribution
+
+SafeScript 0.6.0 coordinates `@safescript/contracts`, `@safescript/engine`, `@safescript/worker`, `@safescript/sdk`, `@safescript/cli`, and `@safescript/conformance`. Internal SafeScript dependencies use the exact same version. Installation includes the complete JavaScript worker and does not download executables, require a daemon, compile native code, or discover ambient packages.
+
+The SDK resolves the worker relative to its own installed package graph, verifies the generated manifest and SHA-256 build digest, and starts it lazily. An explicit override requires absolute entry and Node paths; optional required features and a sorted digest allow-list further constrain it. Overrides do not enable remote transports, daemon discovery, downgrade, or fallback.
+
+The supported release matrix is Node.js 22 and 24 on Linux x64/arm64, macOS x64/arm64, and Windows x64. Every target runs the same adapter-neutral conformance suite.

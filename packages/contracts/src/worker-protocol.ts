@@ -1,4 +1,4 @@
-/** Closed worker-protocol 1.0 message kinds. */
+/** Closed worker-protocol message kinds. */
 export const WORKER_PROTOCOL_MESSAGE_KINDS = Object.freeze([
   'session.hello',
   'session.welcome',

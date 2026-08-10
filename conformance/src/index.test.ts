@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from 'bun:test';
 
 import {
   STANDARD_EXECUTION_LIMITS,
-  checkCompatibility,
   decodeCanonical,
   encodeCanonical,
   ids,
@@ -17,9 +16,9 @@ import { createNodeProcessRuntimeBridge } from '@safescript/sdk';
 import { withRuntimeBridge } from './index.js';
 import { blindApplicationExtensionReference, blindDeviceRuleReference } from './authoring-fixtures.js';
 import {
-  measureV1ReferenceResourceLedgers,
-  V1_REFERENCE_RESOURCE_LEDGERS,
-  V1_STANDARD_EXECUTION_LIMITS,
+  measureReferenceResourceLedgers,
+  REFERENCE_RESOURCE_LEDGERS,
+  REFERENCE_EXECUTION_LIMITS,
 } from './resources.js';
 import {
   applicationExtensionReference,
@@ -92,7 +91,6 @@ function executionRequest(
   digit = '1',
 ) {
   return {
-    abiVersion: { major: 2, minor: 0 } as const,
     registry: referenceRegistry,
     slotId: referenceTypes.slotId,
     invocationId: invocation(digit),
@@ -116,7 +114,6 @@ function completedAction(
       ? '{"ids":["sam","alex"],"next":"page-2"}'
       : String(request.operationId);
   return {
-    abiVersion: { major: 2, minor: 0 },
     requestId: request.requestId,
     result: {
       tag: 'completed',
@@ -269,7 +266,7 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
   );
 
   it.each(references)('matches the locked $name semantic resource ledger', async (reference) => {
-    const expected = V1_REFERENCE_RESOURCE_LEDGERS.find(({ name }) => name === reference.name);
+    const expected = REFERENCE_RESOURCE_LEDGERS.find(({ name }) => name === reference.name);
     if (!expected) throw new Error(`missing locked ledger for ${reference.name}`);
     const host = { handleAction: async (action: Parameters<typeof completedAction>[0]) => completedAction(action) };
     const first = await factory().execute(
@@ -289,11 +286,11 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
   });
 
   it('locks the conformance profile to the public standard limits', () => {
-    expect(V1_STANDARD_EXECUTION_LIMITS).toEqual(STANDARD_EXECUTION_LIMITS);
+    expect(REFERENCE_EXECUTION_LIMITS).toEqual(STANDARD_EXECUTION_LIMITS);
   });
 
   it('exposes the locked measurement gate through the adapter factory seam', async () => {
-    expect(await measureV1ReferenceResourceLedgers(factory)).toEqual(V1_REFERENCE_RESOURCE_LEDGERS);
+    expect(await measureReferenceResourceLedgers(factory)).toEqual(REFERENCE_RESOURCE_LEDGERS);
   });
 
   it('regenerates disposable artefacts and semantic graphs from host-owned source', async () => {
@@ -352,24 +349,6 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
     });
     expect(result.status).toBe('accepted');
     if (result.status === 'accepted') expect(result.viewErrors.semantic_graph?.code).toBe('graph_limit_exceeded');
-  });
-
-  it('rejects cross-major and newer-minor compatibility requirements', () => {
-    const supported = {
-      language: { major: 1, minor: 1 },
-      ir: { major: 1, minor: 1 },
-      abi: { major: 2, minor: 0 },
-      contractId: referenceRegistry.id,
-      contract: referenceRegistry.version,
-    };
-    expect(checkCompatibility(supported, { ...supported, language: { major: 2, minor: 0 } })).toContainEqual({
-      code: 'incompatible_version',
-      dimension: 'language',
-    });
-    expect(checkCompatibility(supported, { ...supported, ir: { major: 1, minor: 2 } })).toContainEqual({
-      code: 'incompatible_version',
-      dimension: 'ir',
-    });
   });
 
   it('fails resource exhaustion before dispatch and never replays an action', async () => {
@@ -528,13 +507,13 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
         }),
     });
     while (!release) await Bun.sleep(1);
-    expect(await bridge.cancel({ abiVersion: { major: 2, minor: 0 }, invocationId: request.invocationId })).toEqual({
+    expect(await bridge.cancel({ invocationId: request.invocationId })).toEqual({
       status: 'accepted',
     });
     release();
     const result = await execution;
     expect(result.status).toBe('cancelled');
-    expect(await bridge.cancel({ abiVersion: { major: 2, minor: 0 }, invocationId: request.invocationId })).toEqual({
+    expect(await bridge.cancel({ invocationId: request.invocationId })).toEqual({
       status: 'not_active',
     });
   });
@@ -545,7 +524,6 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
     const actionSchema = resultSchema(ref(referenceTypes.actionOutput), ref(referenceTypes.actionError));
     const declaredError = await factory().execute(request, {
       handleAction: async (action) => ({
-        abiVersion: { major: 2, minor: 0 },
         requestId: action.requestId,
         result: {
           tag: 'completed',
@@ -568,7 +546,6 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
       { ...request, invocationId: invocation('8') },
       {
         handleAction: async (action) => ({
-          abiVersion: { major: 2, minor: 0 },
           requestId: action.requestId,
           result: { tag: 'failed', value: { effectState: 'unknown', failure: { code: 'unavailable' } } },
         }),
@@ -581,7 +558,6 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
       { ...request, invocationId: invocation('9') },
       {
         handleAction: async (action) => ({
-          abiVersion: { major: 2, minor: 0 },
           requestId: action.requestId,
           result: { tag: 'completed', value: [0] },
         }),

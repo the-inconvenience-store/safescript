@@ -12,12 +12,12 @@ export {
 } from './references.js';
 export type { ReferenceIntegration } from './references.js';
 export {
-  measureV1ReferenceResourceLedgers,
-  V1_REFERENCE_RESOURCE_LEDGERS,
-  V1_STANDARD_EXECUTION_LIMITS,
+  measureReferenceResourceLedgers,
+  REFERENCE_RESOURCE_LEDGERS,
+  REFERENCE_EXECUTION_LIMITS,
 } from './resources.js';
 export type { ReferenceResourceLedger } from './resources.js';
-export { evaluateAuthoringGate, V1_AUTHORING_THRESHOLDS } from './authoring.js';
+export { evaluateAuthoringGate, AUTHORING_THRESHOLDS } from './authoring.js';
 export type {
   AgentAuthoringEvidence,
   AuthoringFailureOwner,

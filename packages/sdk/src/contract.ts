@@ -3,7 +3,6 @@
  * @packageDocumentation
  */
 import {
-  ACTION_ABI_VERSION,
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
   decodeCanonical,
@@ -24,13 +23,11 @@ import {
   type OperationId,
   type Schema,
   type SchemaRegistry,
-  type SemVer,
   type Sha256Digest,
   type SlotDefinition,
   type SlotId,
   type TypeDefinition,
   type TypeId,
-  type Version,
 } from '@safescript/contracts';
 
 import { generateDeclarations } from './declarations.js';
@@ -60,12 +57,11 @@ export interface Operation<I, O, E> {
   readonly idempotency: 'none' | 'required';
 }
 
-/** Host-defined execution point with fixed input/output types, permissions, language, and ceiling limits. */
+/** Host-defined execution point with fixed input/output types, permissions, and ceiling limits. */
 export interface Slot<I, O> {
   readonly id: SlotId;
   readonly input: ContractType<I>;
   readonly output: ContractType<O>;
-  readonly languageVersion: Version;
   readonly effects: readonly EffectId[];
   readonly capabilities: readonly CapabilityId[];
   readonly compileLimits?: Partial<CompileLimits>;
@@ -80,7 +76,6 @@ export type Slots = Readonly<Record<string, Slot<unknown, unknown>>>;
 /** Single host-owned authority from which declarations, codecs, fingerprints, and registry records are derived. */
 export interface ContractDefinition<O extends Operations, S extends Slots> {
   readonly id: ContractId;
-  readonly version: SemVer;
   readonly types?: readonly ContractType<unknown>[];
   readonly operations: O;
   readonly slots: S;
@@ -94,9 +89,7 @@ export interface Codec<T> {
 
 /** Validated, deeply immutable result of {@link defineContract}. */
 export interface Contract<O extends Operations, S extends Slots> {
-  readonly abiVersion: typeof ACTION_ABI_VERSION;
   readonly id: ContractId;
-  readonly version: SemVer;
   readonly registry: ContractRegistry;
   readonly fingerprint: Sha256Digest;
   readonly declarations: string;
@@ -107,19 +100,6 @@ export interface Contract<O extends Operations, S extends Slots> {
 
 function fingerprint(domain: 'type' | 'contract', value: unknown): Sha256Digest {
   return hash(domain, encodeUtf8(stable(value)));
-}
-
-function validateVersion(version: SemVer): void {
-  if (
-    !Number.isSafeInteger(version.major) ||
-    version.major < 0 ||
-    !Number.isSafeInteger(version.minor) ||
-    version.minor < 0 ||
-    !Number.isSafeInteger(version.patch) ||
-    version.patch < 0 ||
-    (version.prerelease !== undefined && !/^[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*$/.test(version.prerelease))
-  )
-    throw new TypeError('invalid contract version');
 }
 
 function referencedTypes<O extends Operations, S extends Slots>(
@@ -220,19 +200,11 @@ function defineSlots<S extends Slots>(
   const slots = Object.values(source)
     .map((slot): SlotDefinition => {
       ids.slot(slot.id);
-      if (
-        !Number.isSafeInteger(slot.languageVersion.major) ||
-        slot.languageVersion.major < 0 ||
-        !Number.isSafeInteger(slot.languageVersion.minor) ||
-        slot.languageVersion.minor < 0
-      )
-        throw new TypeError(`invalid language version for ${slot.id}`);
       validateSlotPermissions(slot, effects, capabilities);
       const record = {
         id: slot.id,
         input: slot.input.id,
         output: slot.output.id,
-        languageVersion: slot.languageVersion,
         effects: Object.freeze([...slot.effects]),
         capabilities: Object.freeze([...slot.capabilities]),
         compileLimits: completeLimits(STANDARD_COMPILE_LIMITS, slot.compileLimits),
@@ -284,7 +256,6 @@ export function defineContract<const O extends Operations, const S extends Slots
 ): Contract<O, S> {
   try {
     ids.contract(definition.id);
-    validateVersion(definition.version);
     const uniqueTypes = referencedTypes(definition);
     const typeDefinitions = defineTypes(uniqueTypes);
     const schemas = defineSchemaRegistry(typeDefinitions);
@@ -297,15 +268,11 @@ export function defineContract<const O extends Operations, const S extends Slots
       ({ id, fingerprint: value }) => ({ id, fingerprint: value }),
     );
     const digest = fingerprint('contract', {
-      abiVersion: ACTION_ABI_VERSION,
       id: definition.id,
-      version: definition.version,
       definitions,
     });
     const registry: ContractRegistry = freeze({
-      abiVersion: ACTION_ABI_VERSION,
       id: definition.id,
-      version: definition.version,
       digest,
       schemas,
       effects: sortedEffects,
@@ -317,9 +284,7 @@ export function defineContract<const O extends Operations, const S extends Slots
     const codecs = defineCodecs(uniqueTypes, schemas);
     const declarations = generateDeclarations(typeDefinitions, operations);
     return freeze({
-      abiVersion: ACTION_ABI_VERSION,
       id: definition.id,
-      version: definition.version,
       registry,
       fingerprint: digest,
       declarations,

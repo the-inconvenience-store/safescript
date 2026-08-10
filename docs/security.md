@@ -41,7 +41,7 @@ SafeScript guarantees the validated interception point, not authorization. A del
 
 An action request binds:
 
-- ABI, contract requirement, slot, invocation, and request identity;
+- contract, slot, invocation, and request identity;
 - operation, effect, and capability identity;
 - verified IR and source action-site provenance;
 - canonical typed input;
@@ -55,7 +55,7 @@ Recording a request proves only that work was proposed. Recording a completed ou
 
 The engine and SDK avoid exposing partial work at checked boundaries:
 
-- invalid source, contract, ABI, version, slot, module set, or artifact never starts interpretation;
+- invalid source, contract, slot, module set, or artifact never starts interpretation;
 - invalid invocation input never reaches the bridge;
 - resource capacity for an action group is reserved before dispatch;
 - a validated `beforeAction` stop does not call the handler;
@@ -88,3 +88,15 @@ Checked artifacts contain executable derived representation and contract/source 
 SafeScript is not an approval system, policy language, secrets broker, workflow engine, durable runtime, retry coordinator, or host-service sandbox. It cannot protect against absent or over-permissive host policy, a malicious trusted hook or handler, or a downstream service that grants too much. It cannot roll back external effects.
 
 For implementation details, read [architecture and engine](engine.md). For host integration rules, read the [SDK guide](sdk.md).
+
+## Worker process boundary
+
+The local runtime worker is defense in depth. Source, artifacts, registries, inputs, frames, worker outputs, action requests, and outcomes remain untrusted at every receiving seam. The host retains handlers, credentials, invocation context, lifecycle hooks, policy state, external idempotency enforcement, and effect dispatch; none of those values are serialized to the worker.
+
+Both peers enforce framing limits before allocation, deterministic CBOR, closed payload schemas, correlation, and the exact SafeScript 0.6.0 session contract. The host rejects duplicate, late, mismatched, or state-invalid actions before hooks or handlers. Protocol failures close the smallest trustworthy scope and never cause replay. A lost unresolved action has unknown effect state unless the host can prove otherwise.
+
+The SDK launches the pinned worker entry with an argv array, `shell: false`, an empty environment, binary stdin/stdout, bounded stderr, and no Node IPC channel. It validates package metadata and the worker build digest before use. Explicit overrides require absolute paths and remain subject to the same handshake and validation.
+
+Source, contract constants, artifacts, graphs, invocation values, traces, and facts may contain tenant data and are not logged by default. Public failures exclude paths, environment values, command lines, raw frames, stack traces, and credentials. Operators should add platform controls such as restricted service accounts, network denial, read-only filesystems, and process resource quotas where appropriate.
+
+A plain Node child process is not a syscall sandbox. SafeScript does not claim to contain a compromised Node runtime, sandbox trusted hooks or handlers, or provide remote-worker authentication, durable recovery, approvals, retries, or workflow behavior.

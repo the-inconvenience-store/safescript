@@ -11,6 +11,7 @@ import {
   resultSchema,
   STANDARD_EXECUTION_LIMITS,
   STANDARD_WORKER_OPERATIONAL_LIMITS,
+  SAFESCRIPT_VERSION,
   WORKER_PROTOCOL_SESSION_HELLO_PAYLOAD,
   type ActionOutcome,
   type ActionRequest,
@@ -41,23 +42,15 @@ import {
 
 const digest = '0'.repeat(64);
 const hello: WorkerProtocolSessionHello = Object.freeze({
-  protocol: Object.freeze({ major: 1n, min_minor: 0n, max_minor: 0n }),
-  sdk: Object.freeze({ version: Object.freeze({ major: 1n, minor: 0n, patch: 0n }), build: 'conformance' }),
+  version: SAFESCRIPT_VERSION,
+  sdk_build: 'conformance',
   expected_worker: Object.freeze({
-    package_version: Object.freeze({ major: 2n, minor: 0n, patch: 0n }),
+    version: SAFESCRIPT_VERSION,
     build_digest: digest,
     override: false,
   }),
   required_features: Object.freeze([]),
   optional_features: Object.freeze([]),
-  versions: Object.freeze({
-    abi: Object.freeze([Object.freeze({ major: 2n, minor: 0n })]),
-    language: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
-    ir: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
-    diagnostic_catalog: Object.freeze([Object.freeze({ major: 1n, minor: 4n, patch: 0n })]),
-    artifact: Object.freeze([Object.freeze({ major: 1n, minor: 0n })]),
-    authoring_bundle: Object.freeze([Object.freeze({ major: 1n, minor: 0n, patch: 0n })]),
-  }),
   limits: STANDARD_WORKER_OPERATIONAL_LIMITS,
 });
 
@@ -69,7 +62,6 @@ function encode(schema: Schema, value: unknown): readonly number[] {
 
 function executionRequest(reference: ReferenceIntegration, digit: string): ExecuteRequest {
   return {
-    abiVersion: { major: 2, minor: 0 },
     registry: referenceRegistry,
     slotId: referenceTypes.slotId,
     invocationId: ids.invocation(`invocation:${digit.repeat(32)}`),
@@ -89,7 +81,6 @@ function completedAction(request: ActionRequest): ActionOutcome {
       ? '{"ids":["sam","alex"],"next":"page-2"}'
       : String(request.operationId);
   return {
-    abiVersion: { major: 2, minor: 0 },
     requestId: request.requestId,
     result: {
       tag: 'completed',

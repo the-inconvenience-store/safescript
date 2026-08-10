@@ -2,7 +2,7 @@
 
 SafeScript source looks like TypeScript but has SafeScript semantics. TypeScript supplies parsing and source locations; the SafeScript compiler owns the accepted syntax, type behavior, effects, lowering, and execution model. Code that `tsc` accepts may still be invalid SafeScript.
 
-The language version is selected by the host slot. This repository supports language 1.0 and the additive 1.1 profile.
+SafeScript 0.6.0 exposes one language. The sections below describe its core and structured syntax; hosts do not select a language version per slot.
 
 ## Program shape
 
@@ -27,13 +27,13 @@ Imports are static and can only refer to:
 
 - generated `host:api` declarations;
 - `Ok`, `Err`, and `Result` from `safescript:prelude`;
-- modules included in the submitted source program (language 1.1).
+- modules included in the submitted source program.
 
 There is no package resolver or filesystem module lookup. Dynamic imports are rejected.
 
-## Language 1.0
+## Core syntax
 
-Language 1.0 is the small core profile. It supports:
+The core syntax supports:
 
 - readonly records and closed tagged unions;
 - `const` local bindings;
@@ -45,11 +45,9 @@ Language 1.0 is the small core profile. It supports:
 - one direct, sequential host action awaited exactly once;
 - `Ok(...)` and `Err(...)` construction.
 
-The 1.0 module contains imports and exactly one handler. It rejects helper functions, loops, recursion, mutable bindings, arrays as a general collection surface, and concurrent actions.
+## Structured syntax
 
-## Language 1.1
-
-Language 1.1 adds structured control and deterministic library features while retaining the same security boundary:
+The current language also provides structured control and deterministic library features while retaining the same security boundary:
 
 - typed helper functions, arrow functions, closures, recursion, and higher-order callbacks;
 - finite interfaces, aliases, intersections, recursive types, tuples, and monomorphic constrained generics;
@@ -82,7 +80,7 @@ A host may stop a validated action in `beforeAction` with any value from that op
 
 SafeScript values are immutable canonical data, not JavaScript objects with identity or prototypes. Supported schema values include unit, booleans, signed 64-bit integers, finite float64 values, strings, bytes, instants, lists, tuples, records, tagged variants, and primitive brands.
 
-Language 1.1 provides these checked deterministic intrinsics:
+The SafeScript language provides these checked deterministic intrinsics:
 
 | Area    | Current surface                                                                                                                                                                           |
 | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

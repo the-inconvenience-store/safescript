@@ -10,6 +10,7 @@ import {
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
   STANDARD_WORKER_OPERATIONAL_LIMITS,
+  SAFESCRIPT_VERSION,
   WORKER_PROTOCOL_SESSION_HELLO_PAYLOAD,
   WORKER_PROTOCOL_SESSION_WELCOME_PAYLOAD,
   type ActionRequest,
@@ -24,35 +25,22 @@ import { decodeWorkerBridgePayload, encodeWorkerBridgePayload } from './protocol
 import { DEFAULT_WORKER_HANDSHAKE_SUPPORT, RuntimeWorkerServer } from './server.js';
 
 const digest = '0'.repeat(64);
-const versions = Object.freeze({
-  abi: Object.freeze([Object.freeze({ major: 2n, minor: 0n })]),
-  language: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
-  ir: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
-  diagnostic_catalog: Object.freeze([Object.freeze({ major: 1n, minor: 4n, patch: 0n })]),
-  artifact: Object.freeze([Object.freeze({ major: 1n, minor: 0n })]),
-  authoring_bundle: Object.freeze([Object.freeze({ major: 1n, minor: 0n, patch: 0n })]),
-});
 const hello: WorkerProtocolSessionHello = Object.freeze({
-  protocol: Object.freeze({ major: 1n, min_minor: 0n, max_minor: 0n }),
-  sdk: Object.freeze({ version: Object.freeze({ major: 1n, minor: 0n, patch: 0n }), build: 'test' }),
+  version: SAFESCRIPT_VERSION,
+  sdk_build: 'test',
   expected_worker: Object.freeze({
-    package_version: Object.freeze({ major: 2n, minor: 0n, patch: 0n }),
+    version: SAFESCRIPT_VERSION,
     build_digest: digest,
     override: false,
   }),
   required_features: Object.freeze([]),
   optional_features: Object.freeze([]),
-  versions,
   limits: STANDARD_WORKER_OPERATIONAL_LIMITS,
 });
 
 const checkRequest = {
-  abiVersion: { major: 2, minor: 0 },
-  languageVersion: { major: 1, minor: 1 },
   registry: {
-    abiVersion: { major: 2, minor: 0 },
     id: 'contract:test.worker',
-    version: { major: 1, minor: 0, patch: 0 },
     digest,
     schemas: { types: [] },
     effects: [],
@@ -67,9 +55,7 @@ const checkRequest = {
 } as unknown as CheckRequest;
 
 const actionRequest = {
-  abiVersion: { major: 2, minor: 0 },
   contractId: 'contract:test.worker',
-  requiredContractVersion: { major: 1, minor: 0, patch: 0 },
   irDigest: digest,
   invocationId: 'invocation:test.worker',
   requestId: 'request:test.worker',
@@ -175,12 +161,11 @@ describe('standalone runtime worker server', () => {
     await server.drain();
   });
 
-  it('keeps legacy outcomes and SDK-local hook diagnostics off the worker wire', () => {
+  it('keeps invalid outcomes and SDK-local hook diagnostics off the worker wire', () => {
     expect(
       encodeWorkerBridgePayload('action.outcome', {
         request: 1n,
         outcome: {
-          abiVersion: { major: 1, minor: 0 },
           requestId: actionRequest.requestId,
           result: { tag: 'rejected', value: { code: 'denied' } },
         },
@@ -236,7 +221,6 @@ describe('standalone runtime worker server', () => {
       views: ['semantic_graph'],
     });
     const executePayload = encodeWorkerBridgePayload('bridge.execute.request', {
-      abiVersion: { major: 2, minor: 0 },
       registry: checkRequest.registry,
       slotId: checkRequest.slotId,
       invocationId: 'invocation:test.worker' as never,
@@ -259,7 +243,6 @@ describe('standalone runtime worker server', () => {
     const outcome = encodeWorkerBridgePayload('action.outcome', {
       request: actionEnvelope.id,
       outcome: {
-        abiVersion: { major: 2, minor: 0 },
         requestId: actionRequest.requestId,
         result: { tag: 'completed', value: [0xf6] },
       },
@@ -269,7 +252,6 @@ describe('standalone runtime worker server', () => {
     await server.drain();
 
     const cancelPayload = encodeWorkerBridgePayload('bridge.cancel.request', {
-      abiVersion: { major: 2, minor: 0 },
       invocationId: 'invocation:test.worker' as never,
     });
     const closePayload = encodeWorkerBridgePayload('session.close.request', {});

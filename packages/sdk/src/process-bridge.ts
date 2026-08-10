@@ -3,6 +3,7 @@ import {
   decodeWorkerProtocolPayload,
   encodeWorkerProtocolEnvelope,
   encodeWorkerProtocolPayload,
+  SAFESCRIPT_VERSION,
   STANDARD_WORKER_OPERATIONAL_LIMITS,
   validateWorkerProtocolWelcome,
   WORKER_PROTOCOL_SESSION_HELLO_PAYLOAD,
@@ -37,26 +38,15 @@ const ZERO_DIGEST = '0'.repeat(64);
 
 /** Host-side protocol identity used until release packaging supplies a generated build manifest. */
 export const DEFAULT_PROCESS_WORKER_HELLO: WorkerProtocolSessionHello = Object.freeze({
-  protocol: Object.freeze({ major: 1n, min_minor: 0n, max_minor: 0n }),
-  sdk: Object.freeze({
-    version: Object.freeze({ major: 2n, minor: 0n, patch: 0n }),
-    build: 'safescript-sdk-process-bridge',
-  }),
+  version: SAFESCRIPT_VERSION,
+  sdk_build: 'safescript-sdk-process-bridge',
   expected_worker: Object.freeze({
-    package_version: Object.freeze({ major: 2n, minor: 0n, patch: 0n }),
+    version: SAFESCRIPT_VERSION,
     build_digest: ZERO_DIGEST,
     override: false,
   }),
   required_features: Object.freeze([]),
   optional_features: Object.freeze([]),
-  versions: Object.freeze({
-    abi: Object.freeze([Object.freeze({ major: 2n, minor: 0n })]),
-    language: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
-    ir: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
-    diagnostic_catalog: Object.freeze([Object.freeze({ major: 1n, minor: 4n, patch: 0n })]),
-    artifact: Object.freeze([Object.freeze({ major: 1n, minor: 0n })]),
-    authoring_bundle: Object.freeze([Object.freeze({ major: 1n, minor: 0n, patch: 0n })]),
-  }),
   limits: STANDARD_WORKER_OPERATIONAL_LIMITS,
 });
 
@@ -133,7 +123,6 @@ function failedResult(phase: BridgePhase, code: BridgeError['code'], detail?: st
 
 function handlerFailure(request: ActionRequest): ActionOutcome {
   return Object.freeze({
-    abiVersion: request.abiVersion,
     requestId: request.requestId,
     result: Object.freeze({
       tag: 'failed' as const,

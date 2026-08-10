@@ -1,6 +1,6 @@
 {
   "name": "@safescript/cli",
-  "version": "2.0.0",
+  "version": "0.6.0",
   "type": "module",
   "bin": {
     "safescript": "./dist/index.js"
@@ -22,7 +22,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@safescript/sdk": "^2.0.0"
+    "@safescript/sdk": "0.6.0"
   },
   "nx": {
     "tags": [

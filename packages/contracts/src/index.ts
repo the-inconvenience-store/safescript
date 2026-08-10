@@ -152,30 +152,28 @@ export function sourceHash(bytes: Uint8Array): SourceHash {
   return hash('source', bytes) as unknown as SourceHash;
 }
 
-/** Major/minor version used for language, IR, and ABI compatibility. */
+/** Major/minor numeric pair used by internal structured formats. */
 export interface Version {
   readonly major: number;
   readonly minor: number;
 }
 
-/** Full semantic version used by host contracts and compiler provenance. */
+/** Full semantic version used by versioned generated records. */
 export interface SemVer extends Version {
   readonly patch: number;
   readonly prerelease?: string;
 }
 
-/** Versioned, serialisable authoring rules shared by checking and generated authoring bundles. */
+/** Serialisable authoring rules shared by checking and generated authoring bundles. */
 export interface LanguageProfile {
-  readonly version: Version;
   readonly name: string;
   readonly accepted: readonly string[];
   readonly rejected: readonly string[];
   readonly authoringRules: readonly string[];
 }
 
-const LANGUAGE_1_0: LanguageProfile = {
-  version: { major: 1, minor: 0 },
-  name: 'SafeScript restricted TypeScript 1.0',
+const CORE_LANGUAGE_PROFILE: LanguageProfile = {
+  name: 'SafeScript restricted TypeScript',
   accepted: [
     'named static imports and one named exported async handler',
     'readonly records, tagged unions, const bindings, if, exhaustive switch, and return',
@@ -194,11 +192,10 @@ const LANGUAGE_1_0: LanguageProfile = {
   ],
 };
 
-const LANGUAGE_1_1: LanguageProfile = {
-  version: { major: 1, minor: 1 },
-  name: 'SafeScript restricted TypeScript 1.1',
+const CURRENT_LANGUAGE_PROFILE: LanguageProfile = {
+  name: 'SafeScript restricted TypeScript',
   accepted: [
-    ...LANGUAGE_1_0.accepted,
+    ...CORE_LANGUAGE_PROFILE.accepted,
     'typed helper functions, closures, restricted generics, bounded loops, recursion, readonly arrays and tuples',
     'deterministic String, Bytes, Math, Temporal, JSON, console trace, and immutable collection operations',
     'multiple sequential actions and bounded Promise.all groups whose inputs are statically known',
@@ -209,7 +206,7 @@ const LANGUAGE_1_1: LanguageProfile = {
     'floating or duplicated actions, timers, promise races, reflection, prototypes, classes, regex, Map, and Set',
   ],
   authoringRules: [
-    ...LANGUAGE_1_0.authoringRules,
+    ...CORE_LANGUAGE_PROFILE.authoringRules,
     'Keep loops, recursion, collections, strings, JSON, traces, and concurrent action groups within slot limits.',
     'Use deterministic intrinsics; time and randomness come only from invocation-provided Temporal.Now and Math.random.',
     'JSON.parse<T> returns a checked Result; handle both tags before using the decoded value.',
@@ -218,152 +215,17 @@ const LANGUAGE_1_1: LanguageProfile = {
   ],
 };
 
-/** Closed V1 language profiles. The engine and SDK select profiles only from this authority. */
-export const LANGUAGE_PROFILES: readonly LanguageProfile[] = deepFreeze([LANGUAGE_1_0, LANGUAGE_1_1]);
+/** The sole language profile implemented by this SafeScript release. */
+export const LANGUAGE_PROFILE: LanguageProfile = deepFreeze(CURRENT_LANGUAGE_PROFILE);
 
-/** Resolves one exact supported language profile. */
-export function languageProfile(version: Version): LanguageProfile | undefined {
-  return LANGUAGE_PROFILES.find(
-    (profile) => profile.version.major === version.major && profile.version.minor === version.minor,
-  );
+/** Returns the current SafeScript language profile. */
+export function languageProfile(): LanguageProfile {
+  return LANGUAGE_PROFILE;
 }
 
 /** Exact compiler release and build that produced an artifact. */
 export interface CompilerVersion {
-  readonly version: SemVer;
   readonly build: string;
-}
-
-/** Independent version requirements embedded in checked artifacts and bridge records. */
-export interface VersionRequirements {
-  readonly language: Version;
-  readonly ir: Version;
-  readonly abi: Version;
-  readonly contractId: ContractId;
-  readonly contract: SemVer;
-  readonly compiler?: CompilerVersion;
-}
-
-/** Associates a serialisable value with the ABI required to decode it. */
-export interface VersionEnvelope<T> {
-  readonly abiVersion: Version;
-  readonly value: T;
-}
-
-/** Versions and optional compiler allowlist accepted by a runtime. */
-export interface SupportedVersions {
-  readonly language: Version;
-  readonly ir: Version;
-  readonly abi: Version;
-  readonly contractId: ContractId;
-  readonly contract: SemVer;
-  readonly allowedCompilers?: readonly CompilerVersion[];
-}
-
-/** Independently negotiated semantic version dimensions. */
-export type CompatibilityDimension = 'language' | 'ir' | 'abi' | 'contract' | 'compiler';
-
-/** Machine-readable reason that one version dimension is incompatible. */
-export interface CompatibilityFailure {
-  readonly code: 'incompatible_version';
-  readonly dimension: CompatibilityDimension;
-}
-
-function validVersion(version: Version): boolean {
-  return (
-    Number.isSafeInteger(version.major) &&
-    version.major >= 0 &&
-    Number.isSafeInteger(version.minor) &&
-    version.minor >= 0
-  );
-}
-
-function validSemVer(version: SemVer): boolean {
-  return (
-    validVersion(version) &&
-    Number.isSafeInteger(version.patch) &&
-    version.patch >= 0 &&
-    (version.prerelease === undefined ||
-      /^(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*$/.test(
-        version.prerelease,
-      ))
-  );
-}
-
-function acceptsMinor(supported: Version, required: Version): boolean {
-  return (
-    validVersion(supported) &&
-    validVersion(required) &&
-    supported.major === required.major &&
-    supported.minor >= required.minor
-  );
-}
-
-function compareSemVer(left: SemVer, right: SemVer): number {
-  for (const key of ['major', 'minor', 'patch'] as const) {
-    if (left[key] !== right[key]) return left[key] - right[key];
-  }
-  if (left.prerelease === right.prerelease) return 0;
-  if (left.prerelease === undefined) return 1;
-  if (right.prerelease === undefined) return -1;
-  const leftParts = left.prerelease.split('.');
-  const rightParts = right.prerelease.split('.');
-  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index++) {
-    const leftPart = leftParts[index];
-    const rightPart = rightParts[index];
-    if (leftPart === undefined) return -1;
-    if (rightPart === undefined) return 1;
-    if (leftPart === rightPart) continue;
-    const leftNumber = /^(?:0|[1-9][0-9]*)$/.test(leftPart) ? Number(leftPart) : undefined;
-    const rightNumber = /^(?:0|[1-9][0-9]*)$/.test(rightPart) ? Number(rightPart) : undefined;
-    if (leftNumber !== undefined && rightNumber !== undefined) return leftNumber - rightNumber;
-    if (leftNumber !== undefined) return -1;
-    if (rightNumber !== undefined) return 1;
-    return leftPart < rightPart ? -1 : 1;
-  }
-  return 0;
-}
-
-function sameCompiler(left: CompilerVersion, right: CompilerVersion): boolean {
-  return (
-    compareSemVer(left.version, right.version) === 0 &&
-    left.version.prerelease === right.version.prerelease &&
-    left.build === right.build
-  );
-}
-
-/**
- * Checks all independent version dimensions without short-circuiting.
- *
- * @remarks Language, IR, and ABI accept older minor versions within one major. Contracts additionally require the
- * same contract identity and a current semantic version at least as new as the requirement.
- */
-export function checkCompatibility(
-  supported: SupportedVersions,
-  required: VersionRequirements,
-): readonly CompatibilityFailure[] {
-  const failures: CompatibilityFailure[] = [];
-  for (const dimension of ['language', 'ir', 'abi'] as const) {
-    if (!acceptsMinor(supported[dimension], required[dimension]))
-      failures.push({ code: 'incompatible_version', dimension });
-  }
-  if (
-    supported.contractId !== required.contractId ||
-    !validSemVer(supported.contract) ||
-    !validSemVer(required.contract) ||
-    supported.contract.major !== required.contract.major ||
-    compareSemVer(supported.contract, required.contract) < 0
-  ) {
-    failures.push({ code: 'incompatible_version', dimension: 'contract' });
-  }
-  if (
-    required.compiler &&
-    supported.allowedCompilers &&
-    !supported.allowedCompilers.some((compiler) => sameCompiler(compiler, required.compiler as CompilerVersion))
-  ) {
-    failures.push({ code: 'incompatible_version', dimension: 'compiler' });
-  }
-  return Object.freeze(failures.map((failure) => Object.freeze(failure)));
 }
 
 /** Immutable language-neutral byte representation used at serialisable seams. */
@@ -1629,7 +1491,7 @@ export interface SourceLocation {
   readonly end: number;
 }
 
-/** Closed V1 compiler diagnostics. Codes describe source semantics, never private checking or lowering passes. */
+/** Closed compiler diagnostics. Codes describe source semantics, never private checking or lowering passes. */
 export const COMPILER_DIAGNOSTIC_CODES = Object.freeze([
   'SS_AMBIENT_AUTHORITY',
   'SS_CLASS_REJECTED',
@@ -1660,7 +1522,6 @@ export const COMPILER_DIAGNOSTIC_CODES = Object.freeze([
   'SS_REGEX_REJECTED',
   'SS_RESULT_CONSTRUCTION',
   'SS_RETURN_TYPE',
-  'SS_SLOT_LANGUAGE_MISMATCH',
   'SS_SOURCE_ENCODING',
   'SS_SWITCH_EXHAUSTIVE',
   'SS_SWITCH_TYPE',
@@ -1699,7 +1560,7 @@ export function diagnosticRepair(code: CompilerDiagnosticCode): DiagnosticRepair
     return { category: 'resources', action: 'Reduce source, type, template, or module complexity within slot limits.' };
   if (code === 'SS_RECORD_SHAPE')
     return { category: 'types', action: 'Use exact fields and expand shorthand { value } to { value: value }.' };
-  if (code === 'SS_CONTRACT_INVALID' || code === 'SS_CONTEXT_REQUIRED' || code === 'SS_SLOT_LANGUAGE_MISMATCH')
+  if (code === 'SS_CONTRACT_INVALID' || code === 'SS_CONTEXT_REQUIRED')
     return {
       category: 'contract',
       action: 'Use the exact generated slot context, declarations, and language version.',
@@ -1776,12 +1637,6 @@ export type BridgeErrorCode =
   | 'worker_start_failed'
   | 'worker_start_timeout';
 
-/** The only action ABI emitted or accepted by the v2 SDK, runtime, and worker protocol. */
-export const ACTION_ABI_VERSION = Object.freeze({ major: 2, minor: 0 } as const);
-export type ActionAbiVersion = typeof ACTION_ABI_VERSION;
-/** Explicit legacy marker used only to identify and reject v1 values without translation. */
-export type LegacyActionAbiVersion = Readonly<{ major: 1; minor: 0 }>;
-
 function exactDataRecord(value: unknown, keys: readonly string[]): value is Readonly<Record<string, unknown>> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
   try {
@@ -1806,15 +1661,6 @@ function validIdentifier<Id extends string>(value: unknown, parse: (value: strin
   } catch {
     return false;
   }
-}
-
-/** Returns whether a value names the exact action ABI supported by this release. */
-export function isActionAbiVersion(value: unknown): value is ActionAbiVersion {
-  return (
-    exactDataRecord(value, ['major', 'minor']) &&
-    value.major === ACTION_ABI_VERSION.major &&
-    value.minor === ACTION_ABI_VERSION.minor
-  );
 }
 
 /** Lifecycle point associated with a bounded hook failure diagnostic. */
@@ -1897,9 +1743,7 @@ export interface SourceProvenance {
  * envelope before dispatching a handler; host lifecycle policy remains a separate concern.
  */
 export interface ActionRequest {
-  readonly abiVersion: ActionAbiVersion;
   readonly contractId: ContractId;
-  readonly requiredContractVersion: SemVer;
   readonly irDigest: IrDigest;
   readonly invocationId: InvocationId;
   readonly requestId: RequestId;
@@ -1915,31 +1759,20 @@ export interface ActionRequest {
 
 /** Terminal typed resolution of one action request. */
 export type ActionOutcome = Readonly<{
-  abiVersion: ActionAbiVersion;
   requestId: RequestId;
   result:
     | Readonly<{ tag: 'completed'; value: CanonicalBytes }>
     | Readonly<{ tag: 'failed'; value: Readonly<{ effectState: EffectState; failure: HostFailure }> }>;
 }>;
 
-/** Legacy v1 outcome retained solely so adapters can isolate it explicitly. */
-export type LegacyActionOutcome = Readonly<{
-  abiVersion: LegacyActionAbiVersion;
-  requestId: RequestId;
-  result:
-    | Readonly<{ tag: 'completed'; value: CanonicalBytes }>
-    | Readonly<{ tag: 'rejected'; value: Readonly<{ code: string; detail?: string }> }>
-    | Readonly<{ tag: 'failed'; value: Readonly<{ effectState: EffectState; failure: HostFailure }> }>;
-}>;
-
-/** Fail-closed structural validator for an ABI 2.0 terminal action outcome. */
+/** Fail-closed structural validator for a terminal action outcome. */
 export function isActionOutcome(
   value: unknown,
   requestId?: RequestId,
   maxBytes = Number.MAX_SAFE_INTEGER,
 ): value is ActionOutcome {
-  if (!exactDataRecord(value, ['abiVersion', 'requestId', 'result'])) return false;
-  if (!isActionAbiVersion(value.abiVersion) || typeof value.requestId !== 'string') return false;
+  if (!exactDataRecord(value, ['requestId', 'result'])) return false;
+  if (typeof value.requestId !== 'string') return false;
   try {
     ids.parseRequest(value.requestId);
   } catch {
@@ -2003,7 +1836,6 @@ export interface SlotDefinition {
   readonly id: SlotId;
   readonly input: TypeId;
   readonly output: TypeId;
-  readonly languageVersion: Version;
   readonly effects: readonly EffectId[];
   readonly capabilities: readonly CapabilityId[];
   readonly compileLimits: CompileLimits;
@@ -2017,9 +1849,7 @@ export interface SlotDefinition {
  * cached runtime decision.
  */
 export interface ContractRegistry {
-  readonly abiVersion: ActionAbiVersion;
   readonly id: ContractId;
-  readonly version: SemVer;
   readonly digest: Sha256Digest;
   readonly schemas: SchemaRegistry;
   readonly effects: readonly EffectDefinition[];
@@ -2094,16 +1924,12 @@ export function programHash(program: SourceProgram): ContractResult<ProgramHash>
   ]);
   return digest.ok ? Object.freeze({ ok: true, value: digest.value as unknown as ProgramHash }) : digest;
 }
-/** Compatibility and integrity metadata retained by a checked execution artifact. */
+/** Integrity metadata retained by a checked execution artifact. */
 export interface CheckedArtifactHeader {
-  readonly languageVersion: Version;
   readonly compilerVersion: CompilerVersion;
   readonly contractId: ContractId;
-  readonly requiredContractVersion: SemVer;
   readonly contractDigest: Sha256Digest;
   readonly referencedDefinitions: readonly DefinitionFingerprint[];
-  readonly irVersion: Version;
-  readonly abiVersion: Version;
   readonly sourceHash: SourceHash;
   readonly programHash: ProgramHash;
   readonly irDigest: IrDigest;
@@ -2136,18 +1962,13 @@ export interface ProgramSummary {
   readonly effects: readonly EffectId[];
   readonly capabilities: readonly CapabilityId[];
 }
-/** Compiler and semantic versions that produced an accepted artifact. */
+/** Compiler identity that produced an accepted artifact. */
 export interface CompilerProvenance {
   readonly compiler: CompilerVersion;
-  readonly language: Version;
-  readonly ir: Version;
-  readonly abi: Version;
 }
 
 /** Complete transport-neutral inputs required to check source without ambient discovery. */
 export interface CheckRequest {
-  readonly abiVersion: ActionAbiVersion;
-  readonly languageVersion: Version;
   readonly registry: ContractRegistry;
   readonly slotId: SlotId;
   readonly source: SourceProgram;
@@ -2283,12 +2104,10 @@ export interface SemanticGraphAuthority {
 
 /** Complete, disposable source-semantic projection for one accepted program. */
 export interface SemanticGraph {
-  readonly schemaVersion: SemVer;
   readonly sourceHash: SourceHash;
   readonly programHash: ProgramHash;
   readonly compiler: CompilerVersion;
-  readonly language: Version;
-  readonly contract: Readonly<{ id: ContractId; version: SemVer; digest: Sha256Digest }>;
+  readonly contract: Readonly<{ id: ContractId; digest: Sha256Digest }>;
   readonly slotId: SlotId;
   readonly entryModule: ModuleId;
   readonly root: SemanticNodeId;
@@ -2331,7 +2150,6 @@ export type ExecutableProgram =
   Readonly<{ kind: 'source'; source: CheckRequest }> | Readonly<{ kind: 'artifact'; bytes: CanonicalBytes }>;
 /** Complete transport-neutral execution inputs; host invocation context remains in the SDK. */
 export interface ExecuteRequest {
-  readonly abiVersion: ActionAbiVersion;
   readonly registry: ContractRegistry;
   readonly slotId: SlotId;
   readonly invocationId: InvocationId;
@@ -2402,20 +2220,11 @@ export interface ExecutionError {
 
 /** Public failure domains remain distinct even though their codes share one compatibility catalog. */
 export type FailureDomain =
-  | 'diagnostic'
-  | 'validation'
-  | 'version'
-  | 'artifact'
-  | 'inspection'
-  | 'execution'
-  | 'action'
-  | 'cancellation'
-  | 'bridge';
+  'diagnostic' | 'validation' | 'artifact' | 'inspection' | 'execution' | 'action' | 'cancellation' | 'bridge';
 /** Component responsible for assigning and preserving one stable failure meaning. */
 export type FailureOwner =
   | 'compiler'
   | 'contract_codec'
-  | 'version_compatibility'
   | 'contract_registry'
   | 'artifact_verifier'
   | 'semantic_graph'
@@ -2429,7 +2238,6 @@ export type FailureField =
   | 'actual'
   | 'byteOffset'
   | 'detail'
-  | 'dimension'
   | 'effectState'
   | 'hostCode'
   | 'id'
@@ -2444,7 +2252,6 @@ export type FailureField =
 export type SafeScriptFailureCode =
   | CompilerDiagnosticCode
   | ContractFailureCode
-  | CompatibilityFailure['code']
   | DefinitionCompatibilityFailure['code']
   | SemanticGraphError['code']
   | ExecutionErrorCode
@@ -2458,18 +2265,7 @@ export interface FailureCatalogEntry {
   readonly meaning: string;
   readonly fields: readonly FailureField[];
   readonly sourceProvenance: 'required' | 'optional' | 'not_applicable';
-  readonly deprecatedSince?: SemVer;
-  readonly replacement?: SafeScriptFailureCode;
 }
-
-/**
- * Semantic version of the stable failure catalog.
- *
- * @remarks Adding a new code is compatible and increments the minor version. Changing a code's meaning or fields is
- * breaking and requires a major version. Removal first requires a deprecated entry and replacement path; message text
- * is deliberately outside this contract.
- */
-export const DIAGNOSTIC_CATALOG_VERSION: SemVer = Object.freeze({ major: 1, minor: 4, patch: 0 });
 
 const COMPILER_DIAGNOSTIC_MEANINGS = Object.freeze([
   'ambient authority access',
@@ -2572,14 +2368,6 @@ export const DIAGNOSTIC_CATALOG: readonly FailureCatalogEntry[] = Object.freeze(
         ['path', 'byteOffset', 'detail'],
         'not_applicable',
       ),
-    ),
-    catalogEntry(
-      'incompatible_version',
-      'version',
-      'version_compatibility',
-      'unsupported version requirement',
-      ['dimension'],
-      'not_applicable',
     ),
     catalogEntry(
       'invalid_contract_digest',
@@ -2855,7 +2643,6 @@ export type ExecutionResult = (
 
 /** Idempotent request to signal one active invocation. */
 export interface CancelRequest {
-  readonly abiVersion: ActionAbiVersion;
   readonly invocationId: InvocationId;
 }
 /** Whether cancellation reached an active invocation or no live invocation matched. */

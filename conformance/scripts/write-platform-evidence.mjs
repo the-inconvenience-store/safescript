@@ -15,18 +15,16 @@ const workerManifestPath = installedRoot
 const [workerPackage, workerManifest, fixtures] = await Promise.all([
   readFile(workerPackagePath, 'utf8').then(JSON.parse),
   readFile(workerManifestPath, 'utf8').then(JSON.parse),
-  readFile(new URL('../worker-protocol/v1/fixtures.json', import.meta.url), 'utf8').then(JSON.parse),
+  readFile(new URL('../worker-protocol/fixtures.json', import.meta.url), 'utf8').then(JSON.parse),
 ]);
 
 const evidence = {
-  schemaVersion: 1,
+  format: 1,
   releaseVersion: workerPackage.version,
   nodeVersion: process.version,
   os: platform(),
   architecture: arch(),
   workerBuildDigest: workerManifest.buildDigest,
-  protocolVersion: fixtures.protocol,
-  fixtureSchemaVersion: fixtures.schemaVersion,
   testCommand:
     'node conformance/scripts/verify-installed-release.mjs && bun test conformance/src/index.test.ts conformance/src/worker-protocol-spec.test.ts conformance/src/release.test.ts',
   result: 'passed',

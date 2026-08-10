@@ -4,7 +4,6 @@
  */
 import {
   MAX_HOOK_DIAGNOSTICS,
-  checkCompatibility,
   decodeCanonical,
   encodeCanonical,
   ids,
@@ -21,7 +20,7 @@ import {
 } from '@safescript/contracts';
 
 import type { Operations, Slot, Slots } from './contract.js';
-import { ABI_VERSION, freeze } from './shared.js';
+import { freeze } from './shared.js';
 import type {
   AbortSignal,
   ActionContext,
@@ -97,29 +96,12 @@ class InvocationGateway<C, O extends Operations, S extends Slots> {
 
   private validEnvelope(request: ActionRequest, entry: OperationEntry<O>): boolean {
     try {
-      const compatible =
-        checkCompatibility(
-          {
-            language: ABI_VERSION,
-            ir: ABI_VERSION,
-            abi: ABI_VERSION,
-            contractId: this.options.contract.id,
-            contract: this.options.contract.version,
-          },
-          {
-            language: ABI_VERSION,
-            ir: ABI_VERSION,
-            abi: request.abiVersion,
-            contractId: request.contractId,
-            contract: request.requiredContractVersion,
-          },
-        ).length === 0;
       ids.parseRequest(request.requestId);
       ids.actionSite(request.actionSiteId);
       ids.module(request.source.module);
       const requiresKey = entry.operation.idempotency === 'required';
       return Boolean(
-        compatible &&
+        request.contractId === this.options.contract.id &&
         request.invocationId === this.invocationId &&
         request.requestId === ids.request(this.invocationId, this.sequence) &&
         /^[0-9a-f]{64}$/.test(request.irDigest) &&
@@ -203,7 +185,6 @@ class InvocationGateway<C, O extends Operations, S extends Slots> {
     );
     return encoded.ok
       ? freeze({
-          abiVersion: ABI_VERSION,
           requestId: request.requestId,
           result: { tag: 'completed', value: [...encoded.value] },
         })
@@ -244,7 +225,6 @@ class InvocationGateway<C, O extends Operations, S extends Slots> {
       );
       return encoded.ok
         ? freeze({
-            abiVersion: ABI_VERSION,
             requestId: request.requestId,
             result: { tag: 'completed', value: [...encoded.value] },
           })
@@ -274,7 +254,6 @@ class InvocationGateway<C, O extends Operations, S extends Slots> {
     )
       return this.fail(request, 'unknown', 'invalid_result');
     return freeze({
-      abiVersion: ABI_VERSION,
       requestId: request.requestId,
       result: { tag: 'failed', value: { effectState: outcome.effectState, failure: outcome.failure as HostFailure } },
     });
@@ -282,7 +261,6 @@ class InvocationGateway<C, O extends Operations, S extends Slots> {
 
   private fail(request: ActionRequest, effectState: EffectState, code: HostFailure['code']): ActionOutcome {
     return freeze({
-      abiVersion: ABI_VERSION,
       requestId: request.requestId,
       result: { tag: 'failed', value: { effectState, failure: { code } } },
     });

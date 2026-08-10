@@ -42,20 +42,6 @@ const messageId: WorkerProtocolSchema = { kind: 'uint', minimum: 1n };
 const epochSeconds: WorkerProtocolSchema = { kind: 'int' };
 const schemaInt: WorkerProtocolSchema = { kind: 'int' };
 
-const version = record([
-  { name: 'major', schema: uint() },
-  { name: 'minor', schema: uint() },
-]);
-const actionAbiVersion = record([
-  { name: 'major', schema: { kind: 'uint', minimum: 2n, maximum: 2n } },
-  { name: 'minor', schema: { kind: 'uint', minimum: 0n, maximum: 0n } },
-]);
-const semver = record([
-  { name: 'major', schema: uint() },
-  { name: 'minor', schema: uint() },
-  { name: 'patch', schema: uint() },
-  { name: 'prerelease', schema: text(256), optional: true },
-]);
 const instant = record([
   { name: 'epoch_seconds', schema: epochSeconds },
   { name: 'nanoseconds', schema: { kind: 'uint', maximum: 999_999_999n } },
@@ -65,10 +51,7 @@ const sourceLocation = record([
   { name: 'start', schema: uint() },
   { name: 'end', schema: uint() },
 ]);
-const compilerVersion = record([
-  { name: 'version', schema: semver },
-  { name: 'build', schema: text() },
-]);
+const compilerVersion = record([{ name: 'build', schema: text() }]);
 const compileLimits = record(
   [
     'source_bytes',
@@ -207,7 +190,6 @@ const slotDefinition = record([
   { name: 'id', schema: text() },
   { name: 'input', schema: text() },
   { name: 'output', schema: text() },
-  { name: 'language_version', schema: version },
   { name: 'effects', schema: array(text()) },
   { name: 'capabilities', schema: array(text()) },
   { name: 'compile_limits', schema: compileLimits },
@@ -215,9 +197,7 @@ const slotDefinition = record([
   { name: 'fingerprint', schema: text(64) },
 ]);
 const registry = record([
-  { name: 'abi_version', schema: actionAbiVersion },
   { name: 'id', schema: text() },
-  { name: 'version', schema: semver },
   { name: 'digest', schema: text(64) },
   { name: 'schemas', schema: record([{ name: 'types', schema: array(typeDefinition) }]) },
   { name: 'effects', schema: array(fingerprintDefinition) },
@@ -239,8 +219,6 @@ const sourceProgram = record([
   },
 ]);
 const checkRequest = record([
-  { name: 'abi_version', schema: actionAbiVersion },
-  { name: 'language_version', schema: version },
   { name: 'registry', schema: registry },
   { name: 'slot_id', schema: text() },
   { name: 'source', schema: sourceProgram },
@@ -257,7 +235,6 @@ const inspectRequest = record([
   { name: 'graph_limits', schema: graphLimits, optional: true },
 ]);
 const executeRequest = record([
-  { name: 'abi_version', schema: actionAbiVersion },
   { name: 'registry', schema: registry },
   { name: 'slot_id', schema: text() },
   { name: 'invocation_id', schema: text() },
@@ -281,10 +258,7 @@ const executeRequest = record([
   { name: 'random_seed', schema: bytes(), optional: true },
   { name: 'trace', schema: oneOf(literal('none'), literal('summary'), literal('semantic')) },
 ]);
-const cancelRequest = record([
-  { name: 'abi_version', schema: actionAbiVersion },
-  { name: 'invocation_id', schema: text() },
-]);
+const cancelRequest = record([{ name: 'invocation_id', schema: text() }]);
 
 const bridgeError = record([
   { name: 'code', schema: text() },
@@ -300,12 +274,7 @@ const programSummary = record([
   { name: 'effects', schema: array(text()) },
   { name: 'capabilities', schema: array(text()) },
 ]);
-const compilerProvenance = record([
-  { name: 'compiler', schema: compilerVersion },
-  { name: 'language', schema: version },
-  { name: 'ir', schema: version },
-  { name: 'abi', schema: version },
-]);
+const compilerProvenance = record([{ name: 'compiler', schema: compilerVersion }]);
 const diagnostic = record([
   { name: 'code', schema: text() },
   { name: 'severity', schema: oneOf(literal('error'), literal('warning'), literal('info')) },
@@ -357,9 +326,7 @@ const inspectResult = oneOf(
 );
 
 const actionRequest = record([
-  { name: 'abi_version', schema: actionAbiVersion },
   { name: 'contract_id', schema: text() },
-  { name: 'required_contract_version', schema: semver },
   { name: 'ir_digest', schema: text(64) },
   { name: 'invocation_id', schema: text() },
   { name: 'request_id', schema: text() },
@@ -388,7 +355,6 @@ const hostFailure = record([
   { name: 'detail', schema: text(160), optional: true },
 ]);
 const actionOutcome = record([
-  { name: 'abi_version', schema: actionAbiVersion },
   { name: 'request_id', schema: text() },
   {
     name: 'result',

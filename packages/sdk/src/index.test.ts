@@ -58,7 +58,6 @@ const invocationId = ids.invocation('invocation:0123456789abcdef0123456789abcdef
 
 const contract = defineContract({
   id: ids.contract('contract:test.host'),
-  version: { major: 1, minor: 0, patch: 0 },
   operations: {
     read: {
       id: operationId,
@@ -76,7 +75,6 @@ const contract = defineContract({
       id: slotId,
       input: inputType,
       output: outputType,
-      languageVersion: { major: 1, minor: 0 },
       effects: [effect],
       capabilities: [capability],
       compileLimits: { sourceBytes: 1000 },
@@ -134,9 +132,7 @@ class FakeBridge implements RuntimeBridge {
 
 function action(request: BridgeExecuteRequest, sequence = 0): ActionRequest {
   return {
-    abiVersion: { major: 2, minor: 0 },
     contractId: contract.id,
-    requiredContractVersion: contract.version,
     irDigest: hash('ir', Uint8Array.of(1)) as unknown as IrDigest,
     invocationId: request.invocationId,
     requestId: ids.request(request.invocationId, sequence),
@@ -154,8 +150,6 @@ describe('defineContract', () => {
   it('derives one frozen registry, declarations, fingerprints, and codecs', () => {
     expect(Object.isFrozen(contract)).toBe(true);
     expect(Object.isFrozen(contract.registry)).toBe(true);
-    expect(contract.abiVersion).toEqual({ major: 2, minor: 0 });
-    expect(contract.registry.abiVersion).toEqual(contract.abiVersion);
     expect(contract.registry.digest).toBe(contract.fingerprint);
     expect(contract.declarations).toContain('export type TestInput');
     expect(contract.declarations).toContain('readonly test: Readonly<{ readonly read:');
@@ -181,7 +175,6 @@ describe('defineContract', () => {
     expect(() =>
       defineContract({
         id: ids.contract('contract:test.colliding'),
-        version: { major: 1, minor: 0, patch: 0 },
         types: [
           { id: ids.type('type:a-b'), schema: { kind: 'string' } },
           { id: ids.type('type:a.b'), schema: { kind: 'string' } },
@@ -193,7 +186,6 @@ describe('defineContract', () => {
     expect(() =>
       defineContract({
         id: ids.contract('contract:test.operation-conflict'),
-        version: { major: 1, minor: 0, patch: 0 },
         operations: {
           root: { ...contract.operations.read, id: ids.operation('operation:test') },
           nested: { ...contract.operations.read, id: ids.operation('operation:test.read') },
@@ -204,7 +196,6 @@ describe('defineContract', () => {
     expect(
       defineContract({
         id: ids.contract('contract:test.no-policy'),
-        version: { major: 1, minor: 0, patch: 0 },
         operations: {
           read: {
             ...contract.operations.read,
@@ -217,11 +208,6 @@ describe('defineContract', () => {
   });
 
   it.each([
-    ['invalid semantic version', () => defineContract({ ...contract, version: { major: -1, minor: 0, patch: 0 } })],
-    [
-      'invalid prerelease',
-      () => defineContract({ ...contract, version: { major: 1, minor: 0, patch: 0, prerelease: 'bad!' } }),
-    ],
     [
       'conflicting schemas',
       () =>
@@ -252,14 +238,6 @@ describe('defineContract', () => {
         defineContract({
           ...contract,
           operations: { read: contract.operations.read, again: contract.operations.read },
-        }),
-    ],
-    [
-      'invalid language version',
-      () =>
-        defineContract({
-          ...contract,
-          slots: { main: { ...contract.slots.main, languageVersion: { major: -1, minor: 0 } } },
         }),
     ],
     [
@@ -300,7 +278,6 @@ describe('defineContract', () => {
     const stringId = ids.type('type:forms.string');
     const forms = defineContract({
       id: ids.contract('contract:test.forms'),
-      version: { major: 1, minor: 0, patch: 0 },
       types: [
         { id: ids.type('type:forms.unit'), schema: { kind: 'unit' } },
         { id: ids.type('type:forms.boolean'), schema: { kind: 'boolean' } },
@@ -632,7 +609,6 @@ describe('createSafeScript', () => {
         ...request,
         idempotencyKey: 'invalid' as NonNullable<ActionRequest['idempotencyKey']>,
       }),
-      (request) => ({ ...request, requiredContractVersion: { major: 2, minor: 0, patch: 0 } }),
     ];
     for (const mutate of mutations) {
       bridge.executeResult = async (request, host) => {
@@ -643,14 +619,11 @@ describe('createSafeScript', () => {
       };
       await safe.execute({ slot: 'main', program: { kind: 'artifact', bytes: [] }, input: { value: 1n }, context: {} });
     }
-    expect(bridge.actions.map((outcome) => outcome.result.tag)).toEqual(['failed', 'failed', 'failed', 'failed']);
+    expect(bridge.actions.map((outcome) => outcome.result.tag)).toEqual(['failed', 'failed', 'failed']);
     expect(handlers).toBe(0);
 
     bridge.executeResult = async (request, host) => {
-      const compatible = {
-        ...action(request),
-        requiredContractVersion: { major: 1, minor: 0, patch: 0, prerelease: 'beta' },
-      } as const;
+      const compatible = action(request);
       bridge.actions.push(await host.handleAction(compatible), await host.handleAction(compatible));
       const output = encodeCanonical({ kind: 'string' }, 'done');
       if (!output.ok) throw new Error('fixture encoding failed');

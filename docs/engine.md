@@ -6,16 +6,16 @@ The SafeScript engine is the reference compiler and execution runtime behind the
 
 For a check request, the direct bridge:
 
-1. validates the ABI and language version, contract registry, slot, source module set, UTF-8, and requested ceilings;
+1. validates the contract registry, slot, source module set, UTF-8, and requested ceilings;
 2. measures source, module, import, declaration, syntax-depth, type-depth, template, and diagnostic work;
 3. parses with the pinned TypeScript compiler API without invoking ambient module resolution;
 4. applies SafeScript-owned syntax, type, control-flow, module, effect, and capability rules;
-5. lowers accepted code to versioned typed SafeScript IR;
+5. lowers accepted code to typed SafeScript IR;
 6. independently verifies IR shape, types, definitions, dominance/control flow, actions, and slot permissions;
-7. creates a checked artifact bound to source, compiler, language, IR, ABI, contract, definitions, and slot;
+7. creates a checked artifact bound to source, compiler build, contract, definitions, and slot;
 8. returns the artifact, reachable authority summary, provenance, diagnostics, and usage.
 
-Language 1.0 lowers directly to a typed basic-block IR. Language 1.1 uses a verified structured program inside an IR 1.1 terminator, allowing helper calls, recursion, loops, destructuring, collections, intrinsics, and action groups. Both forms are private execution representations; integrations should depend on source, bridge records, and the public semantic graph instead.
+The compiler lowers current SafeScript into a verified structured program inside typed IR, allowing helper calls, recursion, loops, destructuring, collections, intrinsics, and action groups. This is a private execution representation; integrations should depend on source, bridge records, and the public semantic graph instead.
 
 The compiler never emits JavaScript for execution.
 
@@ -35,7 +35,7 @@ The SDK adds its deterministic `test` method above this seam. Bridge inputs and 
 
 Source execution compiles through the same check path and reports the newly created artifact, summary, provenance, diagnostics, and compile usage in `facts.preparation`.
 
-Artifact execution treats bytes as untrusted. The engine rechecks canonical encoding, compiler identity, ABI/language/IR versions, contract identity and version, registry digest, referenced definition fingerprints, slot, IR digest, and the complete private IR verifier before interpreting anything. Artifact mode reports its verified IR digest in preparation facts.
+Artifact execution treats bytes as untrusted. The engine rechecks canonical encoding, compiler identity, contract identity, registry digest, referenced definition fingerprints, slot, IR digest, and the complete private IR verifier before interpreting anything. Artifact mode reports its verified IR digest in preparation facts.
 
 An artifact is a disposable optimization, not a permission token. It does not bypass input validation, resource limits, the action gateway, configured host hooks, handler dispatch, or result validation.
 
@@ -50,7 +50,7 @@ The interpreter evaluates canonical values and verified instructions. A resource
 - host calls and peak concurrent actions;
 - trace and output bytes.
 
-If a limit would be exceeded, execution fails before the operation exposes a partial allocation or action group. The [V1 semantic resource schedule](v1-resource-schedule.md) defines the charges; [limits and diagnostics](limits-and-diagnostics.md) explains configuration and results.
+If a limit would be exceeded, execution fails before the operation exposes a partial allocation or action group. The [Semantic resource schedule](resource-schedule.md) defines the charges; [limits and diagnostics](limits-and-diagnostics.md) explains configuration and results.
 
 Arithmetic uses checked SafeScript semantics. Signed integer overflow, division errors, non-finite floating results, malformed canonical values, missing deterministic inputs, invalid IR, and invalid output produce stable execution failures rather than JavaScript behavior leaking through.
 
@@ -80,6 +80,6 @@ Trace mode is `none`, `summary`, or `semantic`. Trace records are canonical and 
 
 Inspection derives a public semantic program graph from accepted source and verified compiler facts. It is never executable input and never controls lowering. See [artifacts and inspection](artifacts-and-inspection.md) for graph identity, limits, and editor guidance.
 
-## Adapter compatibility
+## Adapter conformance
 
-The conformance suite exercises adapters only through a bridge factory. It locks reference checks, source/artifact equivalence, semantic graphs, resource ledgers, cancellation, action ordering, deterministic time/randomness/traces, canonical values, hostile boundary cases, and version compatibility. See [testing and conformance](testing.md).
+The conformance suite exercises adapters only through a bridge factory. It locks reference checks, source/artifact equivalence, semantic graphs, resource ledgers, cancellation, action ordering, deterministic time/randomness/traces, canonical values, hostile boundary cases, and exact release identity. See [testing and conformance](testing.md).

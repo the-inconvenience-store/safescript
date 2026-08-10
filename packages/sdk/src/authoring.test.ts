@@ -30,7 +30,6 @@ const deniedCapability = ids.capability('capability:authoring.denied');
 
 const contract = defineContract({
   id: ids.contract('contract:authoring.test'),
-  version: { major: 1, minor: 0, patch: 0 },
   operations: {
     allowed: {
       id: ids.operation('operation:authoring.allowed'),
@@ -58,7 +57,6 @@ const contract = defineContract({
       id: ids.slot('slot:authoring.run'),
       input: valueType,
       output: valueType,
-      languageVersion: { major: 1, minor: 1 },
       effects: [allowedEffect],
       capabilities: [allowedCapability],
     },
@@ -66,14 +64,13 @@ const contract = defineContract({
 });
 
 describe('agent authoring bundle', () => {
-  it('generates a deterministic, frozen, versioned bundle from the exact slot authority', () => {
+  it('generates a deterministic, frozen bundle from the exact slot authority', () => {
     const first = createAuthoringBundle(contract, 'run');
     const second = createAuthoringBundle(contract, 'run');
     expect(second).toEqual(first);
     expect(Object.isFrozen(first)).toBe(true);
-    expect(first.schemaVersion).toEqual({ major: 1, minor: 0, patch: 0 });
     expect(first.contract.fingerprint).toBe(contract.fingerprint);
-    expect(first.profile.version).toEqual(contract.slots.run.languageVersion);
+    expect(first.profile.name).toBe('SafeScript restricted TypeScript');
     expect(first.slot.effects).toEqual([allowedEffect]);
     const declarations = first.files.find((file) => file.name === 'host-api.d.ts')?.content ?? '';
     expect(declarations).toContain('readonly allowed:');

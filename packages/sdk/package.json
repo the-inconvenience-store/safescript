@@ -1,6 +1,6 @@
 {
   "name": "@safescript/sdk",
-  "version": "2.0.0",
+  "version": "0.6.0",
   "type": "module",
   "exports": {
     ".": {
@@ -21,9 +21,9 @@
     "access": "public"
   },
   "dependencies": {
-    "@safescript/contracts": "^2.0.0",
-    "@safescript/engine": "^2.0.0",
-    "@safescript/worker": "2.0.0"
+    "@safescript/contracts": "0.6.0",
+    "@safescript/engine": "0.6.0",
+    "@safescript/worker": "0.6.0"
   },
   "nx": {
     "tags": [

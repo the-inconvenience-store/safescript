@@ -6,26 +6,26 @@ This page separates repository behavior from architectural direction. It is inte
 
 The repository currently implements:
 
-- language-neutral contracts, stable identities, canonical schemas/codecs, version checks, limits, and failure catalog;
-- restricted TypeScript language 1.0 and additive 1.1;
+- language-neutral contracts, stable identities, canonical schemas/codecs, limits, and failure catalog;
+- the restricted TypeScript language described in the language guide;
 - complete registered source-module sets with generated `host:api` and deterministic prelude/globals;
 - SafeScript-owned compilation to verified typed IR without generated-JavaScript execution;
 - supervised worker-backed default and explicit direct in-process `RuntimeBridge` for check, inspect, execute, cancel, and close;
 - checked artifact creation and fail-closed verification;
 - bounded IR interpretation with deterministic fuel and value/resource accounting;
 - sequential actions and bounded deterministic `Promise.all` groups;
-- typed action ABI 2.0 requests/outcomes, optional execution/action lifecycle hooks, idempotency-key derivation, and at-most-once handler dispatch per request;
+- typed action requests/outcomes, optional execution/action lifecycle hooks, idempotency-key derivation, and at-most-once handler dispatch per request;
 - deterministic fixed time, seeded randomness, checked JSON/bytes/math/string/object/collection intrinsics, and bounded traces;
 - semantic graph inspection with stable semantic IDs and independent export limits;
 - host contract declaration/codecs/fingerprint derivation;
 - the six-method TypeScript facade and deterministic scripted-action tests;
 - slot-scoped agent/editor authoring bundles with repair guidance;
 - offline JSON CLI commands for check, inspect, execute, and test;
-- the worker protocol 1.0 specification, standalone runtime worker, pinned manifest-verified Node launcher, default process bridge adapter, and lazy restart-bounded supervisor;
+- the worker protocol specification, standalone runtime worker, pinned manifest-verified Node launcher, default process bridge adapter, and lazy restart-bounded supervisor;
 - adapter-neutral conformance references, resource ledgers, hostile cases, release metadata, and authoring evidence;
 - an interactive CRM integration and read-only semantic-graph projection.
 
-The coordinated public TypeScript package set is version 2.0.0. The supported compatibility dimensions include language 1.0 and 1.1, IR 1.0 and 1.1, action ABI 2.0, worker protocol 1.0, diagnostic catalog 1.4.0, artifact 1.0, authoring bundle 1.0.0, and protocol fixture schema 1.0.0.
+The coordinated public TypeScript package set and sole public compatibility contract is SafeScript 0.6.0. Internal envelope and artifact format markers are validation details, not independently selectable product versions.
 
 ## Host responsibilities, not missing runtime features
 
@@ -55,7 +55,7 @@ The current repository does not yet provide:
 - durable invocations, workflow coordination, approvals, retries, or audit persistence;
 - package ecosystems or arbitrary TypeScript/JavaScript compatibility.
 
-Future adapters must preserve the same serializable bridge contracts and pass the same conformance suite. Future execution backends must preserve the language semantics, action ABI, deterministic resource schedule, compatibility rules, and fail-closed behavior.
+Future adapters must preserve the same serializable bridge contracts and pass the same conformance suite. Future execution backends must preserve the language semantics, typed action boundary, deterministic resource schedule, exact release contract, and fail-closed behavior.
 
 ## Product boundary
 

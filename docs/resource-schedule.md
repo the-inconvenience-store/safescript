@@ -1,6 +1,6 @@
-# V1 semantic resource schedule
+# Semantic resource schedule
 
-This document locks the SafeScript 1.1 semantic resource schedule. The
+This document locks the current SafeScript semantic resource schedule. The
 machine-checked reference ledgers live in `conformance/src/resources.ts`; the
 conformance suite measures them only through `RuntimeBridge` and therefore
 applies unchanged to direct and future process adapters.
@@ -34,7 +34,7 @@ partial allocation or action group.
 | Console trace event                       |                                                             5 |
 | JSON parse                                |         ceil(UTF-8 input bytes / 8), plus scan and allocation |
 
-Canonical allocation bytes are charged cumulatively for V1. Consequently
+Canonical allocation bytes are charged cumulatively. Consequently
 `peakRetainedBytes` equals the high-water mark of cumulative allocated bytes;
 this deliberately conservative model avoids depending on garbage-collector
 behaviour.
@@ -50,10 +50,9 @@ large enough for realistic extension inputs while bounding hostile work to
 1 MiB values/output, 4 MiB cumulative allocation, and 10,000 collection items.
 
 The profile is a maximum: hosts and slots should lower individual dimensions to
-fit their domain. Effect/capability summaries do not authorise work. Under action
-ABI 2.0, the host decides whether current policy runs in a hook, handler,
-downstream service, or several layers; the historical ABI 1.0 SDK required
-reauthorisation at its gateway.
+fit their domain. Effect/capability summaries do not authorise work. The host
+decides whether current policy runs in a hook, handler, downstream service, or
+several layers, and reauthorises each operation at the gateway.
 
 ## Release rule
 

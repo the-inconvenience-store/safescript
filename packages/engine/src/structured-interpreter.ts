@@ -759,7 +759,7 @@ async function invokeBuiltin(
     if (typeof text !== 'string' || !/^(?:[0-9a-fA-F]{2})*$/.test(text))
       throw new InterpreterFault('invalid_ir', 'Bytes.fromHex requires valid hexadecimal text');
     const value = Object.freeze(text.match(/../g)?.map((item) => Number.parseInt(item, 16)) ?? []);
-    // Conversion retains its locked V1 semantic charge even though the public
+    // Conversion retains its locked semantic charge even though the public
     // authoring surface returns the byte sequence directly.
     hooks.allocate(Object.freeze({ tag: 'ok', value }));
     return value;
@@ -800,9 +800,9 @@ async function invokeBuiltin(
     if (typeof item.epochSeconds !== 'bigint' || typeof item.nanoseconds !== 'number')
       throw new InterpreterFault('invalid_ir', 'invalid instant');
     const milliseconds = Number(item.epochSeconds) * 1000 + Math.trunc(item.nanoseconds / 1_000_000);
-    if (!Number.isFinite(milliseconds)) throw new InterpreterFault('invalid_ir', 'instant is outside V1 range');
+    if (!Number.isFinite(milliseconds)) throw new InterpreterFault('invalid_ir', 'instant is outside SafeScript range');
     const date = new Date(milliseconds);
-    if (Number.isNaN(date.getTime())) throw new InterpreterFault('invalid_ir', 'instant is outside V1 range');
+    if (Number.isNaN(date.getTime())) throw new InterpreterFault('invalid_ir', 'instant is outside SafeScript range');
     const base = date.toISOString();
     if (item.nanoseconds === 0) return created(base.replace('.000Z', 'Z'));
     const fraction = String(item.nanoseconds).padStart(9, '0').replace(/0+$/, '');

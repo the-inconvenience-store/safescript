@@ -63,7 +63,6 @@ interface CliContractSlot {
   readonly id: string;
   readonly input: string;
   readonly output: string;
-  readonly languageVersion: Readonly<{ major: number; minor: number }>;
   readonly effects: readonly string[];
   readonly capabilities: readonly string[];
   readonly compileLimits?: Partial<CompileLimits>;

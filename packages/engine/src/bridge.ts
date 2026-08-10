@@ -4,13 +4,11 @@
  * @packageDocumentation
  */
 import {
-  ACTION_ABI_VERSION,
   decodeCanonical,
   deriveIdempotencyKey,
   encodeCanonical,
   diagnosticRepair,
   ids,
-  languageProfile,
   isActionOutcome,
   resultSchema,
   type ActionOutcome,
@@ -42,7 +40,6 @@ import {
   type SlotDefinition,
   type SourceLocation,
   type TypeId,
-  type Version,
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
   STANDARD_SEMANTIC_GRAPH_LIMITS,
@@ -51,18 +48,16 @@ import {
 } from '@safescript/contracts';
 
 import { createArtifact, verifyArtifact, type CheckedArtifact } from './artifact.js';
-import { compileProgram, compileProgramModules, measureCompilerSource } from './compiler.js';
+import { compileProgramModules, measureCompilerSource } from './compiler.js';
 import { interpret, InterpreterFault } from './interpreter.js';
 import { verifyProgram, type IrTerminator } from './ir.js';
 import { structuredActions } from './structured-ir.js';
 import { deriveSemanticGraph } from './semantic-graph.js';
 
-const ABI_VERSION = ACTION_ABI_VERSION;
 const COMPILER = Object.freeze({
-  version: Object.freeze({ major: 0, minor: 2, patch: 0 }),
-  build: 'typed-ir-language-1-1',
+  build: 'typed-ir-current',
 });
-const COMPILER_NAME = `${COMPILER.version.major}.${COMPILER.version.minor}.${COMPILER.version.patch}+${COMPILER.build}`;
+const COMPILER_NAME = COMPILER.build;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
@@ -112,15 +107,6 @@ class ExecutionFault extends Error {
   }
 }
 
-function sameVersion(left: Version, right: Version): boolean {
-  return (
-    Number.isSafeInteger(left.major) &&
-    Number.isSafeInteger(left.minor) &&
-    left.major === right.major &&
-    left.minor === right.minor
-  );
-}
-
 function bridgeError(phase: BridgeError['phase'], code: BridgeError['code'], detail?: string): BridgeError {
   return Object.freeze({
     code,
@@ -162,7 +148,6 @@ function findType(registry: ContractRegistry, id: TypeId): Schema | undefined {
 }
 
 function validateRegistry(registry: ContractRegistry, slotId: CheckRequest['slotId']): SlotDefinition | string {
-  if (!sameVersion(registry.abiVersion, ABI_VERSION)) return 'contract registry action ABI is unsupported';
   const slot = registry.slots.find((candidate) => candidate.id === slotId);
   if (!slot) return 'unknown extension slot';
   if (!findType(registry, slot.input) || !findType(registry, slot.output)) return 'slot references an unknown schema';
@@ -210,18 +195,14 @@ function checkCompile(request: CheckRequest): InternalCheckResult {
       ),
       usage: compileUsage,
     });
-  if (!sameVersion(request.abiVersion, ABI_VERSION) || !languageProfile(request.languageVersion))
-    return Object.freeze({ status: 'bridge_error', error: bridgeError('check', 'unsupported_version') });
   const slot = validateRegistry(request.registry, request.slotId);
   if (typeof slot === 'string') return reject('SS_CONTRACT_INVALID', slot);
-  if (!sameVersion(slot.languageVersion, request.languageVersion))
-    return reject('SS_SLOT_LANGUAGE_MISMATCH', 'slot language version does not match request');
   if (!compileLimitsValid(request.limits, slot.compileLimits))
     return reject('SS_COMPILER_LIMIT', 'compile limits exceed the slot ceiling');
   if (
     request.source.modules.length === 0 ||
     request.source.modules.length > request.limits.modules ||
-    (request.languageVersion.minor === 0 && request.source.modules.length !== 1)
+    request.source.modules.length === 0
   )
     return reject('SS_MODULE_SET_INVALID', 'module set is outside the selected language minor');
   const module = request.source.modules.find((candidate) => candidate.id === request.source.entry);
@@ -246,15 +227,12 @@ function checkCompile(request: CheckRequest): InternalCheckResult {
     )
   )
     return reject('SS_COMPILER_LIMIT', 'type-depth or derived-template limit exceeded');
-  const compiled =
-    request.languageVersion.minor === 1
-      ? compileProgramModules(
-          texts as readonly Readonly<{ id: ModuleId; source: string }>[],
-          request.source.entry,
-          request.registry,
-          slot,
-        )
-      : compileProgram(texts[0]?.source as string, module.id, request.registry, slot);
+  const compiled = compileProgramModules(
+    texts as readonly Readonly<{ id: ModuleId; source: string }>[],
+    request.source.entry,
+    request.registry,
+    slot,
+  );
   compileUsage = usage(sourceBytes, compiled.syntaxNodes);
   if (
     compiled.imports > request.limits.imports ||
@@ -276,9 +254,6 @@ function checkCompile(request: CheckRequest): InternalCheckResult {
     summary: artifact.program.program.summary,
     provenance: Object.freeze({
       compiler: COMPILER,
-      language: request.languageVersion,
-      ir: Object.freeze({ major: 1, minor: compiled.program.version[1] }),
-      abi: ABI_VERSION,
     }),
     usage: compileUsage,
     diagnostics: Object.freeze([]),
@@ -331,7 +306,6 @@ function failedOutcome(
   effectState: 'not_performed' | 'unknown',
 ): ActionOutcome {
   return Object.freeze({
-    abiVersion: ABI_VERSION,
     requestId,
     result: Object.freeze({ tag: 'failed', value: Object.freeze({ effectState, failure: Object.freeze({ code }) }) }),
   });
@@ -635,9 +609,7 @@ class ActionDispatcher {
     if (key && !key.ok) throw new ExecutionFault('idempotency_key_invalid', key.failure.code);
     this.sequence++;
     return Object.freeze({
-      abiVersion: ABI_VERSION,
       contractId: this.request.registry.id,
-      requiredContractVersion: this.request.registry.version,
       irDigest: this.artifact.digest,
       invocationId: this.request.invocationId,
       requestId,
@@ -812,8 +784,6 @@ export class DirectRuntimeBridge implements RuntimeBridge {
   ): Promise<ExecutionResult> {
     const records: ActionRecord[] = [];
     const usageValue = emptyUsage();
-    if (!sameVersion(request.abiVersion, ABI_VERSION))
-      return { status: 'bridge_error', error: bridgeError('execute', 'unsupported_version') };
     const slot = validateRegistry(request.registry, request.slotId);
     if (
       typeof slot === 'string' ||
@@ -963,8 +933,6 @@ export class DirectRuntimeBridge implements RuntimeBridge {
 
   async cancel(request: Parameters<RuntimeBridge['cancel']>[0]) {
     if (this.closed) return { status: 'bridge_error' as const, error: bridgeError('cancel', 'bridge_closed') };
-    if (!sameVersion(request.abiVersion, ABI_VERSION))
-      return { status: 'bridge_error' as const, error: bridgeError('cancel', 'unsupported_version') };
     const active = this.active.get(request.invocationId);
     if (!active) return { status: 'not_active' as const };
     active.cancelled = true;

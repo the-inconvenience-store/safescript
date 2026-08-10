@@ -43,7 +43,6 @@ const slot: SlotDefinition = {
   id: slotId,
   input: inputId,
   output: outputId,
-  languageVersion: { major: 1, minor: 0 },
   effects: [],
   capabilities: [],
   compileLimits: STANDARD_COMPILE_LIMITS,
@@ -52,9 +51,7 @@ const slot: SlotDefinition = {
 };
 
 const registry: ContractRegistry = {
-  abiVersion: { major: 2, minor: 0 },
   id: ids.contract('contract:test'),
-  version: { major: 1, minor: 0, patch: 0 },
   digest: hash('contract', Uint8Array.of(5)),
   schemas: defineSchemaRegistry(definitions),
   effects: [],

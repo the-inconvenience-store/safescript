@@ -1,4 +1,4 @@
-/** SafeScript-owned checking and lowering for additive language 1.1 constructs. */
+/** SafeScript-owned checking and lowering for the SafeScript language. */
 import * as ts from 'typescript';
 import {
   derivedActionSiteId,
@@ -605,7 +605,7 @@ export function compileStructuredProgram(
     )
       throw new Failure({
         code: 'SS_HANDLER_SHAPE',
-        message: 'language 1.1 requires one named exported async handler with event and context parameters',
+        message: 'SafeScript requires one named exported async handler with event and context parameters',
         start: handler?.getStart(sourceFile) ?? 0,
         end: handler?.getEnd() ?? sourceFile.getEnd(),
       });

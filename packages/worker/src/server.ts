@@ -4,6 +4,7 @@ import {
   encodeWorkerProtocolEnvelope,
   encodeWorkerProtocolPayload,
   negotiateWorkerProtocolHandshake,
+  SAFESCRIPT_VERSION,
   STANDARD_WORKER_OPERATIONAL_LIMITS,
   WORKER_PROTOCOL_SESSION_HELLO_PAYLOAD,
   WORKER_PROTOCOL_SESSION_INCOMPATIBLE_PAYLOAD,
@@ -29,23 +30,12 @@ const MAX_UINT64 = (1n << 64n) - 1n;
 const ZERO_DIGEST = '0'.repeat(64);
 
 export const DEFAULT_WORKER_HANDSHAKE_SUPPORT: WorkerProtocolHandshakeSupport = Object.freeze({
-  protocol: Object.freeze({ major: 1n, min_minor: 0n, max_minor: 0n }),
+  version: SAFESCRIPT_VERSION,
   features: Object.freeze([]),
   worker: Object.freeze({
-    package_version: Object.freeze({ major: 2n, minor: 0n, patch: 0n }),
-    compiler: Object.freeze({
-      version: Object.freeze({ major: 0n, minor: 2n, patch: 0n }),
-      build: 'typed-ir-language-1-1',
-    }),
+    version: SAFESCRIPT_VERSION,
+    compiler_build: 'typed-ir-current',
     build_digest: ZERO_DIGEST,
-  }),
-  versions: Object.freeze({
-    abi: Object.freeze([Object.freeze({ major: 2n, minor: 0n })]),
-    language: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
-    ir: Object.freeze([Object.freeze({ major: 1n, minor: 0n }), Object.freeze({ major: 1n, minor: 1n })]),
-    diagnostic_catalog: Object.freeze([Object.freeze({ major: 1n, minor: 4n, patch: 0n })]),
-    artifact: Object.freeze([Object.freeze({ major: 1n, minor: 0n })]),
-    authoring_bundle: Object.freeze([Object.freeze({ major: 1n, minor: 0n, patch: 0n })]),
   }),
   limits: STANDARD_WORKER_OPERATIONAL_LIMITS,
   implementation: 'safescript-js-worker',
@@ -84,7 +74,7 @@ function reservedQueueBytes(limits: WorkerProtocolOperationalLimits): number {
 }
 
 /**
- * Stateful protocol 1.0 worker endpoint. It owns no ambient handlers or credentials and can be embedded over any
+ * Stateful worker endpoint. It owns no ambient handlers or credentials and can be embedded over any
  * ordered byte-stream sink; the executable adapter below binds it to stdin/stdout.
  */
 export class RuntimeWorkerServer {

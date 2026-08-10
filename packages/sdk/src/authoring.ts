@@ -4,7 +4,6 @@ import {
   diagnosticRepair,
   languageProfile,
   type CapabilityId,
-  type ContractId,
   type ContractRegistry,
   type CompilerDiagnosticCode,
   type CompileLimits,
@@ -12,20 +11,14 @@ import {
   type EffectId,
   type ExecutionLimits,
   type LanguageProfile,
-  type SemVer,
   type Schema,
   type SchemaRegistry,
-  type Sha256Digest,
   type SlotId,
   type TypeId,
-  type Version,
 } from '@safescript/contracts';
 
 import type { Contract, Operations, Slots } from './contract.js';
 import { declarationTypeName, generateDeclarations } from './declarations.js';
-
-/** Version of the serialisable authoring-bundle envelope. */
-export const AUTHORING_BUNDLE_VERSION: SemVer = Object.freeze({ major: 1, minor: 0, patch: 0 });
 
 export interface AuthoringFile {
   readonly name: string;
@@ -34,14 +27,12 @@ export interface AuthoringFile {
 }
 
 export interface AuthoringBundle {
-  readonly schemaVersion: SemVer;
-  readonly contract: Readonly<{ id: ContractId; version: SemVer; fingerprint: Sha256Digest }>;
+  readonly contract: Readonly<{ id: string; fingerprint: string }>;
   readonly slot: Readonly<{
     name: string;
     id: SlotId;
     input: TypeId;
     output: TypeId;
-    languageVersion: Version;
     effects: readonly EffectId[];
     capabilities: readonly CapabilityId[];
     compileLimits: CompileLimits;
@@ -186,9 +177,7 @@ export function createRegistryAuthoringBundle(
 ): AuthoringBundle {
   const slot = registry.slots.find((candidate) => candidate.id === slotId);
   if (!slot) throw new TypeError(`unknown slot ${slotId}`);
-  const profile = languageProfile(slot.languageVersion);
-  if (!profile)
-    throw new TypeError(`unsupported slot language ${slot.languageVersion.major}.${slot.languageVersion.minor}`);
+  const profile = languageProfile();
   const allowedEffects = new Set(slot.effects);
   const allowedCapabilities = new Set(slot.capabilities);
   const operations = registry.operations.filter(
@@ -196,13 +185,12 @@ export function createRegistryAuthoringBundle(
   );
   const declarations = generateDeclarations(registry.schemas.types, operations, true);
   const context = {
-    contract: { id: registry.id, version: registry.version, fingerprint: registry.digest },
+    contract: { id: registry.id, fingerprint: registry.digest },
     slot: {
       name: slotName,
       id: slot.id,
       input: slot.input,
       output: slot.output,
-      languageVersion: slot.languageVersion,
       effects: slot.effects,
       capabilities: slot.capabilities,
       compileLimits: slot.compileLimits,
@@ -214,7 +202,6 @@ export function createRegistryAuthoringBundle(
     repair: diagnosticRepair(code),
   }));
   return freeze({
-    schemaVersion: AUTHORING_BUNDLE_VERSION,
     contract: context.contract,
     slot: context.slot,
     profile,

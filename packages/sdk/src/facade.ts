@@ -32,7 +32,7 @@ import {
 import type { Contract, Operations, Slot, Slots } from './contract.js';
 import { createGateway, type OperationEntry } from './gateway.js';
 import { createNodeProcessRuntimeBridge } from './node-process-bridge.js';
-import { ABI_VERSION, bridgeError, completeLimits, encodeUtf8, freeze, stable } from './shared.js';
+import { bridgeError, completeLimits, encodeUtf8, freeze, stable } from './shared.js';
 import { compareExpectations, createScriptedHost, testMismatch } from './testing.js';
 import {
   SdkConfigurationError,
@@ -177,8 +177,6 @@ class RequestCodec<C, O extends Operations, S extends Slots> {
 
   check(slot: Slot<unknown, unknown>, source: SourceProgram, limits?: Partial<CompileLimits>) {
     return freeze({
-      abiVersion: ABI_VERSION,
-      languageVersion: slot.languageVersion,
       registry: this.contract.registry,
       slotId: slot.id,
       source: sourceProgram(source),
@@ -220,7 +218,6 @@ class RequestCodec<C, O extends Operations, S extends Slots> {
       )
         return bridgeError('execute', 'invalid_request');
       const assembled = freeze({
-        abiVersion: ABI_VERSION,
         registry: this.contract.registry,
         slotId: slot.id,
         invocationId,
@@ -393,7 +390,7 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
     return this.run(async () => {
       this.controllers.get(invocationId)?.abort();
       try {
-        return await this.bridge.cancel({ abiVersion: ABI_VERSION, invocationId });
+        return await this.bridge.cancel({ invocationId });
       } catch {
         return freeze({ status: 'bridge_error', error: bridgeError('cancel') });
       }
@@ -524,7 +521,7 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
       const execution = this.bridge.execute(assembled, host);
       if (request.signal) {
         const cancel = (): void => {
-          void this.bridge.cancel({ abiVersion: ABI_VERSION, invocationId }).catch(() => undefined);
+          void this.bridge.cancel({ invocationId }).catch(() => undefined);
         };
         if (request.signal.aborted) cancel();
         else {

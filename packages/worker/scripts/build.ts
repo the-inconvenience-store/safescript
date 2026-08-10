@@ -33,8 +33,7 @@ const buildDigest = createHash('sha256')
 const manifest = {
   schema: 1,
   packageVersion: packageManifest.version,
-  protocol: { major: 1, minMinor: 0, maxMinor: 0 },
-  compiler: { version: '0.2.0', build: 'typed-ir-language-1-1' },
+  compilerBuild: 'typed-ir-current',
   entry: 'entry.js',
   buildDigest,
 };

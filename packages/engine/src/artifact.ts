@@ -23,12 +23,9 @@ const ARTIFACT_SCHEMA: Schema = Object.freeze({ kind: 'string' });
 
 interface ArtifactRecord {
   readonly magic: 'SafeScript checked artifact';
-  readonly abi: readonly [2, 0];
-  readonly language: readonly [number, number];
-  readonly ir: readonly [1, 0 | 1];
+  readonly format: 1;
   readonly compiler: string;
   readonly contractId: string;
-  readonly contractVersion: readonly [number, number, number, string?];
   readonly contractDigest: string;
   readonly definitions: readonly (readonly [string, string])[];
   readonly slotId: string;
@@ -87,17 +84,9 @@ function isRecord(value: unknown): value is ArtifactRecord {
   const record = value as Partial<ArtifactRecord>;
   return (
     record.magic === 'SafeScript checked artifact' &&
-    Array.isArray(record.abi) &&
-    record.abi[0] === 2 &&
-    record.abi[1] === 0 &&
-    Array.isArray(record.language) &&
-    record.language.length === 2 &&
-    Array.isArray(record.ir) &&
-    record.ir[0] === 1 &&
-    (record.ir[1] === 0 || record.ir[1] === 1) &&
+    record.format === 1 &&
     typeof record.compiler === 'string' &&
     typeof record.contractId === 'string' &&
-    Array.isArray(record.contractVersion) &&
     typeof record.contractDigest === 'string' &&
     Array.isArray(record.definitions) &&
     typeof record.slotId === 'string' &&
@@ -126,18 +115,11 @@ export function createArtifact(
   const sourceHash = programHash(request.source);
   if (!sourceHash.ok) return undefined;
   const irDigest = digest(program.program);
-  const version = request.registry.version;
   const record: ArtifactRecord = {
     magic: 'SafeScript checked artifact',
-    abi: [2, 0],
-    language: [request.languageVersion.major, request.languageVersion.minor],
-    ir: program.program.version,
+    format: 1,
     compiler,
     contractId: request.registry.id,
-    contractVersion:
-      version.prerelease === undefined
-        ? [version.major, version.minor, version.patch]
-        : [version.major, version.minor, version.patch, version.prerelease],
     contractDigest: request.registry.digest,
     definitions: [...request.registry.definitions]
       .map((definition) => [String(definition.id), String(definition.fingerprint)] as const)
@@ -174,11 +156,6 @@ export function verifyArtifact(
     if (!decoded.ok || typeof decoded.value !== 'string') return undefined;
     const text = decoded.value;
     const value = parse(text);
-    const version = registry.version;
-    const contractVersion =
-      version.prerelease === undefined
-        ? [version.major, version.minor, version.patch]
-        : [version.major, version.minor, version.patch, version.prerelease];
     const definitions = [...registry.definitions]
       .map((definition) => [String(definition.id), String(definition.fingerprint)] as const)
       .sort((left, right) => left[0].localeCompare(right[0]));
@@ -187,12 +164,8 @@ export function verifyArtifact(
       !isRecord(value) ||
       stringify(value) !== text ||
       value.compiler !== compiler ||
-      value.language[0] !== 1 ||
-      value.language[1] !== slot.languageVersion.minor ||
-      value.ir[1] !== value.program.version[1] ||
       value.contractId !== registry.id ||
       value.contractDigest !== registry.digest ||
-      stringify(value.contractVersion) !== stringify(contractVersion) ||
       stringify(value.definitions) !== stringify(definitions) ||
       value.slotId !== slot.id
     )

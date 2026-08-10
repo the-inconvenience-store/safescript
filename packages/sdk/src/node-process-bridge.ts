@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { WorkerProtocolRange, WorkerProtocolSessionHello } from '@safescript/contracts';
+import { SAFESCRIPT_VERSION, type WorkerProtocolSessionHello } from '@safescript/contracts';
 
 import {
   DEFAULT_PROCESS_WORKER_HELLO,
@@ -17,14 +17,13 @@ import {
 const SHA256 = /^[0-9a-f]{64}$/;
 const FEATURE = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9_]*)+$/;
 const ZERO_DIGEST = '0'.repeat(64);
-const BUNDLED_PACKAGE_VERSION = '2.0.0';
-const BUNDLED_WORKER_BUILD_DIGEST = '51e734d7e547e0d791ab39a89f336015aebfdd69037216983330d0bdbd0e8005';
+const BUNDLED_PACKAGE_VERSION = '0.6.0';
+const BUNDLED_WORKER_BUILD_DIGEST = '83a2a54d5462d80abde691170eb0f0822c1362e20eb5822be99f390b7fcdbb2d';
 
 interface WorkerBuildManifest {
   readonly schema: 1;
   readonly packageVersion: string;
-  readonly protocol: Readonly<{ major: number; minMinor: number; maxMinor: number }>;
-  readonly compiler: Readonly<{ version: string; build: string }>;
+  readonly compilerBuild: string;
   readonly entry: string;
   readonly buildDigest: string;
 }
@@ -38,7 +37,6 @@ export interface NodeWorkerOverride {
   readonly entryPath: string;
   readonly nodePath?: string;
   readonly digestAllowlist?: readonly string[];
-  readonly protocol?: WorkerProtocolRange;
   readonly requiredFeatures?: readonly string[];
 }
 
@@ -124,11 +122,7 @@ async function bundledWorker(nodePath: string): Promise<ResolvedWorker> {
       packageManifest.name !== '@safescript/worker' ||
       packageManifest.version !== BUNDLED_PACKAGE_VERSION ||
       manifest.packageVersion !== BUNDLED_PACKAGE_VERSION ||
-      manifest.protocol?.major !== 1 ||
-      manifest.protocol?.minMinor !== 0 ||
-      manifest.protocol?.maxMinor !== 0 ||
-      manifest.compiler?.version !== '0.2.0' ||
-      manifest.compiler?.build !== 'typed-ir-language-1-1' ||
+      manifest.compilerBuild !== 'typed-ir-current' ||
       manifest.entry !== 'entry.js' ||
       !SHA256.test(manifest.buildDigest) ||
       manifest.buildDigest !== BUNDLED_WORKER_BUILD_DIGEST ||
@@ -152,12 +146,11 @@ async function overriddenWorker(override: NodeWorkerOverride): Promise<ResolvedW
 function hello(options: NodeProcessRuntimeBridgeOptions): WorkerProtocolSessionHello {
   return Object.freeze({
     ...DEFAULT_PROCESS_WORKER_HELLO,
-    protocol: options.override?.protocol ?? DEFAULT_PROCESS_WORKER_HELLO.protocol,
     required_features: Object.freeze(
       options.override?.requiredFeatures?.slice() ?? DEFAULT_PROCESS_WORKER_HELLO.required_features,
     ),
     expected_worker: Object.freeze({
-      package_version: Object.freeze({ major: 2n, minor: 0n, patch: 0n }),
+      version: SAFESCRIPT_VERSION,
       build_digest:
         options.override?.digestAllowlist?.[0] ?? (options.override ? ZERO_DIGEST : BUNDLED_WORKER_BUILD_DIGEST),
       override: options.override !== undefined,

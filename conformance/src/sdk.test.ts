@@ -47,7 +47,6 @@ const irDigest = hash('ir', Uint8Array.of(1)) as unknown as IrDigest;
 
 const contract = defineContract({
   id: ids.contract('contract:conformance.sdk'),
-  version: { major: 1, minor: 0, patch: 0 },
   operations: {
     read: {
       id: operationId,
@@ -65,7 +64,6 @@ const contract = defineContract({
       id: slotId,
       input: inputType,
       output: outputType,
-      languageVersion: { major: 1, minor: 1 },
       effects: [effect],
       capabilities: [capability],
     },
@@ -173,9 +171,7 @@ describe('public SDK conformance', () => {
         });
         if (!key.ok) throw new Error(key.failure.code);
         const action: ActionRequest = {
-          abiVersion: { major: 2, minor: 0 },
           contractId: contract.id,
-          requiredContractVersion: contract.version,
           irDigest,
           invocationId: request.invocationId,
           requestId: ids.request(request.invocationId, 0),
