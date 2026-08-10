@@ -74,7 +74,6 @@ const usage = Object.freeze({
   fuel: 1,
   allocations: 0,
   allocatedBytes: 0,
-  peakRetainedBytes: 0,
   peakCollectionItems: 0,
   peakValueDepth: 1,
   peakValueNodes: 1,

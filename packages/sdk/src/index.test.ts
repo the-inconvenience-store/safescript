@@ -91,7 +91,6 @@ const facts: ExecutionFacts = Object.freeze({
     fuel: 1,
     allocations: 0,
     allocatedBytes: 0,
-    peakRetainedBytes: 0,
     peakCollectionItems: 0,
     peakValueDepth: 0,
     peakValueNodes: 0,
@@ -816,6 +815,14 @@ describe('createSafeScript', () => {
         bridge: new FakeBridge(),
         handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
         defaultCompileLimits: { sourceBytes: STANDARD_COMPILE_LIMITS.sourceBytes + 1 },
+      }),
+    ).toThrow(SdkConfigurationError);
+    expect(() =>
+      createSafeScript({
+        contract,
+        bridge: new FakeBridge(),
+        handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
+        defaultExecutionLimits: { retainedBytes: 1 } as never,
       }),
     ).toThrow(SdkConfigurationError);
   });

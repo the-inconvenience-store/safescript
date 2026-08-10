@@ -102,6 +102,8 @@ This is not merely speculative—it is a false public distinction that every ada
 
 ### 4b. Redundant retained-memory accounting
 
+**Resolved:** `safescript-qt3` removed the duplicate retained-byte limit and usage fact. The text below records the pre-change evidence that led to that decision.
+
 **Confidence: very high.**
 
 The meter computes peak retained bytes from cumulative allocated bytes, which only increases (`packages/engine/src/bridge.ts:359-375`, `packages/engine/src/bridge.ts:414-427`). The resource-schedule documentation explicitly says `peakRetainedBytes` equals the high-water mark of cumulative allocated bytes (`docs/resource-schedule.md:37-40`). Nevertheless `allocatedBytes` and `retainedBytes` remain separate public limits and execution facts (`packages/contracts/src/index.ts:425-436`, `packages/contracts/src/index.ts:459-470`, `packages/contracts/src/index.ts:1945-1958`).

@@ -425,8 +425,8 @@ export interface CompileLimits {
 export interface ExecutionLimits extends ValueLimits {
   readonly fuel: number;
   readonly allocations: number;
+  /** Total canonical bytes allocated during the invocation; values are never credited as released. */
   readonly allocatedBytes: number;
-  readonly retainedBytes: number;
   readonly collectionItems: number;
   readonly callDepth: number;
   readonly hostCalls: number;
@@ -461,7 +461,6 @@ export const STANDARD_EXECUTION_LIMITS: ExecutionLimits = Object.freeze({
   fuel: 100_000,
   allocations: 10_000,
   allocatedBytes: 4 * 1024 * 1024,
-  retainedBytes: 4 * 1024 * 1024,
   collectionItems: 10_000,
   callDepth: 64,
   hostCalls: 32,
@@ -1945,8 +1944,8 @@ export interface CompileUsage {
 export interface ExecutionUsage {
   readonly fuel: number;
   readonly allocations: number;
+  /** Total canonical bytes allocated during the invocation. */
   readonly allocatedBytes: number;
-  readonly peakRetainedBytes: number;
   readonly peakCollectionItems: number;
   readonly peakValueDepth: number;
   readonly peakValueNodes: number;

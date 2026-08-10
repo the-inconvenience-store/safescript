@@ -37,7 +37,6 @@ The standard execution profile bounds:
 | Fuel                       |          100,000 |
 | Allocations                |           10,000 |
 | Cumulative allocated bytes |            4 MiB |
-| Retained bytes             |            4 MiB |
 | Collection items           |           10,000 |
 | Call depth                 |               64 |
 | Host calls                 |               32 |
@@ -50,7 +49,7 @@ The standard execution profile bounds:
 
 Fuel represents specified language work rather than elapsed time. Charges commit before their protected operation. The normative charges and compatibility rule are in the [Semantic resource schedule](resource-schedule.md).
 
-Execution facts report actual fuel, allocations, allocated bytes, peak retained/value/collection/call/concurrency measures, host calls, trace bytes, and output bytes. Resource exhaustion returns the exact exhausted dimension in bounded detail and never causes an implicit retry.
+Execution facts report actual fuel, allocations, cumulative allocated bytes, peak value/collection/call/concurrency measures, host calls, trace bytes, and output bytes. Allocated bytes increase monotonically; the runtime does not infer release from JavaScript garbage collection. Resource exhaustion returns the exact exhausted dimension in bounded detail and never causes an implicit retry.
 
 ## Semantic graph limits
 

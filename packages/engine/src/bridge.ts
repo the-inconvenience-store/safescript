@@ -79,7 +79,6 @@ interface MutableUsage {
   fuel: number;
   allocations: number;
   allocatedBytes: number;
-  peakRetainedBytes: number;
   peakCollectionItems: number;
   peakValueDepth: number;
   peakValueNodes: number;
@@ -315,7 +314,6 @@ function emptyUsage(): MutableUsage {
     fuel: 0,
     allocations: 0,
     allocatedBytes: 0,
-    peakRetainedBytes: 0,
     peakCollectionItems: 0,
     peakValueDepth: 0,
     peakValueNodes: 0,
@@ -359,19 +357,16 @@ class ExecutionMeter {
     const nextFuel = this.usage.fuel + fuel + (allocation ? Math.ceil(allocatedBytes / 16) : 0);
     const nextAllocations = this.usage.allocations + (allocation ? 1 : 0);
     const nextAllocatedBytes = this.usage.allocatedBytes + allocatedBytes;
-    const nextRetainedBytes = Math.max(this.usage.peakRetainedBytes, nextAllocatedBytes);
     const exceeded = [
       nextFuel > this.limits.fuel && 'fuel',
       nextAllocations > this.limits.allocations && 'allocations',
       nextAllocatedBytes > this.limits.allocatedBytes && 'allocatedBytes',
-      nextRetainedBytes > this.limits.retainedBytes && 'retainedBytes',
     ].find(Boolean);
     if (exceeded) throw new ExecutionFault('resource_exhausted', String(exceeded));
     Object.assign(this.usage, {
       fuel: nextFuel,
       allocations: nextAllocations,
       allocatedBytes: nextAllocatedBytes,
-      peakRetainedBytes: nextRetainedBytes,
     });
     if (allocation) this.observe(allocation.value, allocatedBytes);
   }
@@ -411,19 +406,16 @@ class ExecutionMeter {
     const nextFuel = this.usage.fuel + fuel;
     const nextAllocations = this.usage.allocations + 1;
     const nextAllocatedBytes = this.usage.allocatedBytes + bytes;
-    const nextRetainedBytes = Math.max(this.usage.peakRetainedBytes, nextAllocatedBytes);
     const exceeded = [
       nextFuel > this.limits.fuel && 'fuel',
       nextAllocations > this.limits.allocations && 'allocations',
       nextAllocatedBytes > this.limits.allocatedBytes && 'allocatedBytes',
-      nextRetainedBytes > this.limits.retainedBytes && 'retainedBytes',
     ].find(Boolean);
     if (exceeded) throw new ExecutionFault('resource_exhausted', String(exceeded));
     Object.assign(this.usage, {
       fuel: nextFuel,
       allocations: nextAllocations,
       allocatedBytes: nextAllocatedBytes,
-      peakRetainedBytes: nextRetainedBytes,
     });
   }
 

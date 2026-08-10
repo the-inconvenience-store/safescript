@@ -1282,6 +1282,17 @@ describe('execution validation, limits, and host outcomes', () => {
         )
       ).status,
     ).toBe('not_started');
+    expect(
+      (
+        await bridge.execute(
+          {
+            ...executeRequest({ kind: 'source', source: checkRequest }),
+            limits: { ...STANDARD_EXECUTION_LIMITS, retainedBytes: 1 } as never,
+          },
+          unreachableHost,
+        )
+      ).status,
+    ).toBe('not_started');
     const seeded = executeRequest({ kind: 'source', source: checkRequest });
     const { idempotencySeed: _omitted, ...withoutIdempotencySeed } = seeded;
     void _omitted;

@@ -45,7 +45,7 @@ The interpreter evaluates canonical values and verified instructions. A resource
 
 - fuel;
 - allocation count and cumulative allocated bytes;
-- peak retained bytes and canonical value shape;
+- cumulative allocated bytes and canonical value shape;
 - peak collection size and call depth;
 - host calls and peak concurrent actions;
 - trace and output bytes.

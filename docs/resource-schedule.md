@@ -34,10 +34,9 @@ partial allocation or action group.
 | Console trace event                       |                                                             5 |
 | JSON parse                                |         ceil(UTF-8 input bytes / 8), plus scan and allocation |
 
-Canonical allocation bytes are charged cumulatively. Consequently
-`peakRetainedBytes` equals the high-water mark of cumulative allocated bytes;
-this deliberately conservative model avoids depending on garbage-collector
-behaviour.
+Canonical allocation bytes are charged cumulatively. The budget never credits
+values as released. This deliberately conservative model avoids depending on
+garbage-collector behaviour.
 
 ## Standard profile rationale
 
