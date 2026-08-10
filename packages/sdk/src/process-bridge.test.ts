@@ -63,7 +63,6 @@ const gatewayContract = defineContract({
       output: gatewayOutputType,
       error: gatewayErrorType,
       effectCost: 1,
-      idempotency: 'none',
     },
   },
   slots: {

@@ -285,14 +285,12 @@ class RequestCodec<C, O extends Operations, S extends Slots> {
           : request.program.kind === 'artifact'
             ? { kind: 'artifact' as const, bytes: [...request.program.bytes] }
             : undefined;
-      const idempotencySeed = request.idempotencySeed === undefined ? undefined : [...request.idempotencySeed];
       const randomSeed = request.randomSeed === undefined ? undefined : [...request.randomSeed];
       if (
         !program ||
         typeof trace !== 'boolean' ||
         (request.includeArtifact !== undefined && typeof request.includeArtifact !== 'boolean') ||
         (program.kind === 'artifact' && !validBytes(program.bytes, limits.maxBytes)) ||
-        (idempotencySeed !== undefined && !validBytes(idempotencySeed, limits.maxBytes)) ||
         (randomSeed !== undefined && !validBytes(randomSeed, limits.maxBytes)) ||
         (request.fixedInstant !== undefined &&
           !encodeCanonical({ kind: 'instant' }, request.fixedInstant, {
@@ -307,7 +305,6 @@ class RequestCodec<C, O extends Operations, S extends Slots> {
         program,
         input: [...input.value],
         limits,
-        ...(idempotencySeed === undefined ? {} : { idempotencySeed }),
         ...(request.fixedInstant === undefined ? {} : { fixedInstant: request.fixedInstant }),
         ...(randomSeed === undefined ? {} : { randomSeed }),
         trace,
@@ -646,7 +643,6 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
         input: request.input,
         context: undefined as C,
         invocationId,
-        idempotencySeed: request.fixed?.idempotencySeed ?? [...encodeUtf8(identity)],
         ...(request.fixed?.instant === undefined ? {} : { fixedInstant: request.fixed.instant }),
         randomSeed: request.fixed?.randomSeed ?? [...encodeUtf8(hash('program', encodeUtf8(`${identity}:random`)))],
       },

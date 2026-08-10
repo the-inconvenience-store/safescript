@@ -35,7 +35,6 @@ const contract = defineContract({
       output: valueType,
       error: failureType,
       effectCost: 1,
-      idempotency: 'none' as const,
     },
     denied: {
       id: deniedOperation,
@@ -43,7 +42,6 @@ const contract = defineContract({
       output: valueType,
       error: failureType,
       effectCost: 1,
-      idempotency: 'none' as const,
     },
   },
   slots: {

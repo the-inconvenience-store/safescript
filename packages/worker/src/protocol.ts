@@ -180,7 +180,6 @@ const operationDefinition = record([
   { name: 'output', schema: text() },
   { name: 'error', schema: text() },
   { name: 'effect_cost', schema: uint() },
-  { name: 'idempotency', schema: oneOf(literal('none'), literal('required')) },
   { name: 'fingerprint', schema: text(64) },
 ]);
 const slotDefinition = record([
@@ -249,7 +248,6 @@ const executeRequest = record([
   },
   { name: 'input', schema: bytes() },
   { name: 'limits', schema: executionLimits },
-  { name: 'idempotency_seed', schema: bytes(), optional: true },
   { name: 'fixed_instant', schema: instant, optional: true },
   { name: 'random_seed', schema: bytes(), optional: true },
   { name: 'trace', schema: boolean() },
@@ -327,7 +325,6 @@ const actionRequest = record([
   { name: 'action_site_id', schema: text() },
   { name: 'source', schema: sourceLocation },
   { name: 'input', schema: bytes() },
-  { name: 'idempotency_key', schema: text(64), optional: true },
 ]);
 const hostFailure = record([
   {

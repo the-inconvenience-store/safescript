@@ -77,7 +77,6 @@ const contract = defineContract({
       output: taskType,
       error: errorType,
       effectCost: 1,
-      idempotency: 'required',
     },
   },
   slots: {
@@ -188,7 +187,6 @@ if (checked.status !== 'accepted') {
     program: { kind: 'artifact', bytes: checked.artifact },
     input: { workspaceId: 'acme', title: 'Follow up' },
     context: { allowedWorkspaces: ['acme'] },
-    idempotencySeed: new TextEncoder().encode('demo-run-1'),
     trace: true,
   });
 

@@ -133,7 +133,6 @@ describe('structured IR verification', () => {
       output: outputId,
       error: outputId,
       effectCost: 1,
-      idempotency: 'none' as const,
       fingerprint: fingerprint(8),
     };
     const permittedRegistry = {

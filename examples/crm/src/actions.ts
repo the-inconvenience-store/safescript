@@ -60,7 +60,6 @@ const defineCrmAction = (name: string, effectCost = 1) => ({
   output: outputType,
   error: crmActionErrorType,
   effectCost,
-  idempotency: 'required' as const,
 });
 
 /** These keys become the typed methods available under `ctx` in automation scripts. */

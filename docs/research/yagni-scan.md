@@ -191,6 +191,8 @@ This feature also makes stable action-site identity and source-sensitive key evo
 
 **YAGNI test:** keep request/invocation correlation, but make idempotency entirely host-owned until a real integration demonstrates that SafeScript's action-site formula is the correct cross-domain abstraction.
 
+Resolution: operation idempotency modes, execution and test seeds, derived action keys, the derivation helper, the dedicated failure, and their semantic-graph, worker, CLI, test, and documentation projections were removed. Host handlers or downstream services now select, store, and enforce domain-specific keys. Invocation, request, and action-site identities remain for correlation and provenance. At-most-once dispatch per action request and the prohibition on automatic replay remain. No derivation helper was added without a current consumer.
+
 ### 10. Multi-module source programs
 
 **Confidence: medium-high.**
@@ -263,7 +265,7 @@ There is no repository automation that depends on the CLI beyond CLI/release tes
 
 **Confidence: medium.**
 
-`safe.test` adds ordered scripted actions, fixed invocation/time/random/idempotency inputs, path-addressed mismatches, selected resource assertions, and a report format (`docs/testing.md:5-45`; `packages/sdk/src/testing.ts`). It is the fourth behavioral concern in the six-method production facade.
+`safe.test` adds ordered scripted actions, fixed invocation/time/random inputs, path-addressed mismatches, selected resource assertions, and a report format (`docs/testing.md:5-45`; `packages/sdk/src/testing.ts`). It is the fourth behavioral concern in the six-method production facade.
 
 Hosts can already use fake handlers with ordinary test frameworks and call `execute`. The DSL is useful, but it need not be a runtime primitive or part of the same compatibility contract.
 

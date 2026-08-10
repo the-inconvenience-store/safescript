@@ -14,7 +14,7 @@ ids.slot('slot:crm.automation');
 ids.module('module:main');
 ```
 
-Names are validated, ASCII, bounded, and serialized as strings. Source declarations, action sites, source programs, IR, and artifacts receive domain-separated SHA-256 identities derived from canonical bytes. An invocation ID is opaque and unique for active execution; a request ID adds an action sequence but is not an idempotency key.
+Names are validated, ASCII, bounded, and serialized as strings. Source declarations, action sites, source programs, IR, and artifacts receive domain-separated SHA-256 identities derived from canonical bytes. An invocation ID is opaque and unique for active execution; a request ID adds an action sequence. These identities provide correlation and provenance, not deduplication.
 
 ## Schema language
 
@@ -54,8 +54,7 @@ An operation declares:
 
 - a stable operation ID;
 - input, successful output, and error types;
-- non-negative semantic effect cost;
-- whether an idempotency key is required.
+- non-negative semantic effect cost.
 
 Operation error types are entirely contract-owned. They do not require a `policy` variant or any other universal wrapper. A configured `beforeAction` hook that stops dispatch must provide a value from the matched operation's declared error schema, so extension code receives an ordinary typed `Err`.
 

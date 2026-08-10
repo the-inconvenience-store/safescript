@@ -62,7 +62,6 @@ const actionRequest = {
   actionSiteId: 'action-site:test.worker',
   source: { module: 'module:test.worker', start: 0, end: 1 },
   input: [0xf6],
-  idempotencyKey: digest,
 } as unknown as ActionRequest;
 
 class FakeBridge implements RuntimeBridge {

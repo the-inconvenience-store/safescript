@@ -5,7 +5,6 @@
  */
 import {
   decodeCanonical,
-  deriveIdempotencyKey,
   encodeCanonical,
   diagnosticRepair,
   hash,
@@ -67,7 +66,7 @@ import {
 import { compileProgramModules, measureCompilerSource } from './compiler.js';
 import { interpret, InterpreterFault } from './interpreter.js';
 import { allocationFuel, byteFuel, hostActionFuel, scanFuel, SEMANTIC_STEP_FUEL } from './resource-schedule.js';
-import { structuredActions, verifyProgram, type StructuredAction } from './structured-ir.js';
+import { verifyProgram, type StructuredAction } from './structured-ir.js';
 import { deriveSemanticGraph } from './semantic-graph.js';
 
 const COMPILER = Object.freeze({
@@ -603,10 +602,6 @@ class ExecutionTrace {
   }
 }
 
-function actionInstructions(artifact: VerifiedCompilation): readonly StructuredAction[] {
-  return structuredActions(artifact.program.program);
-}
-
 type ExecutionRequest = Parameters<RuntimeBridge['execute']>[0];
 type ActionInstruction = StructuredAction;
 
@@ -691,18 +686,6 @@ class ActionDispatcher {
     input: CanonicalBytes,
   ): ActionRequest {
     const requestId = ids.request(this.request.invocationId, this.sequence);
-    const key =
-      operation.idempotency === 'required'
-        ? deriveIdempotencyKey({
-            seed: this.request.idempotencySeed as CanonicalBytes,
-            contractId: this.request.registry.id,
-            operationId: operation.id,
-            actionSiteId: instruction.actionSiteId,
-            sequence: this.sequence,
-            actionInput: input,
-          })
-        : undefined;
-    if (key && !key.ok) throw new ExecutionFault('idempotency_key_invalid', key.failure.code);
     this.sequence++;
     return Object.freeze({
       contractId: this.request.registry.id,
@@ -714,7 +697,6 @@ class ActionDispatcher {
       actionSiteId: instruction.actionSiteId,
       source: instruction.source,
       input,
-      ...(key?.ok ? { idempotencyKey: key.value } : {}),
     });
   }
 
@@ -899,8 +881,6 @@ export class DirectRuntimeBridge implements RuntimeBridge {
     if (
       !isByteArray(request.input) ||
       request.input.length > request.limits.maxBytes ||
-      (request.idempotencySeed !== undefined &&
-        (!isByteArray(request.idempotencySeed) || request.idempotencySeed.length > request.limits.maxBytes)) ||
       (request.randomSeed !== undefined &&
         (!isByteArray(request.randomSeed) || request.randomSeed.length > request.limits.maxBytes)) ||
       typeof request.trace !== 'boolean' ||
@@ -947,12 +927,6 @@ export class DirectRuntimeBridge implements RuntimeBridge {
       artifact = verified;
       preparation = Object.freeze({ kind: 'artifact', irDigest: artifact.digest });
     }
-    const actions = actionInstructions(artifact);
-    if (
-      actions.some((action) => artifact.program.operations.get(action.operationId)?.idempotency === 'required') &&
-      (!request.idempotencySeed || !isByteArray(request.idempotencySeed) || request.idempotencySeed.length === 0)
-    )
-      return { status: 'not_started', error: bridgeError('execute', 'invalid_request', 'idempotency seed required') };
     const input = decodeCanonical(schemaRef(slot.input), Uint8Array.from(request.input), {
       registry: request.registry.schemas,
       limits: {

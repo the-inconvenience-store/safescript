@@ -2,7 +2,6 @@ import { describe, expect, it } from 'bun:test';
 
 import {
   derivedActionSiteId,
-  deriveIdempotencyKey,
   encodeCanonical,
   hash,
   ids,
@@ -52,7 +51,6 @@ const contract = defineContract({
       output: outputType,
       error: errorType,
       effectCost: 1,
-      idempotency: 'required' as const,
     },
   },
   slots: {
@@ -155,15 +153,6 @@ describe('public SDK conformance', () => {
       execute: async (request, host) => {
         bridgeRequestInput = request.input;
         const actionSiteId = derivedActionSiteId(Uint8Array.of(1));
-        const key = deriveIdempotencyKey({
-          seed: request.idempotencySeed ?? [],
-          contractId: contract.id,
-          operationId,
-          actionSiteId,
-          sequence: 0,
-          actionInput: request.input,
-        });
-        if (!key.ok) throw new Error(key.failure.code);
         const action: ActionRequest = {
           contractId: contract.id,
           irDigest,
@@ -174,7 +163,6 @@ describe('public SDK conformance', () => {
           actionSiteId,
           source: { module: moduleId, start: 0, end: 1 },
           input: request.input,
-          idempotencyKey: key.value,
         };
         observedAction = action;
         const outcome = await host.handleAction(action);
@@ -221,7 +209,6 @@ describe('public SDK conformance', () => {
       },
       input: { value: 7n },
       context: { tenant: 'acme' },
-      idempotencySeed: Uint8Array.of(1),
     });
     expect(result.status).toBe('completed');
     if (result.status === 'completed') expect(result.output).toBe('done');

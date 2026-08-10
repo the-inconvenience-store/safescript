@@ -42,7 +42,7 @@ The current implementation is a TypeScript host SDK with a worker-backed default
 
 SafeScript does not persist invocations, schedule work, coordinate retries, collect approvals, or provide a workflow engine. Action records are in-memory execution facts, not a durable audit log. Artifact caching and storage are host concerns. A failed action whose effect state is `unknown` is never implicitly safe to retry.
 
-SafeScript also does not make trusted host code safe. Lifecycle hooks and operation handlers remain inside the trusted computing base and must protect credentials, validate service behavior, and enforce authority and external idempotency where required. Downstream services should retain their own checks when they are reachable outside SafeScript or defense in depth is needed.
+SafeScript also does not make trusted host code safe. The `beforeAction` policy callback and operation handlers remain inside the trusted computing base and must protect credentials, validate service behavior, and enforce authority and external idempotency where required. Downstream services should retain their own checks when they are reachable outside SafeScript or defense in depth is needed.
 
 ## Where to go next
 

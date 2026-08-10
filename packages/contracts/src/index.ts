@@ -105,16 +105,7 @@ export const ids = Object.freeze({
 
 /** Domain separators supported by {@link hash}. */
 export type HashDomain =
-  | 'action-site'
-  | 'artifact'
-  | 'contract'
-  | 'idempotency'
-  | 'ir'
-  | 'program'
-  | 'semantic-node'
-  | 'source'
-  | 'symbol'
-  | 'type';
+  'action-site' | 'artifact' | 'contract' | 'ir' | 'program' | 'semantic-node' | 'source' | 'symbol' | 'type';
 
 /**
  * Computes a versioned, domain-separated SHA-256 digest.
@@ -1261,50 +1252,6 @@ export function digestCanonical(
   return encoded.ok ? Object.freeze({ ok: true, value: hash(domain, encoded.value) }) : encoded;
 }
 
-/**
- * Derives the stable key for one logical required-idempotency action.
- *
- * @remarks The input digest and action sequence distinguish changed intent and repeated visits to one action site.
- * The host operation, not SafeScript, must enforce the returned key atomically.
- */
-export function deriveIdempotencyKey(
-  input: Readonly<{
-    seed: CanonicalBytes;
-    contractId: ContractId;
-    operationId: OperationId;
-    actionSiteId: ActionSiteId;
-    sequence: number;
-    actionInput: CanonicalBytes;
-  }>,
-): ContractResult<Sha256Digest> {
-  if (!Number.isSafeInteger(input.sequence) || input.sequence < 0) {
-    return Object.freeze({
-      ok: false,
-      failure: Object.freeze({
-        code: 'invalid_value',
-        path: Object.freeze(['sequence']),
-        detail: 'invalid action sequence',
-      }),
-    });
-  }
-  const actionDigest = createHash('sha256').update(Uint8Array.from(input.actionInput)).digest('hex');
-  return digestCanonical(
-    'idempotency',
-    {
-      kind: 'tuple',
-      items: [
-        { kind: 'bytes' },
-        { kind: 'string' },
-        { kind: 'string' },
-        { kind: 'string' },
-        { kind: 'int64' },
-        { kind: 'string' },
-      ],
-    },
-    [input.seed, input.contractId, input.operationId, input.actionSiteId, BigInt(input.sequence), actionDigest],
-  );
-}
-
 interface JsonTask {
   readonly kind: 'value';
   readonly input: unknown;
@@ -1687,7 +1634,6 @@ export interface ActionRequest {
   readonly actionSiteId: ActionSiteId;
   readonly source: SourceProvenance;
   readonly input: CanonicalBytes;
-  readonly idempotencyKey?: Sha256Digest;
 }
 
 /** Terminal typed resolution of one action request. */
@@ -1749,7 +1695,6 @@ export interface OperationDefinition {
   readonly output: TypeId;
   readonly error: TypeId;
   readonly effectCost: number;
-  readonly idempotency: 'none' | 'required';
   readonly fingerprint: Sha256Digest;
 }
 /** Language-neutral extension-slot policy and resource ceilings. */
@@ -1978,7 +1923,6 @@ export interface SemanticGraphNode {
   readonly constant?: null | boolean | number | string;
   readonly operator?: string;
   readonly effectCost?: number;
-  readonly idempotency?: OperationDefinition['idempotency'];
 }
 
 /** One deterministic relationship between semantic facts. */
@@ -2052,7 +1996,6 @@ export interface ExecuteRequest {
   readonly program: ExecutableProgram;
   readonly input: CanonicalBytes;
   readonly limits: ExecutionLimits;
-  readonly idempotencySeed?: CanonicalBytes;
   readonly fixedInstant?: InstantValue;
   readonly randomSeed?: CanonicalBytes;
   /** Whether to collect bounded semantic trace records for this invocation. */
@@ -2089,7 +2032,6 @@ export const EXECUTION_ERROR_CODES = Object.freeze([
   'fixed_instant_required',
   'gateway_fault',
   'handler_fault',
-  'idempotency_key_invalid',
   'integer_overflow',
   'interpreter_fault',
   'invalid_arithmetic',
@@ -2332,14 +2274,6 @@ export const DIAGNOSTIC_CATALOG: readonly FailureCatalogEntry[] = Object.freeze(
       'action_gateway',
       'host action handler failed',
       ['detail', 'effectState', 'source'],
-      'optional',
-    ),
-    catalogEntry(
-      'idempotency_key_invalid',
-      'action',
-      'action_gateway',
-      'action idempotency key derivation failed',
-      ['detail', 'source'],
       'optional',
     ),
     catalogEntry(

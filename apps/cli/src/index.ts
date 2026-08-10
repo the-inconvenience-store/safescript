@@ -53,7 +53,6 @@ interface CliContractOperation {
   readonly output: string;
   readonly error: string;
   readonly effectCost: number;
-  readonly idempotency: 'none' | 'required';
 }
 
 interface CliContractSlot {
@@ -323,7 +322,6 @@ async function perform(command: Command, contractValue: unknown, requestValue: u
       ...(request.fixedInstant === undefined ? {} : { instant: request.fixedInstant as InstantValue }),
       ...(request.randomSeed === undefined ? {} : { randomSeed: request.randomSeed as Uint8Array }),
       ...(request.invocationId === undefined ? {} : { invocationId: request.invocationId as InvocationId }),
-      ...(request.idempotencySeed === undefined ? {} : { idempotencySeed: request.idempotencySeed as Uint8Array }),
     };
     if (command === 'test') {
       return await safe.test({
@@ -342,7 +340,6 @@ async function perform(command: Command, contractValue: unknown, requestValue: u
       input: request.input as never,
       context: undefined as never,
       ...(request.invocationId === undefined ? {} : { invocationId: request.invocationId as InvocationId }),
-      ...(request.idempotencySeed === undefined ? {} : { idempotencySeed: request.idempotencySeed as Uint8Array }),
       ...(request.fixedInstant === undefined ? {} : { fixedInstant: request.fixedInstant as InstantValue }),
       ...(request.randomSeed === undefined ? {} : { randomSeed: request.randomSeed as Uint8Array }),
       ...(request.limits === undefined ? {} : { limits: object(request.limits, 'request.limits') }),

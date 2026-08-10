@@ -60,7 +60,6 @@ export interface ActionContext<C> {
   readonly invocationId: InvocationId;
   readonly context: C;
   readonly request: ActionRequest;
-  readonly idempotencyKey?: Sha256Digest;
   readonly signal: AbortSignal;
 }
 
@@ -119,7 +118,6 @@ export interface ExecuteRequest<K extends PropertyKey, I, C> {
   readonly input: I;
   readonly context: C;
   readonly invocationId?: InvocationId;
-  readonly idempotencySeed?: Uint8Array | CanonicalBytes;
   readonly fixedInstant?: InstantValue;
   readonly randomSeed?: Uint8Array | CanonicalBytes;
   readonly limits?: Partial<ExecutionLimits>;
@@ -200,7 +198,6 @@ export interface TestRequest<K extends PropertyKey, I, O, Ops extends Operations
     instant?: InstantValue;
     randomSeed?: Uint8Array | CanonicalBytes;
     invocationId?: InvocationId;
-    idempotencySeed?: Uint8Array | CanonicalBytes;
   }>;
   readonly expect?: TestExpectation<O>;
 }

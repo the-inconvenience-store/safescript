@@ -108,7 +108,6 @@ const operationDefinitions = operations.map((name, index) => ({
   output: typeIds.actionOutput,
   error: typeIds.actionError,
   effectCost: index + 1,
-  idempotency: 'required' as const,
   fingerprint: fingerprint(30 + index),
 }));
 const slotId = ids.slot('slot:reference.run');

@@ -46,8 +46,7 @@ An action request binds:
 - contract, slot, invocation, and request identity;
 - operation identity;
 - verified IR and source action-site provenance;
-- canonical typed input;
-- optional derived idempotency key.
+- canonical typed input.
 
 The gateway rejects mismatched, unknown, duplicate, malformed, over-capacity, or uncorrelated requests before policy and handler dispatch. The outcome must correlate to the request and contain a canonical declared result or an explicit host failure. Host context, policy, handlers, and credentials remain outside a runtime worker.
 
@@ -74,7 +73,7 @@ These controls reduce denial-of-service risk within the SafeScript model, but th
 
 ## Idempotency and retries
 
-For operations marked `idempotency: "required"`, the runtime derives a stable key from the invocation's host seed and canonical action facts. The host handler must apply that key at the external effect boundary.
+The host handler or downstream service selects, stores, and enforces any domain-specific idempotency key. SafeScript does not derive or transport such a key. Invocation, request, and action-site IDs provide correlation and provenance; they are not deduplication keys.
 
 SafeScript does not coordinate retries. It never retries an action automatically, and `unknown` effect state is explicitly unsafe to retry without domain-specific reconciliation. Durable retry, deduplication windows, compensation, and recovery belong to the host.
 
@@ -94,7 +93,7 @@ For implementation details, read [architecture and engine](engine.md). For host 
 
 ## Worker process boundary
 
-The local runtime worker is defense in depth. Source, artifacts, registries, inputs, frames, worker outputs, action requests, and outcomes remain untrusted at every receiving seam. The host retains handlers, credentials, invocation context, policy state, external idempotency enforcement, and effect dispatch; none of those values are serialized to the worker.
+The local runtime worker is defense in depth. Source, artifacts, registries, inputs, frames, worker outputs, action requests, and outcomes remain untrusted at every receiving seam. The host retains handlers, credentials, invocation context, policy state, business-specific deduplication, and effect dispatch; none of those values are serialized to the worker.
 
 Both peers enforce framing limits before allocation, deterministic CBOR, closed payload schemas, correlation, and the exact SafeScript 0.6.0 session contract. The host rejects duplicate, late, mismatched, or state-invalid actions before policy or handlers. Protocol failures close the smallest trustworthy scope and never cause replay. A lost unresolved action has unknown effect state unless the host can prove otherwise.
 

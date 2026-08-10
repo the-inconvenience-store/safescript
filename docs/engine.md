@@ -37,7 +37,7 @@ Source execution compiles through the same check path and reports summary, prove
 
 Artifact execution treats bytes as untrusted. The engine rechecks canonical encoding, compiler identity, exact registry digest, slot, optional source-compilation key, IR digest, and the complete private IR verifier before interpreting anything. Artifact mode reports its verified IR digest in preparation facts.
 
-An artifact is a disposable optimization, not a permission token. It does not bypass input validation, resource limits, the action gateway, configured host hooks, handler dispatch, or result validation.
+An artifact is a disposable optimization, not a permission token. It does not bypass input validation, resource limits, the action gateway, an optional `beforeAction` policy, handler dispatch, or result validation.
 
 ## Compiled-program cache
 
@@ -54,7 +54,7 @@ createDirectRuntimeBridge({ compilationCache: { maxEntries: 32, maxWeight: 8 * 1
 createDirectRuntimeBridge({ compilationCache: false });
 ```
 
-The cache contains no invocation input, execution limit, authorization decision, hook, handler, action outcome, idempotency state, cancellation state, trace, or action record. Every execution applies those current values again.
+The cache contains no invocation input, execution limit, authorization decision, policy callback, handler, action outcome, cancellation state, trace, or action record. Every execution applies those current values again.
 
 ## Bounded interpretation
 
@@ -77,7 +77,7 @@ When the interpreter reaches a host operation, it:
 
 1. reserves host-call capacity and fuel;
 2. canonically encodes the typed input;
-3. constructs a correlated action request with invocation, request, contract, slot, operation, action-site, source, and optional idempotency facts;
+3. constructs a correlated action request with invocation, request, contract, slot, operation, action-site, and source facts;
 4. records the request;
 5. suspends only the in-memory invocation while the SDK gateway handles it;
 6. validates the correlated terminal outcome;

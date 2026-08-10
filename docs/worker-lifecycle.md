@@ -53,7 +53,7 @@ The host reserves response capacity before accepting the action and validates ca
 
 Callbacks, credentials, host objects, invocation context, and policy decisions are not protocol values. The worker observes only the action request and its typed outcome.
 
-An envelope ID, invocation ID, action request ID, and idempotency key are distinct. None substitutes for another. A repeated envelope or action request never dispatches a handler. The protocol never retries an action.
+Envelope, invocation, and action request IDs have distinct correlation scopes. None is a deduplication key or substitutes for another. A repeated envelope or action request never dispatches a handler. The protocol never retries an action.
 
 ## Cancellation
 
@@ -73,6 +73,6 @@ When quiescent, the worker sends `session.close.result` with status `closed`, fl
 
 Unexpected exit, signal, stdout loss, fatal protocol violation, or supervisor termination moves the connection to failed. The supervisor atomically completes every in-flight bridge operation with a bounded stable worker-loss bridge error. Started executions retain preparation, action, trace, and usage facts already validated by the host. An unresolved external action reports `effectState: unknown` unless the host can prove it was not performed.
 
-No source request, artifact request, invocation, action, cancellation, or close operation is automatically replayed. A deterministic idempotency key does not authorize replay.
+No source request, artifact request, invocation, action, cancellation, or close operation is automatically replayed. Any retry or business-specific deduplication is host policy outside the protocol.
 
 After unexpected loss, a later facade operation MAY trigger one fresh lazy worker startup and handshake for future work. Startup attempts share a bounded crash-rate budget. Exceeding it suppresses restart until the configured recovery interval or explicit facade replacement. A replacement connection starts envelope IDs from 1 and carries no protocol session state from the failed worker.

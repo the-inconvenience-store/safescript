@@ -23,7 +23,6 @@ const report = await safe.test({
     instant: { epochSeconds: 1_786_060_800n, nanoseconds: 0 },
     randomSeed: [1, 2, 3, 4],
     invocationId: ids.invocation('invocation:00000000000000000000000000000001'),
-    idempotencySeed: [9, 8, 7],
   },
   expect: {
     status: 'completed',
@@ -42,7 +41,7 @@ A scripted declared `Err` covers the extension-visible path of a production `bef
 
 Expectations may cover status, output, operations, action facts, diagnostics, and selected resource usage. The report always contains the observed execution, making failures inspectable without rerunning. Test mismatches do not throw.
 
-Use fixed time and randomness whenever source calls their deterministic intrinsics. Fix invocation and idempotency seeds when asserting exact action facts or keys.
+Use fixed time and randomness whenever source calls their deterministic intrinsics. Fix the invocation ID when asserting exact action request facts.
 
 ## What to test in a host integration
 

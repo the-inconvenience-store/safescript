@@ -195,7 +195,7 @@ function structuredExpression(
         type,
         actionSiteId: expression.actionSiteId,
         operationId: expression.operationId,
-        ...(operation ? { effectCost: operation.effectCost, idempotency: operation.idempotency } : {}),
+        ...(operation ? { effectCost: operation.effectCost } : {}),
       });
       context.builder.edge('contains', parent, node);
       const input = structuredExpression(expression.input, `${path}/input`, context, node);

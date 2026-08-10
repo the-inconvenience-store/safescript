@@ -93,7 +93,6 @@ function executionRequest(
     program,
     input: encode(ref(referenceTypes.event), referenceInput),
     limits: STANDARD_EXECUTION_LIMITS,
-    idempotencySeed: [1, 2, 3],
     fixedInstant: { epochSeconds: 1_786_060_800n, nanoseconds: 0 },
     randomSeed: [1, 2, 3, 4],
     trace: true,

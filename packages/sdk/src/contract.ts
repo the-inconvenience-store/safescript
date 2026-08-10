@@ -48,7 +48,6 @@ export interface Operation<I, O, E> {
   readonly output: ContractType<O>;
   readonly error: ContractType<E>;
   readonly effectCost: number;
-  readonly idempotency: 'none' | 'required';
 }
 
 /** Host-defined execution point with fixed input/output types, permissions, and ceiling limits. */
@@ -130,15 +129,12 @@ function defineOperations<O extends Operations>(source: O): readonly OperationDe
       ids.operation(operation.id);
       if (!Number.isSafeInteger(operation.effectCost) || operation.effectCost < 0)
         throw new TypeError(`invalid effect cost for ${operation.id}`);
-      if (operation.idempotency !== 'none' && operation.idempotency !== 'required')
-        throw new TypeError(`invalid idempotency for ${operation.id}`);
       const record = {
         id: operation.id,
         input: operation.input.id,
         output: operation.output.id,
         error: operation.error.id,
         effectCost: operation.effectCost,
-        idempotency: operation.idempotency,
       };
       return { ...record, fingerprint: fingerprint('contract', record) };
     })

@@ -77,7 +77,7 @@ An ordered in-memory fact that an action was requested or later resolved with an
 _Avoid_: Workflow history, durable audit log
 
 **Idempotency key**:
-A deterministic token that lets the host identify a replay of the same logical action input. The host operation enforces it; a request identifier does not provide deduplication.
+A domain-specific token that lets a host identify a replay of the same logical effect. The host selects, stores, and enforces it; SafeScript request identifiers provide correlation, not deduplication.
 _Avoid_: Request ID, permission token
 
 **Runtime bridge**:

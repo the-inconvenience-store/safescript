@@ -155,7 +155,6 @@ const registry: ContractRegistry = {
       output: typeIds.task,
       error: typeIds.taskError,
       effectCost: 10,
-      idempotency: 'required',
       fingerprint: fingerprint(23),
     },
   ],
@@ -213,7 +212,6 @@ function executeRequest(
     program,
     input: encoded(ref(typeIds.event), input),
     limits,
-    idempotencySeed: [1, 2, 3],
     trace: false,
   };
 }
@@ -341,7 +339,6 @@ describe('direct RuntimeBridge walking skeleton', () => {
       handleAction: async (request) => {
         calls++;
         expect(request.operationId).toBe(operation);
-        expect(request.idempotencyKey).toMatch(/^[0-9a-f]{64}$/);
         return {
           requestId: request.requestId,
           result: {
@@ -1319,10 +1316,6 @@ describe('execution validation, limits, and host outcomes', () => {
         )
       ).status,
     ).toBe('not_started');
-    const seeded = executeRequest({ kind: 'source', source: checkRequest });
-    const { idempotencySeed: _omitted, ...withoutIdempotencySeed } = seeded;
-    void _omitted;
-    expect((await bridge.execute(withoutIdempotencySeed, unreachableHost)).status).toBe('not_started');
     expect(
       (
         await bridge.execute(

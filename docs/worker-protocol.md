@@ -37,7 +37,7 @@ Envelope schema 1 is a closed map with exactly five fields:
 | `reply_to` | unsigned integer or null | A previously received peer-local message ID, or null for an initiating message. |
 | `payload`  | bytes                    | Exactly one separately encoded canonical CBOR payload.                          |
 
-Each peer allocates IDs monotonically from 1 and MUST NOT reuse an ID on one connection. It MUST close before exhaustion. Direction comes from the stream endpoint and session identity comes from the connection; neither is repeated in the envelope. Invocation IDs, action request IDs, and idempotency keys are payload-domain identities and MUST NOT be substituted for envelope IDs.
+Each peer allocates IDs monotonically from 1 and MUST NOT reuse an ID on one connection. It MUST close before exhaustion. Direction comes from the stream endpoint and session identity comes from the connection; neither is repeated in the envelope. Invocation IDs and action request IDs are payload-domain correlation identities and MUST NOT be substituted for envelope IDs or used as deduplication keys.
 
 `kind` MUST match `[a-z][a-z0-9]*(?:\.[a-z][a-z0-9_]*)+`, contain at most 64 ASCII bytes, and have a permanently reserved meaning once published. Current kinds are listed in the [protocol manifest](../conformance/worker-protocol/manifest.json). Unknown kinds are never ignored.
 

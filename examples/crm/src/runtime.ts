@@ -115,7 +115,6 @@ export function createCrm(store = new CrmStore(), options: CrmOptions = {}) {
         program: { kind: 'source', source: automation.source },
         input: options.input ?? automation.input,
         context: options.context ?? context,
-        idempotencySeed: [...new TextEncoder().encode(`crm-example:${automation.id}:${invocation}`)],
         fixedInstant: { epochSeconds: 1_786_060_800n, nanoseconds: 0 },
         randomSeed: [1, 2, 3, 4],
         trace: true,

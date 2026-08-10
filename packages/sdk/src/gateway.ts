@@ -68,7 +68,7 @@ class InvocationGateway<C, O extends Operations, S extends Slots> {
 
   async handle(request: ActionRequest): Promise<ActionOutcome> {
     const entry = this.operationsById.get(request.operationId);
-    if (!entry || !this.validEnvelope(request, entry)) return this.fail(request, 'not_performed', 'gateway_fault');
+    if (!entry || !this.validEnvelope(request)) return this.fail(request, 'not_performed', 'gateway_fault');
     this.sequence++;
     const decoded = this.decodeInput(request, entry);
     if (!decoded.ok) return this.fail(request, 'not_performed', 'gateway_fault');
@@ -86,12 +86,11 @@ class InvocationGateway<C, O extends Operations, S extends Slots> {
     return outcome;
   }
 
-  private validEnvelope(request: ActionRequest, entry: OperationEntry<O>): boolean {
+  private validEnvelope(request: ActionRequest): boolean {
     try {
       ids.parseRequest(request.requestId);
       ids.actionSite(request.actionSiteId);
       ids.module(request.source.module);
-      const requiresKey = entry.operation.idempotency === 'required';
       return Boolean(
         request.contractId === this.options.contract.id &&
         request.invocationId === this.invocationId &&
@@ -99,8 +98,6 @@ class InvocationGateway<C, O extends Operations, S extends Slots> {
         /^[0-9a-f]{64}$/.test(request.irDigest) &&
         request.slotId === this.slot.id &&
         this.slot.operations.includes(request.operationId) &&
-        requiresKey === (request.idempotencyKey !== undefined) &&
-        (!requiresKey || /^[0-9a-f]{64}$/.test(request.idempotencyKey ?? '')) &&
         Number.isSafeInteger(request.source.start) &&
         request.source.start >= 0 &&
         Number.isSafeInteger(request.source.end) &&
@@ -136,7 +133,6 @@ class InvocationGateway<C, O extends Operations, S extends Slots> {
       invocationId: request.invocationId,
       context: this.context,
       request: fixedRequest,
-      ...(request.idempotencyKey === undefined ? {} : { idempotencyKey: request.idempotencyKey }),
       signal: this.signal,
     });
   }

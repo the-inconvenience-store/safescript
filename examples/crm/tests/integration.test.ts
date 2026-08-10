@@ -65,7 +65,6 @@ describe('CRM example integration', () => {
         for (const record of result.facts.actions) {
           if (record.phase !== 'requested') continue;
           expect(record.request.contractId).toBe(ids.contract('contract:example.crm'));
-          expect(record.request.idempotencyKey).toBeDefined();
           expect(record.request.source.module).toBe(automation.source.entryModule);
         }
       }
@@ -145,7 +144,6 @@ describe('CRM example integration', () => {
       program: { kind: 'artifact', bytes: checked.artifact },
       input: automation.input,
       context: crm.context,
-      idempotencySeed: [9, 9, 9],
       invocationId: ids.invocation('invocation:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
     });
     expect(result.status).toBe('completed');

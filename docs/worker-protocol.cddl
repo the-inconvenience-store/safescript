@@ -188,7 +188,6 @@ execute-request = {
   program: executable-program,
   input: canonical-bytes,
   limits: execution-limits,
-  ? idempotency_seed: canonical-bytes,
   ? fixed_instant: instant,
   ? random_seed: canonical-bytes,
   trace: bool,
@@ -228,7 +227,6 @@ action-request-record = {
   action_site_id: identifier,
   source: source-provenance,
   input: canonical-bytes,
-  ? idempotency_key: sha256,
 }
 
 action-outcome-record = {
@@ -354,7 +352,6 @@ operation-definition = {
   output: identifier,
   error: identifier,
   effect_cost: uint,
-  idempotency: "none" / "required",
   fingerprint: sha256,
 }
 slot-definition = {

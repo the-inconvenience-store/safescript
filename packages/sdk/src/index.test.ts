@@ -66,7 +66,6 @@ const contract = defineContract({
       output: outputType,
       error: errorType,
       effectCost: 1,
-      idempotency: 'none',
     },
   },
   slots: {
@@ -222,14 +221,6 @@ describe('defineContract', () => {
         defineContract({
           ...contract,
           operations: { read: { ...contract.operations.read, effectCost: -1 } },
-        }),
-    ],
-    [
-      'invalid idempotency',
-      () =>
-        defineContract({
-          ...contract,
-          operations: { read: { ...contract.operations.read, idempotency: 'sometimes' as 'none' } },
         }),
     ],
     [
@@ -672,11 +663,8 @@ export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutp
         requestId: ids.request(otherInvocation, 0),
       }),
       (request) => ({ ...request, requestId: ids.request(request.invocationId, 1) }),
+      (request) => ({ ...request, slotId: ids.slot('slot:test.missing') }),
       (request) => ({ ...request, operationId: ids.operation('operation:test.missing') }),
-      (request) => ({
-        ...request,
-        idempotencyKey: 'invalid' as NonNullable<ActionRequest['idempotencyKey']>,
-      }),
     ];
     for (const mutate of mutations) {
       bridge.executeResult = async (request, host) => {

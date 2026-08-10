@@ -72,7 +72,6 @@ Useful invocation inputs include:
 
 - `context`: host-local data available only to `beforeAction` and handlers, never to the runtime bridge;
 - `invocationId`: optional host-chosen correlation identity;
-- `idempotencySeed`: required to derive keys for operations marked `required`;
 - `fixedInstant`: deterministic value for `Temporal.Now.instant()`;
 - `randomSeed`: deterministic source for `Math.random()`;
 - `limits`: invocation ceilings that can only lower configured ceilings;
@@ -95,7 +94,7 @@ When execution reaches an action, the SDK gateway:
 
 1. validates invocation, contract, slot, operation, action site, and source correlation;
 2. decodes the action input with the declared schema;
-3. constructs immutable action context with host context, decoded input, request facts, optional idempotency key, and abort signal;
+3. constructs immutable action context with host context, decoded input, request facts, and abort signal;
 4. awaits `beforeAction` when configured;
 5. fixes a validated declared `Err` if the hook stops, otherwise dispatches the matching handler at most once;
 6. validates the returned `Result` or explicit handler failure;
@@ -115,9 +114,11 @@ return {
 
 ## Host policy, composition, and idempotency
 
-SafeScript provides one validated interception point, not authorization. A host may enforce user, tenant, resource, or service authority in `beforeAction`, its handlers, downstream services, or several layers. `beforeAction` receives the complete validated request, decoded input, host-local invocation context, cancellation signal, and—when required—a derived idempotency key. A stop must supply that operation's declared error type.
+SafeScript provides one validated interception point, not authorization. A host may enforce user, tenant, resource, or service authority in `beforeAction`, its handlers, downstream services, or several layers. `beforeAction` receives the complete validated request, decoded input, host-local invocation context, and cancellation signal. A stop must supply that operation's declared error type.
 
 When several policy checks share this point, the host composes and orders them inside the callback. Keep downstream authorization when the service is reachable through another path or defense in depth is required; an absent or permissive hook does not make a handler safe.
+
+The handler or downstream service owns any domain-specific idempotency key and must select, store, and enforce it. SafeScript invocation, request, and action-site IDs are correlation and provenance facts, not deduplication keys. SafeScript does not retry actions.
 
 For execution-level policy, validate before calling `execute`. For execution observation, await `execute` and inspect its result. For action observation, wrap the relevant handler. These are ordinary host composition and do not require SDK lifecycle machinery.
 
@@ -125,7 +126,7 @@ The key is derived from a host-provided seed plus the contract, operation, actio
 
 ## Deterministic tests
 
-`safe.test` runs the same compiler and runtime bridge with a scripted action host. It never calls production policy or handlers. A test can fix time, randomness, invocation ID, and idempotency seed; script ordered actions and declared outcomes; and compare status, output, operations, actions, diagnostics, and resource counters.
+`safe.test` runs the same compiler and runtime bridge with a scripted action host. It never calls production policy or handlers. A test can fix time, randomness, and invocation ID; script ordered actions and declared outcomes; and compare status, output, operations, actions, diagnostics, and resource counters.
 
 It returns `{ passed, mismatches, execution }` and does not throw for an extension mismatch. See [testing and conformance](testing.md) for examples.
 
