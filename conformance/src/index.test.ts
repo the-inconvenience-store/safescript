@@ -368,7 +368,7 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
     const reference = applicationExtensionReference;
     const request = executionRequest(reference, { kind: 'source', source: referenceCheckRequest(reference) }, '4');
     const result = await factory().execute(
-      { ...request, limits: { ...STANDARD_EXECUTION_LIMITS, concurrentActions: 1 } },
+      { ...request, limits: { ...STANDARD_EXECUTION_LIMITS, hostCalls: 1 } },
       {
         handleAction: async (action) => {
           calls++;
@@ -474,34 +474,22 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
     }
   });
 
-  it('preserves request ordering under out-of-order concurrent completion', async () => {
+  it('preserves sequential request and resolution ordering', async () => {
     const reference = applicationExtensionReference;
-    const releases: Array<() => void> = [];
-    const resultPromise = factory().execute(
+    const result = await factory().execute(
       executionRequest(reference, { kind: 'source', source: referenceCheckRequest(reference) }, '5'),
       {
-        handleAction: (action) => {
-          if (action.operationId === ids.operation('operation:tasks.create'))
-            return Promise.resolve(completedAction(action));
-          return new Promise<ActionOutcome>((resolve) => {
-            releases.push(() => resolve(completedAction(action)));
-            if (releases.length === 2) {
-              releases[1]?.();
-              releases[0]?.();
-            }
-          });
-        },
+        handleAction: async (action) => completedAction(action),
       },
     );
-    const result = await resultPromise;
     expect(result.status).toBe('completed');
     if (result.status === 'completed') {
       expect(result.facts.actions.map(({ phase }) => phase)).toEqual([
         'requested',
         'resolved',
         'requested',
-        'requested',
         'resolved',
+        'requested',
         'resolved',
       ]);
     }

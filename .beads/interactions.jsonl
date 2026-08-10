@@ -116,3 +116,5 @@
 {"id":"int-f55a10b6","kind":"field_change","created_at":"2026-08-10T06:32:41.032761Z","actor":"Sam Stevens","issue_id":"safescript-6vc","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
 {"id":"int-090685ef","kind":"field_change","created_at":"2026-08-10T06:43:25.274053Z","actor":"Sam Stevens","issue_id":"safescript-zap","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
 {"id":"int-40fae9a5","kind":"field_change","created_at":"2026-08-10T06:50:05.600254Z","actor":"Sam Stevens","issue_id":"safescript-pna","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-e8366867","kind":"field_change","created_at":"2026-08-10T06:57:19.638647Z","actor":"Sam Stevens","issue_id":"safescript-lzs","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-dba2004b","kind":"field_change","created_at":"2026-08-10T07:07:39.686189Z","actor":"Sam Stevens","issue_id":"safescript-z1z","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}

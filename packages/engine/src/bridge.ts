@@ -102,7 +102,6 @@ interface MutableUsage {
   peakValueBytes: number;
   peakCallDepth: number;
   hostCalls: number;
-  peakConcurrentActions: number;
   traceBytes: number;
   outputBytes: number;
 }
@@ -416,7 +415,6 @@ function emptyUsage(): MutableUsage {
     peakValueBytes: 0,
     peakCallDepth: 0,
     hostCalls: 0,
-    peakConcurrentActions: 0,
     traceBytes: 0,
     outputBytes: 0,
   };
@@ -600,48 +598,17 @@ class ActionDispatcher {
   ) {}
 
   async handle(instruction: ActionInstruction, value: CanonicalValue): Promise<CanonicalValue> {
-    const results = await this.handleGroup([{ instruction, input: value }]);
-    return results[0] as CanonicalValue;
-  }
-
-  async handleGroup(
-    actions: readonly Readonly<{ instruction: ActionInstruction; input: CanonicalValue }>[],
-  ): Promise<readonly CanonicalValue[]> {
     if (this.active.cancelled) throw new InterpreterFault('cancelled');
-    const prepared = actions.map(({ instruction, input: value }) => {
-      const operation = this.artifact.program.operations.get(instruction.operationId);
-      if (!operation) throw new ExecutionFault('invalid_ir', 'unknown operation');
-      return { instruction, operation, input: this.encodeInput(instruction, value) };
-    });
-    this.assertHostCapacity(prepared.length);
-    // A group is one atomic semantic operation: no request is observable unless
-    // every member's host-call reservation and fuel charge can be committed.
-    this.meter.charge(
-      prepared.reduce((fuel, item) => fuel + hostActionFuel(item.operation.effectCost, item.input.length), 0),
-    );
-    this.usage.hostCalls += prepared.length;
-    this.usage.peakConcurrentActions = Math.max(this.usage.peakConcurrentActions, prepared.length);
-    const pending = prepared.map((item) => ({
-      ...item,
-      request: this.createRequest(item.instruction, item.operation, item.input),
-    }));
-    for (const item of pending) this.records.push(Object.freeze({ phase: 'requested', request: item.request }));
-
-    // Dispatch only after deterministic request creation/recording. Outcomes are
-    // attached in input order, irrespective of host completion order.
-    const received = await Promise.all(pending.map((item) => this.receive(item.request)));
-    const values: CanonicalValue[] = [];
-    let firstFault: unknown;
-    for (const [index, item] of pending.entries()) {
-      try {
-        values.push(this.interpretOutcome(item.request.requestId, item.operation, received[index]));
-      } catch (error) {
-        if (firstFault === undefined) firstFault = error;
-        values.push(null);
-      }
-    }
-    if (firstFault !== undefined) throw firstFault;
-    return Object.freeze(values);
+    const operation = this.artifact.program.operations.get(instruction.operationId);
+    if (!operation) throw new ExecutionFault('invalid_ir', 'unknown operation');
+    const input = this.encodeInput(instruction, value);
+    if (this.usage.hostCalls + 1 > this.request.limits.hostCalls)
+      throw new ExecutionFault('resource_exhausted', 'hostCalls');
+    this.meter.charge(hostActionFuel(operation.effectCost, input.length));
+    this.usage.hostCalls++;
+    const request = this.createRequest(instruction, operation, input);
+    this.records.push(Object.freeze({ phase: 'requested', request }));
+    return this.interpretOutcome(request.requestId, operation, await this.receive(request));
   }
 
   private encodeInput(instruction: ActionInstruction, value: CanonicalValue): CanonicalBytes {
@@ -651,14 +618,6 @@ class ActionDispatcher {
     });
     if (!encoded.ok) throw new ExecutionFault('value_limit', encoded.failure.code);
     return frozenBytes(encoded.value);
-  }
-
-  private assertHostCapacity(count: number): void {
-    if (this.usage.hostCalls + count > this.request.limits.hostCalls || count > this.request.limits.concurrentActions)
-      throw new ExecutionFault(
-        'resource_exhausted',
-        this.usage.hostCalls + count > this.request.limits.hostCalls ? 'hostCalls' : 'concurrentActions',
-      );
   }
 
   private createRequest(
@@ -952,7 +911,6 @@ export class DirectRuntimeBridge implements RuntimeBridge {
           usageValue.peakCollectionItems = Math.max(usageValue.peakCollectionItems, items);
         },
         action: (instruction, actionValue) => dispatcher.handle(instruction, actionValue),
-        actionGroup: (group) => dispatcher.handleGroup(group),
       });
       const output = encodeCanonical(schemaRef(slot.output), value, {
         registry: request.registry.schemas,

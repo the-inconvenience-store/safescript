@@ -235,6 +235,8 @@ No CRM automation uses it; the two multi-action examples are sequential. Positiv
 
 **YAGNI test:** ship sequential actions until a measured extension latency problem requires in-language concurrency. Hosts can expose a single batch operation when atomic domain batching is preferable.
 
+Resolution: SafeScript actions now run sequentially in source order and each action must be consumed directly by `await`. `Promise.all`, `Promise.race`, and related competition are rejected during source validation. The compiler exception, interpreter builtin and group hook, atomic group dispatcher, `concurrentActions` limit, `peakConcurrentActions` usage, wire fields, group conformance cases, and authoring examples were removed. Independent host invocations can still run concurrently. Hosts own parallel or atomic domain work through typed batch operations.
+
 ### 12. Deterministic time, randomness, broad intrinsics, and semantic traces
 
 **Confidence: medium; evaluate as separate features.**

@@ -54,7 +54,7 @@ export type OperationEntry<O extends Operations> = {
 class InvocationGateway<C, O extends Operations, S extends Slots> {
   private sequence = 0;
   private attemptedCalls = 0;
-  private activeCalls = 0;
+  private actionActive = false;
 
   constructor(
     private readonly options: CreateSafeScriptOptions<C, O, S>,
@@ -73,17 +73,15 @@ class InvocationGateway<C, O extends Operations, S extends Slots> {
     const decoded = this.decodeInput(request, entry);
     if (!decoded.ok) return this.fail(request, 'not_performed', 'gateway_fault');
     const context = this.actionContext(request, entry, decoded.value);
-    if (this.attemptedCalls + 1 > this.limits.hostCalls || this.activeCalls + 1 > this.limits.concurrentActions)
+    if (this.attemptedCalls + 1 > this.limits.hostCalls || this.actionActive)
       return this.fail(request, 'not_performed', 'gateway_fault');
     this.attemptedCalls++;
-    this.activeCalls++;
-    let outcome: ActionOutcome;
+    this.actionActive = true;
     try {
-      outcome = await this.dispatch(request, entry, decoded.value, context);
+      return await this.dispatch(request, entry, decoded.value, context);
     } finally {
-      this.activeCalls--;
+      this.actionActive = false;
     }
-    return outcome;
   }
 
   private validEnvelope(request: ActionRequest): boolean {

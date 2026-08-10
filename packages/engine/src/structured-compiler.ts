@@ -494,18 +494,6 @@ function safetyFailure(sourceFile: ts.SourceFile): StructuredCompileFailure | un
       current = current.expression;
     return ts.isIdentifier(current) ? current.text : undefined;
   };
-  const consumedByPromiseAll = (node: ts.Node): boolean => {
-    let current: ts.Node | undefined = node.parent;
-    while (current && !ts.isCallExpression(current)) current = current.parent;
-    return (
-      !!current &&
-      ts.isPropertyAccessExpression(current.expression) &&
-      ts.isIdentifier(current.expression.expression) &&
-      current.expression.expression.text === 'Promise' &&
-      current.expression.name.text === 'all' &&
-      ts.isAwaitExpression(current.parent)
-    );
-  };
   const visit = (node: ts.Node): void => {
     if (failure) return;
     if (node.kind === ts.SyntaxKind.AnyKeyword || node.kind === ts.SyntaxKind.UnknownKeyword)
@@ -549,9 +537,9 @@ function safetyFailure(sourceFile: ts.SourceFile): StructuredCompileFailure | un
         ts.isPropertyAccessExpression(node.expression) &&
         ts.isIdentifier(node.expression.expression) &&
         node.expression.expression.text === 'Promise' &&
-        ['race', 'any'].includes(node.expression.name.text)
+        ['all', 'race', 'any'].includes(node.expression.name.text)
       )
-        reject(node, 'SS_PROMISE_RACE', 'Promise.race and Promise.any are rejected');
+        reject(node, 'SS_PROMISE_CONCURRENCY', 'Promise concurrency is rejected; await each action directly');
       else if (ts.isPropertyAccessExpression(node.expression) && /Locale/.test(node.expression.name.text))
         reject(node, 'SS_LOCALE_REJECTED', 'locale-sensitive behavior is rejected');
       else if (
@@ -561,11 +549,7 @@ function safetyFailure(sourceFile: ts.SourceFile): StructuredCompileFailure | un
         )
       )
         reject(node, 'SS_VALUE_MUTATION', 'mutable collection methods are rejected');
-      else if (
-        rootIdentifier(node.expression) === 'ctx' &&
-        !ts.isAwaitExpression(node.parent) &&
-        !consumedByPromiseAll(node)
-      )
+      else if (rootIdentifier(node.expression) === 'ctx' && !ts.isAwaitExpression(node.parent))
         reject(node, 'SS_FLOATING_ACTION', 'every action must be consumed exactly once by await');
     }
     ts.forEachChild(node, visit);

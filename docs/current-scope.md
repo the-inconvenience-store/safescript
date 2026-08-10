@@ -15,7 +15,7 @@ The repository currently implements:
 - explicit optional checked-artifact creation and fail-closed verification;
 - optional SDK read-through and write-through integration with a host-provided artifact store;
 - bounded IR interpretation with deterministic fuel and value/resource accounting;
-- sequential actions and bounded deterministic `Promise.all` groups;
+- sequential directly awaited actions;
 - typed action requests/outcomes, optional validated `beforeAction` policy, and at-most-once handler dispatch per request;
 - deterministic fixed time, seeded randomness, checked JSON/bytes/math/string/object/collection intrinsics, and bounded traces;
 - semantic graph inspection with stable semantic IDs and independent export limits;

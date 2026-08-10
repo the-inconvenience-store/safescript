@@ -38,7 +38,6 @@ The standard execution profile bounds:
 | Collection items           |           10,000 |
 | Call depth                 |               64 |
 | Host calls                 |               32 |
-| Concurrent actions         |                8 |
 | Trace bytes                |          128 KiB |
 | Output bytes               |            1 MiB |
 | One value depth            |               64 |

@@ -103,12 +103,7 @@ export async function run(
     title: \`Onboarding contacts for \${event.after.name}: \${recipients}\`,
   }
 
-  const notificationResults = await Promise.all([
-    ctx.notifications.send(internalNotification),
-    ctx.notifications.send(stakeholderNotification),
-  ])
-
-  const internalResult = notificationResults[0]
+  const internalResult = await ctx.notifications.send(internalNotification)
   switch (internalResult.tag) {
     case "error":
       return Err(internalResult.value)
@@ -116,7 +111,7 @@ export async function run(
       break
   }
 
-  const stakeholderResult = notificationResults[1]
+  const stakeholderResult = await ctx.notifications.send(stakeholderNotification)
   switch (stakeholderResult.tag) {
     case "error":
       return Err(stakeholderResult.value)

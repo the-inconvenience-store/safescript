@@ -58,7 +58,7 @@ The engine and SDK avoid exposing partial work at checked boundaries:
 
 - invalid source, module identity, contract, slot, or artifact never starts interpretation;
 - invalid invocation input never reaches the bridge;
-- resource capacity for an action group is reserved before dispatch;
+- resource capacity for an action is reserved before dispatch;
 - a validated `beforeAction` stop does not call the handler;
 - malformed or throwing `beforeAction` policy, action output, or handler results fail closed;
 - raw exceptions and stack traces do not cross the public bridge;

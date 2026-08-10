@@ -37,7 +37,6 @@ export const REFERENCE_EXECUTION_LIMITS: ExecutionLimits = Object.freeze({
   collectionItems: 10_000,
   callDepth: 64,
   hostCalls: 32,
-  concurrentActions: 8,
   traceBytes: 128 * 1024,
   outputBytes: 1024 * 1024,
 });

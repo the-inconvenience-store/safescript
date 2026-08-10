@@ -13,7 +13,7 @@ facts, see [limits, diagnostics, and execution facts](limits-and-diagnostics.md)
 
 Fuel is semantic work, not elapsed time or JavaScript-engine instruction count.
 Charges commit before the operation they protect, so exhaustion cannot expose a
-partial allocation or action group.
+partial allocation or action request.
 
 The schedule uses three additive units:
 

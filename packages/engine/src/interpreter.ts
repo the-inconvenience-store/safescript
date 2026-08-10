@@ -11,9 +11,6 @@ export interface InterpreterHooks {
   readonly allocate: (value: CanonicalValue) => void;
   readonly scan: (values: readonly CanonicalValue[]) => void;
   readonly action: (instruction: StructuredAction, input: CanonicalValue) => Promise<CanonicalValue>;
-  readonly actionGroup: (
-    actions: readonly Readonly<{ instruction: StructuredAction; input: CanonicalValue }>[],
-  ) => Promise<readonly CanonicalValue[]>;
   readonly cancelled: () => boolean;
   readonly trace: (event: string, source: SourceLocation) => void;
   readonly random: () => number;

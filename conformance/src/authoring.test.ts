@@ -32,7 +32,7 @@ function evidence(scenario: AuthoringScenario, firstCheckAccepted: boolean): Age
 describe('agent authoring usability gate', () => {
   it('retains the exact blind-run sources recorded by the release evidence', () => {
     expect(new Bun.CryptoHasher('sha256').update(blindApplicationExtensionReference.source).digest('hex')).toBe(
-      '09f749ff2fd05922135c1e411067742b1c665c1bfae9322fc9ae6e805a757d8f',
+      '46032b13d48a0741eb446c1d7b33169ab8eb59f0be9b3b2abf7131443df10e74',
     );
     expect(new Bun.CryptoHasher('sha256').update(blindDeviceRuleReference.source).digest('hex')).toBe(
       '53f6a18c9c055f2707c96bb746ea2077c4bafc6ead1e61925d10dbb6c1646b61',

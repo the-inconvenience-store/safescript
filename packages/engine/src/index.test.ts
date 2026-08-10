@@ -892,7 +892,7 @@ export async function onDealUpdated(`,
     expect(nullResult.status).toBe('rejected');
   });
 
-  it('executes multiple actions in deterministic Promise.all input order from verified artifacts', async () => {
+  it('rejects Promise.all action groups before IR', async () => {
     const actionInput = `{
     workspaceId: event.after.workspaceId,
     relatedDealId: event.after.id,
@@ -906,82 +906,9 @@ export async function onDealUpdated(`,
   ])
   const result = results[1]`,
     );
-    const actionRegistry: ContractRegistry = {
-      ...registry,
-      digest: fingerprint(49),
-      slots: registry.slots.map((candidate) => ({ ...candidate })),
-    };
-    const request = {
-      ...checkWithSource(actionsSource),
-      registry: actionRegistry,
-    } as const;
-    const bridge = createDirectRuntimeBridge();
-    const checked = await bridge.check({ ...request, includeArtifact: true });
-    expect(checked.status).toBe('accepted');
-    if (checked.status !== 'accepted') return;
-    if (!checked.artifact) throw new Error('artifact serialization was not requested');
-    const calls: string[] = [];
-    const releases: ((task: string) => void)[] = [];
-    const execution = bridge.execute(
-      {
-        ...executeRequest({ kind: 'artifact', bytes: checked.artifact }),
-        registry: actionRegistry,
-      },
-      {
-        handleAction: (action) => {
-          calls.push(action.requestId);
-          return new Promise<ActionOutcome>((resolve) => {
-            releases.push((task) =>
-              resolve({
-                requestId: action.requestId,
-                result: {
-                  tag: 'completed',
-                  value: encoded(resultSchema(ref(typeIds.task), ref(typeIds.taskError)), {
-                    tag: 'ok',
-                    value: { id: task },
-                  }),
-                },
-              }),
-            );
-          });
-        },
-      },
-    );
-    while (releases.length < 2) await Promise.resolve();
-    releases[1]?.('task-2');
-    releases[0]?.('task-1');
-    const completed = await execution;
-    expect(completed.status).toBe('completed');
-    expect(calls).toHaveLength(2);
-    if (completed.status === 'completed')
-      expect(completed.facts.actions.map((record) => record.phase)).toEqual([
-        'requested',
-        'requested',
-        'resolved',
-        'resolved',
-      ]);
-
-    let capacityCalls = 0;
-    const exhausted = await bridge.execute(
-      {
-        ...executeRequest({ kind: 'artifact', bytes: checked.artifact }),
-        registry: actionRegistry,
-        limits: { ...STANDARD_EXECUTION_LIMITS, concurrentActions: 1 },
-      },
-      {
-        handleAction: async (action) => {
-          capacityCalls++;
-          throw new Error(`unexpected dispatch ${action.requestId}`);
-        },
-      },
-    );
-    expect(exhausted.status).toBe('failed');
-    expect(capacityCalls).toBe(0);
-    if (exhausted.status === 'failed') {
-      expect(exhausted.error).toEqual({ code: 'resource_exhausted', detail: 'concurrentActions' });
-      expect(exhausted.facts.actions).toEqual([]);
-      expect(exhausted.facts.usage.hostCalls).toBe(0);
-    }
+    const checked = await createDirectRuntimeBridge().check(checkWithSource(actionsSource));
+    expect(checked.status).toBe('rejected');
+    if (checked.status === 'rejected') expect(checked.diagnostics[0]?.code).toBe('SS_PROMISE_CONCURRENCY');
   });
 
   it('executes immutable spread and object and tuple destructuring', async () => {
@@ -1346,7 +1273,6 @@ describe('execution validation, limits, and host outcomes', () => {
 
   it.each([
     ['hostCalls', { hostCalls: 0 }],
-    ['concurrentActions', { concurrentActions: 0 }],
     ['allocations', { allocations: 0 }],
     ['traceBytes', { traceBytes: 1 }],
   ])('enforces or records the %s ceiling', async (limit, override) => {

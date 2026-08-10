@@ -15,7 +15,7 @@ For a check request, the direct bridge:
 7. creates a private verified compilation and retains accepted results in the bridge-local cache;
 8. returns the reachable authority summary, provenance, diagnostics, and usage, and serializes an artifact only when requested.
 
-The compiler lowers current SafeScript directly into one verified structured IR, allowing helper calls, recursion, loops, destructuring, collections, intrinsics, and action groups. This is a private execution representation; integrations should depend on source, bridge records, and the public semantic graph instead. Legacy flat control-flow IR and its artifacts are not accepted.
+The compiler lowers current SafeScript directly into one verified structured IR, allowing helper calls, recursion, loops, destructuring, collections, intrinsics, and sequential actions. This is a private execution representation; integrations should depend on source, bridge records, and the public semantic graph instead. Legacy flat control-flow IR and its artifacts are not accepted.
 
 The compiler never emits JavaScript for execution.
 
@@ -64,10 +64,10 @@ The interpreter evaluates canonical values and verified instructions. A resource
 - allocation count and cumulative allocated bytes;
 - cumulative allocated bytes and canonical value shape;
 - peak collection size and call depth;
-- host calls and peak concurrent actions;
+- host calls;
 - trace and output bytes.
 
-If a limit would be exceeded, execution fails before the operation exposes a partial allocation or action group. The [Semantic resource schedule](resource-schedule.md) defines the charges; [limits and diagnostics](limits-and-diagnostics.md) explains configuration and results.
+If a limit would be exceeded, execution fails before the operation exposes a partial allocation or action request. The [Semantic resource schedule](resource-schedule.md) defines the charges; [limits and diagnostics](limits-and-diagnostics.md) explains configuration and results.
 
 Arithmetic uses checked SafeScript semantics. Signed integer overflow, division errors, non-finite floating results, malformed canonical values, missing deterministic inputs, invalid IR, and invalid output produce stable execution failures rather than JavaScript behavior leaking through.
 
@@ -83,7 +83,7 @@ When the interpreter reaches a host operation, it:
 6. validates the correlated terminal outcome;
 7. records the resolution and resumes with a declared `Result`, or terminates on a host/infrastructure failure.
 
-Concurrent `Promise.all` groups reserve the whole group first and expose requests in deterministic input order. Resolution records also remain ordered by input, even if host promises complete out of order. The runtime never retries or replays an action.
+Each action resolution is recorded before source evaluation can expose the next action request. The runtime never retries or replays an action.
 
 Suspension is not durable execution. A process failure loses interpreter state unless the host reruns the invocation under its own policy.
 

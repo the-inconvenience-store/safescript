@@ -73,7 +73,6 @@ const usage = Object.freeze({
   peakValueBytes: 1,
   peakCallDepth: 1,
   hostCalls: 1,
-  peakConcurrentActions: 1,
   traceBytes: 0,
   outputBytes: 5,
 });

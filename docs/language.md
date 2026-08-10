@@ -56,10 +56,9 @@ The current language also provides structured control and deterministic library 
 - optional fields, optional access, `undefined` checks, and `??`, lowered to canonical option absence;
 - conditional expressions and the broader checked arithmetic/comparison surface;
 - multiple sequential host actions;
-- `Promise.all` over a statically known, bounded action group;
 - deterministic collection, string, object, math, bytes, time, JSON, numeric parsing, and trace intrinsics.
 
-All loops, recursion, allocations, collection work, calls, and action groups are bounded at runtime. Source does not need a statically known loop count, but it cannot exceed the invocation's fuel, call-depth, collection, or allocation ceilings.
+All loops, recursion, allocations, collection work, and calls are bounded at runtime. Source does not need a statically known loop count, but it cannot exceed the invocation's fuel, call-depth, collection, allocation, or host-call ceilings.
 
 ## Host actions and `Result`
 
@@ -70,7 +69,7 @@ Host operations appear as methods under `ctx`, arranged from operation IDs. A ca
 - handle the returned `Result`;
 - do not float, duplicate, race, or hide the action in unsupported control flow.
 
-`Promise.all([actionA, actionB])` is the only concurrent action form. The inputs must be statically known. Capacity and fuel for the whole group are reserved before any request is exposed; results preserve input order even when host completions arrive out of order. `Promise.race` and related competition are rejected.
+Actions run in source order. Each action must complete before evaluation reaches the next action. `Promise.all`, `Promise.race`, and related competition are rejected. A host that needs parallel or atomic domain work can expose one typed batch operation.
 
 A host may stop a validated action in `beforeAction` with any value from that operation's declared error schema. The interpreter resumes extension code with that ordinary `Result`. A malformed outcome or host failure terminates execution instead. The language does not expose hooks or define a universal authorization-error shape.
 

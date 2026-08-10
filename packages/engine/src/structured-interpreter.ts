@@ -3,7 +3,6 @@ import type { CanonicalValue } from '@safescript/contracts';
 import { InterpreterFault, type InterpreterHooks } from './interpreter.js';
 import { byteFuel, linearFuel, SEMANTIC_STEP_FUEL } from './resource-schedule.js';
 import type {
-  StructuredAction,
   StructuredExpression,
   StructuredFunction,
   StructuredPattern,
@@ -218,18 +217,7 @@ export async function interpretStructured(
   hooks: InterpreterHooks,
 ): Promise<CanonicalValue> {
   const root = new Environment();
-  for (const name of [
-    'Object',
-    'Array',
-    'Math',
-    'JSON',
-    'Bytes',
-    'Temporal',
-    'Promise',
-    'console',
-    'parseInt64',
-    'parseFloat64',
-  ])
+  for (const name of ['Object', 'Array', 'Math', 'JSON', 'Bytes', 'Temporal', 'console', 'parseInt64', 'parseFloat64'])
     root.define(name, { kind: 'builtin', name });
   root.define('undefined', Object.freeze({ tag: 'none', value: null }));
   const functions = new Map(program.functions.map((fn) => [fn.name, fn]));
@@ -394,32 +382,6 @@ export async function interpretStructured(
           environment,
         };
       case 'call': {
-        // Promise.all is syntax in SafeScript rather than the ambient JavaScript
-        // Promise implementation. Keep the action expressions unevaluated until
-        // the complete group has been validated and reserved by the bridge.
-        if (
-          expression.callee.tag === 'member' &&
-          expression.callee.name === 'all' &&
-          expression.callee.value.tag === 'name' &&
-          expression.callee.value.name === 'Promise' &&
-          expression.arguments.length === 1 &&
-          expression.arguments[0]?.tag === 'array' &&
-          expression.arguments[0].items.every((item) => !('spread' in item) && item.tag === 'action')
-        ) {
-          const actions: { instruction: StructuredAction; input: CanonicalValue }[] = [];
-          for (const item of expression.arguments[0].items) {
-            if ('spread' in item || item.tag !== 'action')
-              throw new InterpreterFault('invalid_ir', 'invalid concurrent action group');
-            actions.push({
-              instruction: item,
-              input: canonical(await evaluate(item.input, environment)),
-            });
-          }
-          hooks.collection(actions.length);
-          const results = Object.freeze([...(await hooks.actionGroup(actions))]);
-          hooks.allocate(results);
-          return results;
-        }
         const callee = await evaluate(expression.callee, environment);
         const arguments_: RuntimeValue[] = [];
         for (const argument of expression.arguments) arguments_.push(await evaluate(argument, environment));
@@ -609,11 +571,6 @@ async function invokeBuiltin(
       }
       throw new InterpreterFault('invalid_ir', 'Array.from requires a bounded list or string');
     }
-  }
-  if (builtin.name === 'Promise.all') {
-    const values = arguments_[0];
-    if (!Array.isArray(values)) throw new InterpreterFault('invalid_ir', 'Promise.all requires a bounded list');
-    return created(Object.freeze([...values]));
   }
   if (builtin.name.startsWith('Math.')) {
     const values = arguments_.map((value) => Number(value));

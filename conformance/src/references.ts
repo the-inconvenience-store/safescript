@@ -183,10 +183,10 @@ export async function updateStakeholders(event: ReferenceEvent, ctx: Context): P
   const task = await ctx.tasks.create(${actionInput('`Onboard ${event.after.name}`')})
   if (task.tag === "error") return Err(task.value)
   const emails = addresses(root)
-  const outcomes = await Promise.all([
-    ctx.notifications.send(${actionInput('`Notify ${emails[0]}`')}),
-    ctx.notifications.send(${actionInput('`Notify ${emails[1]}`')}),
-  ])
+  const outcomes = [
+    await ctx.notifications.send(${actionInput('`Notify ${emails[0]}`')}),
+    await ctx.notifications.send(${actionInput('`Notify ${emails[1]}`')}),
+  ]
   for (const outcome of outcomes) {
     if (outcome.tag === "error") return Err(outcome.value)
   }
@@ -221,10 +221,10 @@ export async function runCodeMode(event: ReferenceEvent, ctx: Context): Promise<
     .filter((id) => id.trim().length > 0)
     .map((id) => id.toUpperCase())
     .toSorted()
-  const enriched = await Promise.all([
-    ctx.profiles.enrich(${actionInput('`Enrich ${ids[0]}`')}),
-    ctx.profiles.enrich(${actionInput('`Enrich ${ids[1]}`')}),
-  ])
+  const enriched = [
+    await ctx.profiles.enrich(${actionInput('`Enrich ${ids[0]}`')}),
+    await ctx.profiles.enrich(${actionInput('`Enrich ${ids[1]}`')}),
+  ]
   for (const result of enriched) {
     if (result.tag === "error") return Err(result.value)
   }

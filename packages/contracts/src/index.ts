@@ -183,16 +183,16 @@ const CURRENT_LANGUAGE_PROFILE: LanguageProfile = {
     ...CORE_LANGUAGE_PROFILE.accepted,
     'typed helper functions, closures, restricted generics, bounded loops, recursion, readonly arrays and tuples',
     'deterministic String, Bytes, Math, Temporal, JSON, console trace, and immutable collection operations',
-    'multiple sequential actions and bounded Promise.all groups whose inputs are statically known',
+    'multiple sequential actions consumed directly by await',
   ],
   rejected: [
     'ambient file, network, process, package, environment, or credential access',
     'any, unchecked assertions, exceptions, dynamic imports, generated code, mutable objects, and mutable module state',
-    'floating or duplicated actions, timers, promise races, reflection, prototypes, classes, regex, Map, and Set',
+    'floating or duplicated actions, promise concurrency, timers, reflection, prototypes, classes, regex, Map, and Set',
   ],
   authoringRules: [
     ...CORE_LANGUAGE_PROFILE.authoringRules,
-    'Keep loops, recursion, collections, strings, JSON, traces, and concurrent action groups within slot limits.',
+    'Keep loops, recursion, collections, strings, JSON, traces, and host calls within slot limits.',
     'Use deterministic intrinsics; time and randomness come only from invocation-provided Temporal.Now and Math.random.',
     'JSON.parse<T> returns a checked Result; handle both tags before using the decoded value.',
     'After checking a host Result error, keep later code independent of the original result payload unless bound in that branch.',
@@ -413,7 +413,6 @@ export interface ExecutionLimits extends ValueLimits {
   readonly collectionItems: number;
   readonly callDepth: number;
   readonly hostCalls: number;
-  readonly concurrentActions: number;
   readonly traceBytes: number;
   readonly outputBytes: number;
 }
@@ -444,7 +443,6 @@ export const STANDARD_EXECUTION_LIMITS: ExecutionLimits = Object.freeze({
   collectionItems: 10_000,
   callDepth: 64,
   hostCalls: 32,
-  concurrentActions: 8,
   traceBytes: 128 * 1024,
   outputBytes: 1024 * 1024,
 });
@@ -1451,7 +1449,7 @@ export const COMPILER_DIAGNOSTIC_CODES = Object.freeze([
   'SS_MUTABLE_BINDING',
   'SS_NULL_REJECTED',
   'SS_NUMERIC_LITERAL',
-  'SS_PROMISE_RACE',
+  'SS_PROMISE_CONCURRENCY',
   'SS_RECORD_SHAPE',
   'SS_REGEX_REJECTED',
   'SS_RESULT_CONSTRUCTION',
@@ -1509,7 +1507,7 @@ export function diagnosticRepair(code: CompilerDiagnosticCode): DiagnosticRepair
   if (
     code === 'SS_FLOATING_ACTION' ||
     code === 'SS_INVALID_ACTION' ||
-    code === 'SS_PROMISE_RACE' ||
+    code === 'SS_PROMISE_CONCURRENCY' ||
     code === 'SS_RESULT_CONSTRUCTION'
   )
     return { category: 'effects', action: 'Call ctx directly, consume each action once, and handle its typed Result.' };
@@ -1794,7 +1792,6 @@ export interface ExecutionUsage {
   readonly peakValueBytes: number;
   readonly peakCallDepth: number;
   readonly hostCalls: number;
-  readonly peakConcurrentActions: number;
   readonly traceBytes: number;
   readonly outputBytes: number;
 }

@@ -94,7 +94,6 @@ const facts: ExecutionFacts = Object.freeze({
     peakValueBytes: 0,
     peakCallDepth: 0,
     hostCalls: 1,
-    peakConcurrentActions: 1,
     traceBytes: 0,
     outputBytes: 2,
   }),
@@ -829,7 +828,6 @@ export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutp
       program: { kind: 'artifact', bytes: [] },
       input: { value: 1n },
       context: {},
-      limits: { concurrentActions: 1 },
     });
     expect(handlers).toBe(1);
     expect(hooks).toBe(1);
