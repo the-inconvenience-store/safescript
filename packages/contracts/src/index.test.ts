@@ -17,7 +17,6 @@ import {
   hash,
   ids,
   isActionOutcome,
-  isHookDiagnostics,
   optionSchema,
   resultSchema,
   type ContractFailureCode,
@@ -40,29 +39,6 @@ describe('action outcome validation', () => {
         requestId,
         result: { tag: 'rejected', value: { code: 'denied' } },
       }),
-    ).toBe(false);
-    expect(
-      isHookDiagnostics([{ code: 'hook_fault', point: 'before_action', invocationId, requestId, detail: 'safe' }]),
-    ).toBe(true);
-    expect(
-      isHookDiagnostics(
-        Array.from({ length: 17 }, () => ({ code: 'hook_fault', point: 'before_action', invocationId })),
-      ),
-    ).toBe(false);
-    expect(
-      isHookDiagnostics([{ code: 'hook_fault', point: 'before_action', invocationId, detail: 'x'.repeat(161) }]),
-    ).toBe(false);
-    expect(isHookDiagnostics([{ code: 'hook_fault', point: 'after_action', invocationId }])).toBe(false);
-    expect(isHookDiagnostics([{ code: 'hook_fault', point: 'after_execute', invocationId, requestId }])).toBe(false);
-    expect(
-      isHookDiagnostics([
-        {
-          code: 'hook_fault',
-          point: 'after_action',
-          invocationId,
-          requestId: ids.request(ids.invocation('invocation:fedcba9876543210fedcba9876543210'), 0),
-        },
-      ]),
     ).toBe(false);
   });
 });

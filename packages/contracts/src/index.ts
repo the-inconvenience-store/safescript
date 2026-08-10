@@ -1645,63 +1645,6 @@ function exactDataRecord(value: unknown, keys: readonly string[]): value is Read
   }
 }
 
-function validIdentifier<Id extends string>(value: unknown, parse: (value: string) => Id): value is Id {
-  if (typeof value !== 'string') return false;
-  try {
-    parse(value);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Lifecycle point associated with a bounded hook failure diagnostic. */
-export type HookLifecyclePoint = 'before_execute' | 'after_execute' | 'before_action' | 'after_action';
-export const MAX_HOOK_DIAGNOSTICS = 16;
-/** Stable, bounded host-local hook failure safe to return through the public SDK. */
-export type HookDiagnostic =
-  | Readonly<{
-      code: 'hook_fault';
-      point: 'before_execute' | 'after_execute';
-      invocationId: InvocationId;
-      detail?: string;
-    }>
-  | Readonly<{
-      code: 'hook_fault';
-      point: 'before_action' | 'after_action';
-      invocationId: InvocationId;
-      requestId: RequestId;
-      detail?: string;
-    }>;
-
-/** Fail-closed validator for a bounded set of lifecycle hook diagnostics. */
-export function isHookDiagnostics(value: unknown): value is readonly HookDiagnostic[] {
-  return (
-    Array.isArray(value) &&
-    value.length <= MAX_HOOK_DIAGNOSTICS &&
-    value.every((item) => {
-      if (
-        !(
-          exactDataRecord(item, ['code', 'invocationId', 'point']) ||
-          exactDataRecord(item, ['code', 'detail', 'invocationId', 'point']) ||
-          exactDataRecord(item, ['code', 'invocationId', 'point', 'requestId']) ||
-          exactDataRecord(item, ['code', 'detail', 'invocationId', 'point', 'requestId'])
-        ) ||
-        item.code !== 'hook_fault' ||
-        !validIdentifier(item.invocationId, ids.invocation) ||
-        (item.detail !== undefined &&
-          (typeof item.detail !== 'string' || item.detail.length > MAX_FAILURE_DETAIL_LENGTH))
-      )
-        return false;
-      if (item.point === 'before_execute' || item.point === 'after_execute') return item.requestId === undefined;
-      return (
-        (item.point === 'before_action' || item.point === 'after_action') &&
-        validIdentifier(item.requestId, ids.parseRequest) &&
-        item.requestId.startsWith(`request:${item.invocationId.slice('invocation:'.length)}:`)
-      );
-    })
-  );
-}
 /** Closed infrastructure and host-adapter failures that terminate execution. */
 export const HOST_FAILURE_CODES = Object.freeze([
   'cancelled',
@@ -2143,11 +2086,9 @@ export interface ExecutionFacts {
 export const EXECUTION_ERROR_CODES = Object.freeze([
   'action_outcome_invalid',
   'cancelled',
-  'execution_rejected',
   'fixed_instant_required',
   'gateway_fault',
   'handler_fault',
-  'hook_fault',
   'idempotency_key_invalid',
   'integer_overflow',
   'interpreter_fault',
@@ -2167,7 +2108,6 @@ export const EXECUTION_ERROR_CODES = Object.freeze([
 export type ExecutionErrorCode = (typeof EXECUTION_ERROR_CODES)[number];
 export interface ExecutionError {
   readonly code: ExecutionErrorCode;
-  readonly hostCode?: string;
   readonly detail?: string;
   readonly source?: SourceProvenance;
 }
@@ -2193,7 +2133,6 @@ export type FailureField =
   | 'byteOffset'
   | 'detail'
   | 'effectState'
-  | 'hostCode'
   | 'id'
   | 'limit'
   | 'location'
@@ -2396,14 +2335,6 @@ export const DIAGNOSTIC_CATALOG: readonly FailureCatalogEntry[] = Object.freeze(
       'optional',
     ),
     catalogEntry(
-      'hook_fault',
-      'action',
-      'action_gateway',
-      'lifecycle hook failed closed',
-      ['detail', 'source'],
-      'optional',
-    ),
-    catalogEntry(
       'idempotency_key_invalid',
       'action',
       'action_gateway',
@@ -2450,14 +2381,6 @@ export const DIAGNOSTIC_CATALOG: readonly FailureCatalogEntry[] = Object.freeze(
       'invocation cancellation reached execution',
       ['source'],
       'optional',
-    ),
-    catalogEntry(
-      'execution_rejected',
-      'execution',
-      'runtime_bridge',
-      'host lifecycle hook rejected execution before it started',
-      ['hostCode', 'detail'],
-      'not_applicable',
     ),
     catalogEntry(
       'resource_exhausted',
@@ -2581,7 +2504,7 @@ export const DIAGNOSTIC_CATALOG: readonly FailureCatalogEntry[] = Object.freeze(
   ].sort((left, right) => left.code.localeCompare(right.code)),
 );
 /** Closed execution lifecycle result. Only `completed` contains a program output. */
-export type ExecutionResult = (
+export type ExecutionResult =
   | Readonly<{
       status: 'not_started';
       diagnostics?: readonly Diagnostic[];
@@ -2591,9 +2514,7 @@ export type ExecutionResult = (
   | Readonly<{ status: 'completed'; output: CanonicalBytes; facts: ExecutionFacts }>
   | Readonly<{ status: 'failed'; error: ExecutionError; facts: ExecutionFacts }>
   | Readonly<{ status: 'cancelled'; error: ExecutionError; facts: ExecutionFacts }>
-  | Readonly<{ status: 'bridge_error'; error: BridgeError }>
-) &
-  Readonly<{ hookDiagnostics?: readonly HookDiagnostic[] }>;
+  | Readonly<{ status: 'bridge_error'; error: BridgeError }>;
 
 /** Idempotent request to signal one active invocation. */
 export interface CancelRequest {

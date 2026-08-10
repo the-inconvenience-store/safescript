@@ -14,14 +14,14 @@ SafeScript changes the integration model:
 2. The compiler accepts only an explicit TypeScript subset and only registered modules.
 3. The runtime interprets verified IR and meters semantic work.
 4. Every host operation becomes a typed action request.
-5. The SDK gateway validates that request before optional host hooks and at-most-once handler dispatch.
+5. The SDK gateway validates that request before optional host policy and at-most-once handler dispatch.
 6. The result and ordered execution facts cross back as serializable values.
 
 The static reachable-operation summary answers “what might this program request?” It never answers “is this request allowed now?”
 
 ## The three participants
 
-The **host developer** integrates `@safescript/sdk`. They define the contract, trusted handlers, optional lifecycle hooks, host policy placement, and limits.
+The **host developer** integrates `@safescript/sdk`. They define the contract, trusted handlers, optional `beforeAction` policy, policy placement, and limits.
 
 The **extension author** writes restricted TypeScript against generated `host:api` declarations. They receive ordinary typed input and a `Context` containing only the operations allowed in that slot.
 

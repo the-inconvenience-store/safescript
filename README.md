@@ -19,7 +19,7 @@ Open <http://localhost:4317> to inspect and execute ten CRM automations. The exa
 
 ## Use the SDK
 
-A host defines one contract and provides one trusted handler per operation. Optional lifecycle hooks can enforce application policy or observe execution at the validated SDK boundary:
+A host defines one contract and provides one trusted handler per operation. An optional `beforeAction` hook can enforce central policy at the validated SDK boundary:
 
 ```ts
 import { createAuthoringBundle, createSafeScript } from '@safescript/sdk';
@@ -147,7 +147,7 @@ Operations are application-specific and dispatch only through the validated host
 
 ## What is included
 
-- `@safescript/sdk` — contracts, host integration, validated action gateway, lifecycle hooks, authoring bundles, and deterministic tests
+- `@safescript/sdk` — contracts, host integration, validated action gateway, optional action policy, authoring bundles, and deterministic tests
 - `@safescript/worker` — pinned local runtime worker and protocol implementation
 - `@safescript/engine` — restricted TypeScript compiler, checked artifacts, semantic inspection, and bounded interpreter
 - `@safescript/contracts` — serializable schemas, IDs, limits, diagnostics, canonical codecs, and runtime bridge records

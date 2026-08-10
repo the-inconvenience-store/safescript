@@ -3,7 +3,6 @@
  * @packageDocumentation
  */
 import {
-  MAX_HOOK_DIAGNOSTICS,
   decodeCanonical,
   encodeCanonical,
   ids,
@@ -12,7 +11,6 @@ import {
   type ActionRequest,
   type EffectState,
   type HostFailure,
-  type HookDiagnostic,
   type ExecutionLimits,
   type InvocationId,
   type OperationId,
@@ -57,7 +55,6 @@ class InvocationGateway<C, O extends Operations, S extends Slots> {
   private sequence = 0;
   private attemptedCalls = 0;
   private activeCalls = 0;
-  private readonly diagnostics: HookDiagnostic[] = [];
 
   constructor(
     private readonly options: CreateSafeScriptOptions<C, O, S>,
@@ -86,12 +83,7 @@ class InvocationGateway<C, O extends Operations, S extends Slots> {
     } finally {
       this.activeCalls--;
     }
-    await this.observe(context, outcome);
     return outcome;
-  }
-
-  hookDiagnostics(): readonly HookDiagnostic[] {
-    return freeze([...this.diagnostics]);
   }
 
   private validEnvelope(request: ActionRequest, entry: OperationEntry<O>): boolean {
@@ -188,24 +180,6 @@ class InvocationGateway<C, O extends Operations, S extends Slots> {
       : this.fail(request, 'not_performed', 'gateway_fault');
   }
 
-  private async observe(context: ActionHookContext<PropertyKey, unknown, C>, outcome: ActionOutcome): Promise<void> {
-    const hook = this.options.hooks?.afterAction;
-    if (!hook) return;
-    try {
-      await hook(Object.freeze({ ...context, outcome }) as never);
-    } catch {
-      if (this.diagnostics.length < MAX_HOOK_DIAGNOSTICS)
-        this.diagnostics.push(
-          freeze({
-            code: 'hook_fault',
-            point: 'after_action',
-            invocationId: context.invocationId,
-            requestId: context.request.requestId,
-          }),
-        );
-    }
-  }
-
   private async invoke(
     request: ActionRequest,
     entry: OperationEntry<O>,
@@ -278,10 +252,9 @@ export function createGateway<C, O extends Operations, S extends Slots>(
   signal: AbortSignal,
   invocationId: InvocationId,
   limits: ExecutionLimits,
-): Readonly<{ host: RuntimeBridgeHost; hookDiagnostics: () => readonly HookDiagnostic[] }> {
+): Readonly<{ host: RuntimeBridgeHost }> {
   const gateway = new InvocationGateway(options, operationsById, context, slot, signal, invocationId, limits);
   return Object.freeze({
     host: Object.freeze({ handleAction: (request: ActionRequest) => gateway.handle(request) }),
-    hookDiagnostics: () => gateway.hookDiagnostics(),
   });
 }

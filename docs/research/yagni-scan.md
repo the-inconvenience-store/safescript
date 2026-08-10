@@ -179,6 +179,8 @@ The special semantic benefit is that `beforeAction` can produce a declared exten
 
 **YAGNI test:** retain hooks only if validated, centrally ordered interception is a product requirement that ordinary handler composition cannot satisfy. Otherwise provide recipes or an SDK helper outside the core facade.
 
+Resolution: `beforeAction` is now the only optional hook. It retains the distinct validated, decoded, pre-dispatch interception point and can stop with the operation's declared `Err`. Hosts wrap `execute` for execution-level checks or observation and wrap handlers for action observation. The execution hooks, `afterAction`, hook diagnostics, scripted execution rejection, and their dedicated error codes were removed. No middleware or composition helper was added.
+
 ### 9. Runtime-derived idempotency keys
 
 **Confidence: high as a scope challenge.**
@@ -261,7 +263,7 @@ There is no repository automation that depends on the CLI beyond CLI/release tes
 
 **Confidence: medium.**
 
-`safe.test` adds ordered scripted actions, fixed invocation/time/random/idempotency inputs, execution rejections, path-addressed mismatches, selected resource assertions, and a report format (`docs/testing.md:5-45`; `packages/sdk/src/testing.ts`). It is the fourth behavioral concern in the six-method production facade.
+`safe.test` adds ordered scripted actions, fixed invocation/time/random/idempotency inputs, path-addressed mismatches, selected resource assertions, and a report format (`docs/testing.md:5-45`; `packages/sdk/src/testing.ts`). It is the fourth behavioral concern in the six-method production facade.
 
 Hosts can already use fake handlers with ordinary test frameworks and call `execute`. The DSL is useful, but it need not be a runtime primitive or part of the same compatibility contract.
 

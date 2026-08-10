@@ -4,7 +4,7 @@ This document defines message ownership, correlation, connection lifecycle, canc
 
 ## Roles and ownership
 
-The **host** owns SDK invocation context, optional lifecycle hooks and policy, handlers, credentials, process supervision, and retention. The **runtime worker** owns checking, artifact verification, interpretation, semantic metering, and creation of typed action requests. Neither peer may initiate a message assigned to the other role.
+The **host** owns SDK invocation context, optional action policy, handlers, credentials, process supervision, and retention. The **runtime worker** owns checking, artifact verification, interpretation, semantic metering, and creation of typed action requests. Neither peer may initiate a message assigned to the other role.
 
 | Initiator | Request kinds            | Correlated terminal kinds                   |
 | --------- | ------------------------ | ------------------------------------------- |
@@ -49,9 +49,9 @@ Acceptance of a request reserves its in-flight, decode, reply, and applicable se
 
 Only the worker may initiate `action.request`, and only while interpreting one active execute request. Its payload carries the complete existing typed action request plus the parent execute envelope ID. The host validates both protocol correlation and every action-domain identity independently.
 
-The host reserves response capacity before accepting the action and validates canonical input, registry metadata, and correlation before invoking any hook or handler. It MAY run `beforeAction`; a stop becomes a completed declared operation `Err`, while continuation or an absent hook permits at-most-once handler dispatch. After fixing the outcome, it MAY run `afterAction`, whose failure cannot change that outcome. It returns exactly one `action.outcome` containing a completed declared `Result` or host failure with explicit effect state.
+The host reserves response capacity before accepting the action and validates canonical input, registry metadata, and correlation before invoking policy or a handler. It MAY run `beforeAction`; a stop becomes a completed declared operation `Err`, while continuation or an absent hook permits at-most-once handler dispatch. It returns exactly one `action.outcome` containing a completed declared `Result` or host failure with explicit effect state.
 
-Callbacks, credentials, host objects, invocation context, hook decisions, and hook diagnostics are not protocol values. The worker observes only the action request and its typed outcome.
+Callbacks, credentials, host objects, invocation context, and policy decisions are not protocol values. The worker observes only the action request and its typed outcome.
 
 An envelope ID, invocation ID, action request ID, and idempotency key are distinct. None substitutes for another. A repeated envelope or action request never dispatches a handler. The protocol never retries an action.
 

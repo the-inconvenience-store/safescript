@@ -60,12 +60,12 @@ _Avoid_: Command execution, permission grant
 The terminal typed resolution of an action request as a completed declared result or a host failure with explicit effect state. A host hook that stops an action supplies the operation's declared error rather than a protocol-level policy rejection.
 _Avoid_: Host response, success flag
 
-**Lifecycle hook**:
-An optional host-local callback at `beforeExecute`, `afterExecute`, `beforeAction`, or `afterAction`. Before-hooks may stop work; after-hooks observe a fixed result and cannot rewrite it. Hooks never cross the runtime bridge.
+**Action policy hook**:
+The optional host-local `beforeAction` callback. It receives a validated and decoded action immediately before handler dispatch and may continue or return the operation's declared error. It never crosses the runtime bridge.
 _Avoid_: Built-in authorization, worker callback, middleware registry
 
 **Validated interception point**:
-The SDK-owned boundary after public and action-envelope validation where a configured host hook may apply application policy before trusted work. It guarantees safe placement and fail-closed plumbing, not that the host has authorized the request.
+The SDK-owned boundary after public and action-envelope validation where configured host policy may run before trusted work. It guarantees safe placement and fail-closed plumbing, not that the host has authorized the request.
 _Avoid_: Permission grant, policy engine
 
 **Effect state**:

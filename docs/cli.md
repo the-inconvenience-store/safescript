@@ -30,7 +30,7 @@ The contract JSON mirrors the SDK definition using serializable references:
 - slot `input` and `output` fields contain type IDs;
 - operation allow-lists, costs, idempotency, and limits remain declarative JSON values.
 
-The CLI cannot load executable hooks or handlers. Execution and tests therefore use the deterministic scripted-action shape from the SDK. This makes the CLI useful for offline checking, inspection, corpus tests, and machine integration, not production host dispatch or host-policy testing.
+The CLI cannot load executable policy or handlers. Execution and tests therefore use the deterministic scripted-action shape from the SDK. This makes the CLI useful for offline checking, inspection, corpus tests, and machine integration, not production host dispatch or host-policy testing.
 
 ## Lossless JSON conventions
 

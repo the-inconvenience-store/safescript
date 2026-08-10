@@ -7,7 +7,7 @@ Start here:
 - [Getting started](getting-started.md) builds a small host integration and runs an extension.
 - [Introduction](introduction.md) explains what SafeScript is, what it protects, and where it fits.
 - [Language guide](language.md) describes the supported TypeScript subset, its deterministic intrinsics, and its deliberate quirks.
-- [SDK guide](sdk.md) covers contracts, handlers, lifecycle hooks, host policy placement, execution, and testing.
+- [SDK guide](sdk.md) covers contracts, handlers, action policy, host policy placement, execution, and testing.
 
 Go deeper:
 

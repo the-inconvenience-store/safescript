@@ -132,7 +132,7 @@ const adapters: Array<[string, (bridge: RuntimeBridge) => RuntimeBridge]> = [
 ];
 
 describe('public SDK conformance', () => {
-  it.each(adapters)('%s adapter preserves SDK hook boundaries around a typed action', async (_name, adapt) => {
+  it.each(adapters)('%s adapter preserves the SDK policy boundary around a typed action', async (_name, adapt) => {
     let bridgeRequestInput: readonly number[] = [];
     let observedAction: ActionRequest | undefined;
     const facts: ExecutionFacts = {
@@ -207,16 +207,10 @@ describe('public SDK conformance', () => {
         },
       },
       hooks: {
-        beforeExecute: () => {
-          events.push('before-execute');
-          return { status: 'continue' };
-        },
         beforeAction: () => {
           events.push('before-action');
           return { status: 'continue' };
         },
-        afterAction: () => events.push('after-action'),
-        afterExecute: () => events.push('after-execute'),
       },
     });
     const result = await safe.execute({
@@ -231,7 +225,7 @@ describe('public SDK conformance', () => {
     });
     expect(result.status).toBe('completed');
     if (result.status === 'completed') expect(result.output).toBe('done');
-    expect(events).toEqual(['before-execute', 'before-action', 'handle:acme:7', 'after-action', 'after-execute']);
+    expect(events).toEqual(['before-action', 'handle:acme:7']);
     expect(observedAction?.invocationId).toBe(invocationId);
     const encodedInput = encodeCanonical(inputType.schema, { value: 7n });
     expect(encodedInput.ok).toBe(true);

@@ -5,8 +5,6 @@
 import { randomBytes } from 'node:crypto';
 
 import {
-  MAX_FAILURE_DETAIL_LENGTH,
-  MAX_HOOK_DIAGNOSTICS,
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
   decodeCanonical,
@@ -22,7 +20,6 @@ import {
   type ExecuteRequest as BridgeExecuteRequest,
   type ExecutionLimits,
   type ExecutionResult as BridgeExecutionResult,
-  type HookDiagnostic,
   type InspectResult,
   type InvocationId,
   type OperationId,
@@ -41,72 +38,22 @@ import {
   SdkConfigurationError,
   type AbortSignal,
   type ArtifactStore,
-  type BeforeExecuteDecision,
   type CheckRequest,
   type CreateSafeScriptOptions,
   type ExecuteRequest,
   type ExecutionResult,
-  type ExecutionHookContext,
   type InspectRequest,
-  type Program,
   type SafeScript,
   type SourceProgram,
   type TestReport,
   type TestRequest,
 } from './types.js';
 
-const MAX_HOOK_CODE_LENGTH = 64;
 const DEFAULT_ARTIFACT_STORE_TIMEOUT_MS = 1_000;
 const MAX_ARTIFACT_STORE_TIMEOUT_MS = 60_000;
 
 type ArtifactLoad =
   Readonly<{ status: 'hit'; bytes: CanonicalBytes }> | Readonly<{ status: 'miss' | 'invalid' | 'failure' }>;
-
-function executionProgram(request: BridgeExecuteRequest): Program {
-  return request.program.kind === 'artifact'
-    ? freeze({ kind: 'artifact', bytes: request.program.bytes })
-    : freeze({
-        kind: 'source',
-        source: {
-          entryModule: request.program.source.source.entry,
-          modules: request.program.source.source.modules.map((module) => ({
-            id: module.id,
-            source: Buffer.from(module.source).toString('utf8'),
-          })),
-        },
-      });
-}
-
-function validBeforeExecuteDecision(value: unknown): BeforeExecuteDecision | undefined {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
-  try {
-    const descriptors = Object.getOwnPropertyDescriptors(value);
-    const keys = Object.keys(descriptors).sort();
-    if (keys.some((key) => !('value' in (descriptors[key] as PropertyDescriptor)))) return undefined;
-    const record = value as Readonly<Record<string, unknown>>;
-    if (keys.length === 1 && keys[0] === 'status' && record.status === 'continue')
-      return freeze({ status: 'continue' });
-    const expected = record.detail === undefined ? ['code', 'status'] : ['code', 'detail', 'status'];
-    if (
-      keys.length !== expected.length ||
-      keys.some((key, index) => key !== expected[index]) ||
-      record.status !== 'rejected' ||
-      typeof record.code !== 'string' ||
-      [...record.code].length < 1 ||
-      [...record.code].length > MAX_HOOK_CODE_LENGTH ||
-      (record.detail !== undefined &&
-        (typeof record.detail !== 'string' || [...record.detail].length > MAX_FAILURE_DETAIL_LENGTH))
-    )
-      return undefined;
-    return freeze({
-      status: 'rejected',
-      code: record.code,
-      ...(record.detail === undefined ? {} : { detail: record.detail as string }),
-    });
-  } catch {
-    return undefined;
-  }
-}
 
 function validBytes(value: readonly number[], maximum: number): boolean {
   return value.length <= maximum && value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255);
@@ -387,37 +334,6 @@ class RequestCodec<C, O extends Operations, S extends Slots> {
       : freeze({ status: 'bridge_error', error: bridgeError('execute') });
   }
 
-  hookContext(
-    slot: Slot<unknown, unknown>,
-    slotKey: PropertyKey,
-    request: ExecuteRequest<PropertyKey, unknown, C>,
-    assembled: BridgeExecuteRequest,
-    signal: AbortSignal,
-  ): ExecutionHookContext<PropertyKey, unknown, C> | BridgeError {
-    const input = decodeCanonical({ kind: 'ref', type: slot.input.id }, Uint8Array.from(assembled.input), {
-      registry: this.contract.registry.schemas,
-    });
-    if (!input.ok) return bridgeError('execute', 'invalid_request');
-    try {
-      return Object.freeze({
-        slot: slotKey,
-        slotId: assembled.slotId,
-        invocationId: assembled.invocationId,
-        program: executionProgram(assembled),
-        input: input.value,
-        context: request.context,
-        limits: assembled.limits,
-        trace: assembled.trace,
-        signal,
-        ...(assembled.idempotencySeed === undefined ? {} : { idempotencySeed: assembled.idempotencySeed }),
-        ...(assembled.fixedInstant === undefined ? {} : { fixedInstant: assembled.fixedInstant }),
-        ...(assembled.randomSeed === undefined ? {} : { randomSeed: assembled.randomSeed }),
-      });
-    } catch {
-      return bridgeError('execute', 'invalid_request');
-    }
-  }
-
   private compileLimits(slot: Slot<unknown, unknown>, request?: Partial<CompileLimits>): CompileLimits {
     return completeLimits(
       slot.compileLimits ? completeLimits(STANDARD_COMPILE_LIMITS, slot.compileLimits) : STANDARD_COMPILE_LIMITS,
@@ -604,8 +520,6 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
       }
       const assembled = this.requests.execute(slot, request, invocationId);
       if ('code' in assembled) return freeze({ status: 'bridge_error', error: assembled });
-      const context = this.requests.hookContext(slot, request.slot, request, assembled, controller.signal);
-      if ('code' in context) return freeze({ status: 'bridge_error', error: context });
       const gateway = createGateway(
         this.options,
         this.operationsById,
@@ -615,43 +529,7 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
         invocationId,
         assembled.limits,
       );
-      let result: ExecutionResult<unknown>;
-      if (this.options.hooks?.beforeExecute) {
-        if (controller.signal.aborted) {
-          result = freeze({ status: 'not_started', error: { code: 'cancelled' } });
-        } else {
-          let decision: ReturnType<typeof validBeforeExecuteDecision>;
-          try {
-            decision = validBeforeExecuteDecision(await this.options.hooks.beforeExecute(context as never));
-          } catch {
-            decision = undefined;
-          }
-          if (controller.signal.aborted) {
-            result = freeze({ status: 'not_started', error: { code: 'cancelled' } });
-          } else if (!decision) result = freeze({ status: 'not_started', error: { code: 'hook_fault' } });
-          else if (decision.status === 'rejected') {
-            result = freeze({
-              status: 'not_started',
-              error: {
-                code: 'execution_rejected',
-                hostCode: decision.code,
-                ...(decision.detail === undefined ? {} : { detail: decision.detail }),
-              },
-            });
-          } else {
-            result = await this.executeBridge(slot, request, gateway.host, invocationId, assembled, controller.signal);
-          }
-        }
-      } else {
-        result = await this.executeBridge(slot, request, gateway.host, invocationId, assembled, controller.signal);
-      }
-      const actionDiagnostics = gateway.hookDiagnostics();
-      if (actionDiagnostics.length)
-        result = freeze({
-          ...result,
-          hookDiagnostics: [...(result.hookDiagnostics ?? []), ...actionDiagnostics].slice(0, MAX_HOOK_DIAGNOSTICS),
-        }) as ExecutionResult<unknown>;
-      return await this.afterExecute(context, result);
+      return await this.executeBridge(slot, request, gateway.host, invocationId, assembled, controller.signal);
     } finally {
       try {
         request.signal?.removeEventListener('abort', abort);
@@ -749,29 +627,6 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
     }
   }
 
-  private async afterExecute(
-    context: ExecutionHookContext<PropertyKey, unknown, C>,
-    result: ExecutionResult<unknown>,
-  ): Promise<ExecutionResult<unknown>> {
-    const hook = this.options.hooks?.afterExecute;
-    if (!hook) return result;
-    const fixed = freeze({ ...result }) as ExecutionResult<unknown>;
-    try {
-      await hook(Object.freeze({ ...context, result: fixed }) as never);
-      return fixed;
-    } catch {
-      const diagnostic: HookDiagnostic = freeze({
-        code: 'hook_fault',
-        point: 'after_execute',
-        invocationId: context.invocationId,
-      });
-      return freeze({
-        ...fixed,
-        hookDiagnostics: [...(fixed.hookDiagnostics ?? []), diagnostic].slice(0, MAX_HOOK_DIAGNOSTICS),
-      }) as ExecutionResult<unknown>;
-    }
-  }
-
   private async runTest(request: TestRequest<PropertyKey, unknown, unknown, O>): Promise<TestReport<unknown>> {
     const slot = this.slotFor(request.slot);
     if (!slot)
@@ -783,39 +638,24 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
     const identity = hash('program', encodeUtf8(`${request.name}\0${stable(request.program)}`));
     const invocationId = request.fixed?.invocationId ?? ids.invocation(`invocation:${identity.slice(0, 32)}`);
     const scripted = createScriptedHost(this.options.contract, this.operationsById, request.actions ?? []);
-    const decision = request.execution === undefined ? undefined : validBeforeExecuteDecision(request.execution);
-    const execution =
-      request.execution === undefined
-        ? await this.executeBridge(
-            slot,
-            {
-              slot: request.slot,
-              program: request.program,
-              input: request.input,
-              context: undefined as C,
-              invocationId,
-              idempotencySeed: request.fixed?.idempotencySeed ?? [...encodeUtf8(identity)],
-              ...(request.fixed?.instant === undefined ? {} : { fixedInstant: request.fixed.instant }),
-              randomSeed: request.fixed?.randomSeed ?? [
-                ...encodeUtf8(hash('program', encodeUtf8(`${identity}:random`))),
-              ],
-            },
-            scripted.host,
-            invocationId,
-            undefined,
-            undefined,
-            false,
-          )
-        : decision?.status === 'rejected'
-          ? freeze({
-              status: 'not_started' as const,
-              error: {
-                code: 'execution_rejected' as const,
-                hostCode: decision.code,
-                ...(decision.detail === undefined ? {} : { detail: decision.detail }),
-              },
-            })
-          : freeze({ status: 'bridge_error' as const, error: bridgeError('execute', 'invalid_request') });
+    const execution = await this.executeBridge(
+      slot,
+      {
+        slot: request.slot,
+        program: request.program,
+        input: request.input,
+        context: undefined as C,
+        invocationId,
+        idempotencySeed: request.fixed?.idempotencySeed ?? [...encodeUtf8(identity)],
+        ...(request.fixed?.instant === undefined ? {} : { fixedInstant: request.fixed.instant }),
+        randomSeed: request.fixed?.randomSeed ?? [...encodeUtf8(hash('program', encodeUtf8(`${identity}:random`)))],
+      },
+      scripted.host,
+      invocationId,
+      undefined,
+      undefined,
+      false,
+    );
     scripted.finish();
     compareExpectations(request.expect, execution, scripted.mismatches);
     return freeze({ passed: scripted.mismatches.length === 0, mismatches: scripted.mismatches, execution });

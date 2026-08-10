@@ -16,7 +16,7 @@ The current format removes the redundant contract ID, per-definition fingerprint
 
 Artifacts are suitable for an optional host cache or store. Before every artifact execution, the engine treats the bytes as untrusted and revalidates canonical representation, compiler and exact registry binding, slot and optional source-key binding, digest integrity, and typed IR. Any mismatch fails before interpretation.
 
-Artifact reuse never reuses a host policy decision. Actions still pass through the SDK gateway and the hooks and handlers configured for that invocation. Hosts should retain source as the canonical review and editing form and regenerate artifacts when the compiler or contract changes.
+Artifact reuse never reuses a host policy decision. Actions still pass through the SDK gateway, optional `beforeAction` policy, and handlers configured for that invocation. Hosts should retain source as the canonical review and editing form and regenerate artifacts when the compiler or contract changes.
 
 Ordinary source checks and executions use the bounded, bridge-local verified-compilation cache. That trusted internal value is not a public handle or serialization format. It remains in memory only for the bridge or worker lifetime. Serialized artifacts are a separate optional projection for hosts that deliberately provide storage or transport.
 

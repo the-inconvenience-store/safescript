@@ -140,7 +140,7 @@ Direct mode preserves language semantics but does not provide process containmen
 
 The SDK requires exactly one handler for every operation. It validates action envelopes, decodes inputs, runs the configured hook, dispatches at most once after `continue`, and validates the declared outcome. A `stop` becomes the operation's ordinary declared `Err`; it is not a special policy outcome.
 
-Hooks are optional host integration points, not built-in authorization. If this operation can also be reached outside SafeScript, its handler or downstream task service should enforce authority as defense in depth. A host with several checks composes them inside its one `beforeAction` callback and owns their order.
+`beforeAction` is an optional host integration point, not built-in authorization. If this operation can also be reached outside SafeScript, its handler or downstream task service should enforce authority as defense in depth. A host with several checks composes them inside its one callback and owns their order.
 
 ## 4. Write the extension
 

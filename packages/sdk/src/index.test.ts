@@ -578,56 +578,7 @@ export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutp
     await failing.close();
   });
 
-  it('scripts an execution rejection without invoking production hooks, handlers, or the bridge', async () => {
-    const bridge = new FakeBridge();
-    let bridgeCalls = 0;
-    let productionCalls = 0;
-    bridge.executeResult = async () => {
-      bridgeCalls++;
-      return { status: 'bridge_error', error: { code: 'adapter_failure', phase: 'execute' } };
-    };
-    const safe = createSafeScript({
-      contract,
-      bridge,
-      handlers: {
-        read: () => {
-          productionCalls++;
-          return { tag: 'ok', value: 'production' } as const;
-        },
-      },
-      hooks: {
-        beforeExecute: () => {
-          productionCalls++;
-          return { status: 'continue' } as const;
-        },
-        afterExecute: () => {
-          productionCalls++;
-        },
-      },
-    });
-
-    const report = await safe.test({
-      name: 'maintenance rejection',
-      slot: 'main',
-      program: { kind: 'artifact', bytes: [] },
-      input: { value: 2n },
-      execution: { status: 'rejected', code: 'maintenance', detail: 'scheduled' },
-      expect: { status: 'not_started' },
-    });
-
-    expect(report).toEqual({
-      passed: true,
-      mismatches: [],
-      execution: {
-        status: 'not_started',
-        error: { code: 'execution_rejected', hostCode: 'maintenance', detail: 'scheduled' },
-      },
-    });
-    expect(bridgeCalls).toBe(0);
-    expect(productionCalls).toBe(0);
-  });
-
-  it('uses a scripted declared Err without invoking production hooks or handlers', async () => {
+  it('uses a scripted declared Err without invoking production policy or handlers', async () => {
     const bridge = new FakeBridge();
     let productionCalls = 0;
     bridge.executeResult = async (request, host) => {
@@ -661,16 +612,10 @@ export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutp
         },
       },
       hooks: {
-        beforeExecute: () => {
-          touched();
-          return { status: 'continue' } as const;
-        },
-        afterExecute: touched,
         beforeAction: () => {
           touched();
           return { status: 'continue' } as const;
         },
-        afterAction: touched,
       },
     });
 
@@ -697,35 +642,6 @@ export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutp
     expect(
       decodeCanonical(resultSchema(outputType.schema, errorType.schema), Uint8Array.from(outcome.result.value)),
     ).toEqual({ ok: true, value: { tag: 'error', value: { tag: 'domain', value: 'blocked' } } });
-  });
-
-  it('bounds repeated afterAction diagnostics without retaining hook exceptions', async () => {
-    const bridge = new FakeBridge();
-    bridge.executeResult = async (request, host) => {
-      for (let sequence = 0; sequence < 17; sequence++) await host.handleAction(action(request, sequence));
-      return { status: 'bridge_error', error: { code: 'adapter_failure', phase: 'execute' } };
-    };
-    const safe = createSafeScript({
-      contract,
-      bridge,
-      handlers: { read: () => ({ tag: 'ok', value: 'handled' }) as const },
-      hooks: {
-        afterAction: () => {
-          throw new Error('SECRET_REPEATED_HOOK_FAILURE');
-        },
-      },
-    });
-
-    const result = await safe.execute({
-      slot: 'main',
-      program: { kind: 'artifact', bytes: [] },
-      input: { value: 1n },
-      context: {},
-      invocationId,
-    });
-
-    expect(result.hookDiagnostics).toHaveLength(16);
-    expect(JSON.stringify(result)).not.toContain('SECRET_REPEATED_HOOK_FAILURE');
   });
 
   it('rejects uncorrelated or unauthorized bridge actions', async () => {
@@ -786,7 +702,7 @@ export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutp
     expect(handlers).toBe(1);
   });
 
-  it('stops validated actions with declared errors and records afterAction faults without rewriting outcomes', async () => {
+  it('stops validated actions with declared errors without dispatching handlers', async () => {
     const bridge = new FakeBridge();
     let handlers = 0;
     let fixedOutcome: ActionOutcome | undefined;
@@ -818,10 +734,6 @@ export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutp
           expect(Object.isFrozen(hostContext)).toBe(false);
           return { status: 'stop', error: { tag: 'policy', value: { code: 'denied' } } } as const;
         },
-        afterAction: ({ outcome }) => {
-          expect(outcome.result.tag).toBe('completed');
-          throw new Error('secret after action');
-        },
       },
     });
     const result = await safe.execute({
@@ -843,18 +755,9 @@ export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutp
       });
     }
     expect(result.status).toBe('completed');
-    expect(result.hookDiagnostics).toEqual([
-      {
-        code: 'hook_fault',
-        point: 'after_action',
-        invocationId,
-        requestId: ids.request(invocationId, 0),
-      },
-    ]);
-    expect(JSON.stringify(result)).not.toContain('secret after action');
   });
 
-  it('fails malformed action hooks closed and observes cancellation and handler failures', async () => {
+  it('fails malformed action policy closed and preserves cancellation and handler failures', async () => {
     for (const mode of ['malformed', 'cancelled', 'handler_fault'] as const) {
       const controller = new AbortController();
       const observed: ActionOutcome['result'][] = [];
@@ -895,10 +798,7 @@ export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutp
           },
         },
         createInvocationId: () => invocationId,
-        hooks: {
-          ...(beforeAction === undefined ? {} : { beforeAction }),
-          afterAction: ({ outcome }) => expect(outcome.result).toEqual(expected),
-        },
+        hooks: beforeAction === undefined ? {} : { beforeAction },
       });
       await safe.execute({
         slot: 'main',
@@ -911,7 +811,7 @@ export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutp
     }
   });
 
-  it('keeps invalid and over-capacity actions away from hooks and handlers', async () => {
+  it('keeps invalid and over-capacity actions away from policy and handlers', async () => {
     const bridge = new FakeBridge();
     let hooks = 0;
     let handlers = 0;
@@ -944,9 +844,6 @@ export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutp
           await Promise.resolve();
           return { status: 'continue' } as const;
         },
-        afterAction: () => {
-          hooks++;
-        },
       },
     });
     await safe.execute({
@@ -957,7 +854,7 @@ export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutp
       limits: { concurrentActions: 1 },
     });
     expect(handlers).toBe(1);
-    expect(hooks).toBe(2);
+    expect(hooks).toBe(1);
     expect(bridge.actions.map((outcome) => outcome.result.tag)).toEqual(['failed', 'completed', 'failed']);
   });
 
@@ -1002,255 +899,6 @@ export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutp
       limits: { includeDiagnostics: true },
     });
     expect(bridge.lastCheck?.limits.includeDiagnostics).toBe(false);
-  });
-
-  it('runs immutable execution hooks and rejects before bridge execution', async () => {
-    const bridge = new FakeBridge();
-    let bridgeCalls = 0;
-    bridge.executeResult = async () => {
-      bridgeCalls++;
-      throw new Error('must not execute');
-    };
-    const observed: string[] = [];
-    const safe = createSafeScript({
-      contract,
-      bridge,
-      handlers: { read: () => ({ tag: 'ok', value: 'unused' }) as const },
-      createInvocationId: () => invocationId,
-      hooks: {
-        beforeExecute: (context) => {
-          expect(Object.isFrozen(context)).toBe(true);
-          expect(Object.isFrozen(context.input)).toBe(true);
-          expect(context.context).toEqual({ actor: 'a' });
-          expect(context.slot).toBe('main');
-          expect(context.slotId).toBe(slotId);
-          expect(context.input).toEqual({ value: 3n });
-          observed.push('before');
-          return { status: 'rejected', code: 'maintenance', detail: 'scheduled' } as const;
-        },
-        afterExecute: (event) => {
-          expect(Object.isFrozen(event)).toBe(true);
-          expect(Object.isFrozen(event.result)).toBe(true);
-          observed.push(`after:${event.result.status}`);
-        },
-      },
-    });
-    const result = await safe.execute({
-      slot: 'main',
-      program: { kind: 'artifact', bytes: [] },
-      input: { value: 3n },
-      context: { actor: 'a' },
-    });
-    expect(result).toMatchObject({
-      status: 'not_started',
-      error: { code: 'execution_rejected', hostCode: 'maintenance', detail: 'scheduled' },
-    });
-    expect(observed).toEqual(['before', 'after:not_started']);
-    expect(bridgeCalls).toBe(0);
-  });
-
-  it('accepts character-bounded rejection details and gives post-hook cancellation precedence', async () => {
-    const rejectionCode = '😀'.repeat(64);
-    const rejectionDetail = '界'.repeat(160);
-    const rejected = createSafeScript({
-      contract,
-      bridge: new FakeBridge(),
-      handlers: { read: () => ({ tag: 'ok', value: 'unused' }) as const },
-      createInvocationId: () => invocationId,
-      hooks: {
-        beforeExecute: () => ({ status: 'rejected', code: rejectionCode, detail: rejectionDetail }),
-      },
-    });
-    const rejectedResult = await rejected.execute({
-      slot: 'main',
-      program: { kind: 'artifact', bytes: [] },
-      input: { value: 1n },
-      context: {},
-    });
-    expect(rejectedResult).toMatchObject({
-      status: 'not_started',
-      error: { code: 'execution_rejected', hostCode: rejectionCode, detail: rejectionDetail },
-    });
-
-    const controller = new AbortController();
-    const cancelled = createSafeScript({
-      contract,
-      bridge: new FakeBridge(),
-      handlers: { read: () => ({ tag: 'ok', value: 'unused' }) as const },
-      createInvocationId: () => invocationId,
-      hooks: {
-        beforeExecute: () => {
-          controller.abort();
-          return { status: 'rejected', code: 'too-late' } as const;
-        },
-      },
-    });
-    const cancelledResult = await cancelled.execute({
-      slot: 'main',
-      program: { kind: 'artifact', bytes: [] },
-      input: { value: 1n },
-      context: {},
-      signal: controller.signal,
-    });
-    expect(cancelledResult).toMatchObject({ status: 'not_started', error: { code: 'cancelled' } });
-  });
-
-  it('fails closed for malformed beforeExecute hooks and still observes the fixed result', async () => {
-    for (const beforeExecute of [
-      () => ({}),
-      () => {
-        throw new Error('secret');
-      },
-    ]) {
-      const bridge = new FakeBridge();
-      let bridgeCalls = 0;
-      bridge.executeResult = async () => {
-        bridgeCalls++;
-        throw new Error('must not execute');
-      };
-      const observed: string[] = [];
-      const safe = createSafeScript({
-        contract,
-        bridge,
-        handlers: { read: () => ({ tag: 'ok', value: 'unused' }) as const },
-        createInvocationId: () => invocationId,
-        hooks: {
-          beforeExecute: beforeExecute as never,
-          afterExecute: ({ result }) =>
-            observed.push(`${result.status}:${'error' in result ? result.error?.code : undefined}`),
-        },
-      });
-      const result = await safe.execute({
-        slot: 'main',
-        program: { kind: 'artifact', bytes: [] },
-        input: { value: 1n },
-        context: {},
-      });
-      expect(result).toMatchObject({ status: 'not_started', error: { code: 'hook_fault' } });
-      expect(JSON.stringify(result)).not.toContain('secret');
-      expect(observed).toEqual(['not_started:hook_fault']);
-      expect(bridgeCalls).toBe(0);
-    }
-  });
-
-  it('afterExecute observes every bridge terminal path without changing it', async () => {
-    const cases: readonly ExecutionResult[] = [
-      { status: 'bridge_error', error: { code: 'adapter_failure', phase: 'execute' } },
-      { status: 'not_started', error: { code: 'invalid_request', phase: 'execute' } },
-      { status: 'failed', error: { code: 'resource_exhausted' }, facts },
-      { status: 'cancelled', error: { code: 'cancelled' }, facts },
-      { status: 'completed', output: [100, 100, 111, 110, 101], facts },
-    ];
-    for (const fixed of cases) {
-      const bridge = new FakeBridge();
-      bridge.executeResult = async () => fixed;
-      const observed: string[] = [];
-      const safe = createSafeScript({
-        contract,
-        bridge,
-        handlers: { read: () => ({ tag: 'ok', value: 'unused' }) as const },
-        createInvocationId: () => invocationId,
-        hooks: { afterExecute: ({ result }) => observed.push(result.status) },
-      });
-      const result = await safe.execute({
-        slot: 'main',
-        program: { kind: 'artifact', bytes: [] },
-        input: { value: 1n },
-        context: {},
-      });
-      expect(result.status).toBe(fixed.status);
-      expect(observed).toEqual([fixed.status]);
-    }
-  });
-
-  it('records a bounded afterExecute hook fault without replacing the fixed result', async () => {
-    const safe = createSafeScript({
-      contract,
-      bridge: new FakeBridge(),
-      handlers: { read: () => ({ tag: 'ok', value: 'unused' }) as const },
-      createInvocationId: () => invocationId,
-      hooks: {
-        afterExecute: () => {
-          throw new Error('SUPER_SECRET_AFTER_HOOK');
-        },
-      },
-    });
-    const result = await safe.execute({
-      slot: 'main',
-      program: { kind: 'artifact', bytes: [] },
-      input: { value: 1n },
-      context: {},
-    });
-    expect(result.status).toBe('completed');
-    if (result.status === 'completed') expect(result.output).toBe('done');
-    expect(result.hookDiagnostics).toEqual([{ code: 'hook_fault', point: 'after_execute', invocationId }]);
-    expect(JSON.stringify(result)).not.toContain('SUPER_SECRET_AFTER_HOOK');
-  });
-
-  it('does not invoke execution hooks for invalid public requests', async () => {
-    let hookCalls = 0;
-    const safe = createSafeScript({
-      contract,
-      bridge: new FakeBridge(),
-      handlers: { read: () => ({ tag: 'ok', value: 'unused' }) as const },
-      hooks: {
-        beforeExecute: () => {
-          hookCalls++;
-          return { status: 'continue' } as const;
-        },
-        afterExecute: () => {
-          hookCalls++;
-        },
-      },
-    });
-    await safe.execute({
-      slot: 'missing' as 'main',
-      program: { kind: 'artifact', bytes: [] },
-      input: { value: 1n },
-      context: {},
-    });
-    const invalidInput = await safe.execute({
-      slot: 'main',
-      program: { kind: 'artifact', bytes: [] },
-      input: { value: 'bad' as unknown as bigint },
-      context: {},
-    });
-    const invalidSeed = await safe.execute({
-      slot: 'main',
-      program: { kind: 'artifact', bytes: [] },
-      input: { value: 1n },
-      context: {},
-      randomSeed: [256],
-    });
-    const invalidTraces = await Promise.all(
-      ['none', 'summary', 'semantic'].map((trace) =>
-        safe.execute({
-          slot: 'main',
-          program: { kind: 'artifact', bytes: [] },
-          input: { value: 1n },
-          context: {},
-          trace: trace as unknown as boolean,
-        }),
-      ),
-    );
-    const invalidSignal = await safe.execute({
-      slot: 'main',
-      program: { kind: 'artifact', bytes: [] },
-      input: { value: 1n },
-      context: {},
-      signal: { aborted: false } as never,
-    });
-    const overLimitInput = await safe.execute({
-      slot: 'main',
-      program: { kind: 'artifact', bytes: [] },
-      input: { value: 1n },
-      context: {},
-      limits: { maxBytes: 0 },
-    });
-    expect(hookCalls).toBe(0);
-    for (const result of [invalidInput, invalidSeed, ...invalidTraces, invalidSignal, overLimitInput]) {
-      expect(result).toMatchObject({ status: 'bridge_error', error: { code: 'invalid_request' } });
-    }
   });
 
   it('resolves deployment, slot, and invocation limits by minimum', async () => {

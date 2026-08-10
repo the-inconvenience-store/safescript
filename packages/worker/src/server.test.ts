@@ -157,7 +157,7 @@ describe('standalone runtime worker server', () => {
     await server.drain();
   });
 
-  it('keeps invalid outcomes and SDK-local hook diagnostics off the worker wire', () => {
+  it('keeps invalid outcomes off the worker wire', () => {
     expect(
       encodeWorkerBridgePayload('action.outcome', {
         request: 1n,
@@ -167,17 +167,6 @@ describe('standalone runtime worker server', () => {
         },
       } as never).ok,
     ).toBe(false);
-    const encoded = encodeWorkerBridgePayload('bridge.execute.result', {
-      status: 'bridge_error',
-      error: { code: 'adapter_failure', phase: 'execute' },
-      hookDiagnostics: [{ code: 'hook_fault', point: 'after_execute', invocationId: 'invocation:test.worker' }],
-    } as never);
-    expect(encoded.ok).toBe(true);
-    if (!encoded.ok) return;
-    expect(decodeWorkerBridgePayload('bridge.execute.result', encoded.value)).toEqual({
-      ok: true,
-      value: { status: 'bridge_error', error: { code: 'adapter_failure', phase: 'execute' } },
-    });
   });
 
   it('round-trips bridge projections without leaking JavaScript numeric or byte representations', () => {

@@ -1,8 +1,8 @@
 ; SafeScript 0.6.0 worker protocol
 ; Maps are closed. Deterministic encoding and additional semantic constraints are
 ; defined by wire-protocol.md and the document owning each record.
-; SDK hooks, host context, credentials, policy state,
-; and hook diagnostics are host-local and have no wire representation.
+; SDK policy, host context, and credentials are host-local and have no wire
+; representation.
 
 worker-envelope = {
   version: 1,

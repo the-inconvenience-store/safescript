@@ -775,7 +775,7 @@ describe('process RuntimeBridge state machine', () => {
     expect(await bridge.close()).toEqual({ status: 'closed' });
   });
 
-  it('routes a worker action through SDK hooks without exposing host-local diagnostics to the worker', async () => {
+  it('routes a worker action through the validated beforeAction hook', async () => {
     const workerBridge = new GatewayBridge();
     const { process } = connectedPair(workerBridge);
     const order: string[] = [];
@@ -795,10 +795,6 @@ describe('process RuntimeBridge state machine', () => {
           order.push(`before:${input.value}:${context.actor}`);
           return { status: 'stop', error: 'denied' };
         },
-        afterAction: ({ outcome }) => {
-          order.push(`after:${outcome.result.tag}`);
-          throw new Error('SECRET_AFTER_ACTION');
-        },
       },
     });
 
@@ -811,7 +807,7 @@ describe('process RuntimeBridge state machine', () => {
     });
 
     expect(handlerCalls).toBe(0);
-    expect(order).toEqual(['before:7:sam', 'after:completed']);
+    expect(order).toEqual(['before:7:sam']);
     expect(workerBridge.outcomes).toHaveLength(1);
     const outcome = workerBridge.outcomes[0];
     expect(outcome?.result.tag).toBe('completed');
@@ -822,18 +818,13 @@ describe('process RuntimeBridge state machine', () => {
         Uint8Array.from(outcome.result.value),
       ),
     ).toEqual({ ok: true, value: { tag: 'error', value: 'denied' } });
-    expect(result).toMatchObject({
-      status: 'bridge_error',
-      hookDiagnostics: [{ code: 'hook_fault', point: 'after_action', invocationId }],
-    });
-    expect(JSON.stringify(workerBridge.outcomes)).not.toContain('SECRET_AFTER_ACTION');
+    expect(result.status).toBe('bridge_error');
     expect(await safe.close()).toEqual({ status: 'closed' });
   });
 
   it('dispatches a worker action once and preserves unknown effect state for a throwing handler', async () => {
     const workerBridge = new GatewayBridge();
     const { process } = connectedPair(workerBridge);
-    const observed: string[] = [];
     let handlerCalls = 0;
     const safe = createSafeScript<GatewayContext, GatewayOperations, GatewaySlots>({
       contract: gatewayContract,
@@ -846,15 +837,7 @@ describe('process RuntimeBridge state machine', () => {
       },
       hooks: {
         beforeAction: () => {
-          observed.push('before');
           return { status: 'continue' } as const;
-        },
-        afterAction: ({ outcome }) => {
-          observed.push(
-            outcome.result.tag === 'failed'
-              ? `after:${outcome.result.value.failure.code}:${outcome.result.value.effectState}`
-              : `after:${outcome.result.tag}`,
-          );
         },
       },
     });
@@ -868,7 +851,6 @@ describe('process RuntimeBridge state machine', () => {
     });
 
     expect(handlerCalls).toBe(1);
-    expect(observed).toEqual(['before', 'after:handler_fault:unknown']);
     expect(workerBridge.outcomes).toMatchObject([
       { result: { tag: 'failed', value: { effectState: 'unknown', failure: { code: 'handler_fault' } } } },
     ]);
@@ -876,7 +858,7 @@ describe('process RuntimeBridge state machine', () => {
     expect(await safe.close()).toEqual({ status: 'closed' });
   });
 
-  it('keeps a correlated but invalid worker action away from SDK hooks and handlers', async () => {
+  it('keeps a correlated but invalid worker action away from SDK policy and handlers', async () => {
     const transport = new ScriptedTransport();
     const process = new ProcessRuntimeBridge({ transport });
     let hookCalls = 0;
@@ -895,9 +877,6 @@ describe('process RuntimeBridge state machine', () => {
         beforeAction: () => {
           hookCalls++;
           return { status: 'continue' } as const;
-        },
-        afterAction: () => {
-          hookCalls++;
         },
       },
     });
