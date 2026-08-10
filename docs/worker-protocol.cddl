@@ -280,7 +280,7 @@ compiler-provenance = {
 }
 compiler-version = { build: bounded-text }
 
-compile-usage = { source_bytes: uint, syntax_nodes: uint, type_work: uint }
+compile-usage = { source_bytes: uint, syntax_nodes: uint }
 execution-usage = {
   fuel: uint,
   allocations: uint,
@@ -400,9 +400,8 @@ compile-limits = {
   syntax_nodes: uint,
   syntax_depth: uint,
   type_depth: uint,
-  type_instantiation_work: uint,
-  diagnostics: uint,
   derived_template_bytes: uint,
+  include_diagnostics: bool,
 }
 
 execution-limits = {

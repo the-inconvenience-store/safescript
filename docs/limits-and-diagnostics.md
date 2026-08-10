@@ -4,7 +4,7 @@ SafeScript bounds compiler and runtime work with deterministic dimensions that c
 
 ## How limits combine
 
-Slot limits are completed against the standard profile. SDK deployment defaults and request-specific limits are then combined by taking the minimum for each dimension. A request cannot raise a slot or deployment ceiling.
+Slot limits are completed against the standard profile. SDK deployment defaults and request-specific numeric limits are then combined by taking the minimum for each dimension. The `includeDiagnostics` control is combined with logical AND. A request cannot raise a slot or deployment setting.
 
 Malformed, negative, non-integer, or over-ceiling limits are rejected before the relevant work starts.
 
@@ -12,21 +12,19 @@ Malformed, negative, non-integer, or over-ceiling limits are rejected before the
 
 The standard compile profile bounds:
 
-| Dimension               | Standard ceiling |
-| ----------------------- | ---------------: |
-| Total source bytes      |            1 MiB |
-| Bytes per module        |          256 KiB |
-| Modules                 |              128 |
-| Imports                 |            1,024 |
-| Declarations            |           25,000 |
-| Syntax nodes            |          500,000 |
-| Syntax depth            |              256 |
-| Type depth              |              128 |
-| Type-instantiation work |          500,000 |
-| Diagnostics             |              100 |
-| Derived template bytes  |            1 MiB |
+| Dimension              | Standard ceiling |
+| ---------------------- | ---------------: |
+| Total source bytes     |            1 MiB |
+| Bytes per module       |          256 KiB |
+| Modules                |              128 |
+| Imports                |            1,024 |
+| Declarations           |           25,000 |
+| Syntax nodes           |          500,000 |
+| Syntax depth           |              256 |
+| Type depth             |              128 |
+| Derived template bytes |            1 MiB |
 
-Check results report deterministic source bytes, syntax nodes, and type-work usage. Compiler limits apply before or during parsing/checking and return stable source diagnostics where appropriate.
+Check results report deterministic source bytes and syntax nodes. Compiler limits apply before or during parsing/checking. The `includeDiagnostics` boolean defaults to `true`. A rejected check includes its one stable source diagnostic when this control is true, and no diagnostic when it is false.
 
 ## Execution limits
 

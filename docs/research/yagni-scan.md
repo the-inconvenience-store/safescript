@@ -116,6 +116,8 @@ One knob and fact can be removed unless retained memory gains a genuinely differ
 
 `typeInstantiationWork` is computed as exactly `syntaxNodes * 2`, not TypeScript checker instantiation work (`packages/engine/src/bridge.ts:167-169`, `packages/engine/src/bridge.ts:237-244`). The public diagnostic limit defaults to 100, but a rejected check returns at most one diagnostic, or zero when the limit is zero (`packages/engine/src/bridge.ts:187-197`; `packages/contracts/src/index.ts:445-456`). Values 2 through 100 therefore have no behavioral meaning.
 
+Resolution: remove the duplicate type-work limit and usage field. Replace the numeric diagnostic limit with the boolean `includeDiagnostics` control.
+
 These knobs make the compiler look more precisely bounded than it is. Rename the syntax proxy honestly or remove it; make diagnostics a boolean/zero-or-one limit until multi-diagnostic compilation exists.
 
 ### 5. Exact semantic schedule and cross-adapter conformance before a second backend

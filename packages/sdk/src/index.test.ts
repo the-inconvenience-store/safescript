@@ -13,6 +13,7 @@ import {
   type ActionOutcome,
   type ActionRequest,
   type CancelResult,
+  type CheckRequest,
   type CheckResult,
   type CloseResult,
   type ExecuteRequest as BridgeExecuteRequest,
@@ -106,13 +107,15 @@ const facts: ExecutionFacts = Object.freeze({
 class FakeBridge implements RuntimeBridge {
   readonly actions: ActionOutcome[] = [];
   closed = false;
+  lastCheck?: CheckRequest;
   executeResult?: (request: BridgeExecuteRequest, host: RuntimeBridgeHost) => Promise<ExecutionResult>;
 
-  async check(): Promise<CheckResult> {
-    return { status: 'rejected', diagnostics: [], usage: { sourceBytes: 0, syntaxNodes: 0, typeWork: 0 } };
+  async check(request: CheckRequest): Promise<CheckResult> {
+    this.lastCheck = request;
+    return { status: 'rejected', diagnostics: [], usage: { sourceBytes: 0, syntaxNodes: 0 } };
   }
   async inspect(): Promise<InspectResult> {
-    return { status: 'rejected', diagnostics: [], usage: { sourceBytes: 0, syntaxNodes: 0, typeWork: 0 } };
+    return { status: 'rejected', diagnostics: [], usage: { sourceBytes: 0, syntaxNodes: 0 } };
   }
   async execute(request: BridgeExecuteRequest, host: RuntimeBridgeHost): Promise<ExecutionResult> {
     if (this.executeResult) return this.executeResult(request, host);
@@ -825,6 +828,30 @@ describe('createSafeScript', () => {
         defaultExecutionLimits: { retainedBytes: 1 } as never,
       }),
     ).toThrow(SdkConfigurationError);
+    expect(() =>
+      createSafeScript({
+        contract,
+        bridge: new FakeBridge(),
+        handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
+        defaultCompileLimits: { diagnostics: 0 } as never,
+      }),
+    ).toThrow(SdkConfigurationError);
+  });
+
+  it('combines includeDiagnostics with logical AND', async () => {
+    const bridge = new FakeBridge();
+    const safe = createSafeScript({
+      contract,
+      bridge,
+      handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
+      defaultCompileLimits: { includeDiagnostics: false },
+    });
+    await safe.check({
+      slot: 'main',
+      source: { entryModule: ids.module('module:main'), modules: [{ id: ids.module('module:main'), source: '' }] },
+      limits: { includeDiagnostics: true },
+    });
+    expect(bridge.lastCheck?.limits.includeDiagnostics).toBe(false);
   });
 
   it('runs immutable execution hooks and rejects before bridge execution', async () => {
@@ -1376,7 +1403,7 @@ describe('createSafeScript', () => {
           location: { module: ids.module('module:main'), start: 0, end: 1 },
         },
       ],
-      usage: { sourceBytes: 1, syntaxNodes: 1, typeWork: 1 },
+      usage: { sourceBytes: 1, syntaxNodes: 1 },
     });
     const safe = createSafeScript({
       contract,

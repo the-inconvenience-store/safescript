@@ -406,7 +406,7 @@ export interface ValueLimits {
   readonly maxBytes: number;
 }
 
-/** Deterministic ceilings for source ingestion, parsing, diagnostics, and type work. */
+/** Deterministic controls for source ingestion, parsing, and source diagnostics. */
 export interface CompileLimits {
   readonly sourceBytes: number;
   readonly moduleBytes: number;
@@ -416,8 +416,8 @@ export interface CompileLimits {
   readonly syntaxNodes: number;
   readonly syntaxDepth: number;
   readonly typeDepth: number;
-  readonly typeInstantiationWork: number;
-  readonly diagnostics: number;
+  /** Whether a rejected check includes its single source diagnostic. */
+  readonly includeDiagnostics: boolean;
   readonly derivedTemplateBytes: number;
 }
 
@@ -451,8 +451,7 @@ export const STANDARD_COMPILE_LIMITS: CompileLimits = Object.freeze({
   syntaxNodes: 500_000,
   syntaxDepth: 256,
   typeDepth: 128,
-  typeInstantiationWork: 500_000,
-  diagnostics: 100,
+  includeDiagnostics: true,
   derivedTemplateBytes: 1024 * 1024,
 });
 /** Conservative default execution ceilings; hosts and requests may only lower them. */
@@ -1938,7 +1937,6 @@ export interface CheckedArtifactHeader {
 export interface CompileUsage {
   readonly sourceBytes: number;
   readonly syntaxNodes: number;
-  readonly typeWork: number;
 }
 /** Deterministic semantic resources consumed by one started execution. */
 export interface ExecutionUsage {

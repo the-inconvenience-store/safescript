@@ -163,14 +163,24 @@ function validateRegistry(registry: ContractRegistry, slotId: CheckRequest['slot
 }
 
 function usage(sourceBytes: number, syntaxNodes = 0): CompileUsage {
-  return Object.freeze({ sourceBytes, syntaxNodes, typeWork: syntaxNodes * 2 });
+  return Object.freeze({ sourceBytes, syntaxNodes });
 }
 
 function compileLimitsValid(limits: CompileLimits, ceiling: CompileLimits): boolean {
   const keys = Object.keys(STANDARD_COMPILE_LIMITS) as (keyof CompileLimits)[];
+  const numericKeys = keys.filter((key) => key !== 'includeDiagnostics') as Exclude<
+    keyof CompileLimits,
+    'includeDiagnostics'
+  >[];
   return (
     Object.keys(limits).every((key) => key in STANDARD_COMPILE_LIMITS) &&
-    keys.every(
+    Object.keys(ceiling).every((key) => key in STANDARD_COMPILE_LIMITS) &&
+    Object.keys(limits).length === keys.length &&
+    Object.keys(ceiling).length === keys.length &&
+    typeof limits.includeDiagnostics === 'boolean' &&
+    typeof ceiling.includeDiagnostics === 'boolean' &&
+    (!limits.includeDiagnostics || ceiling.includeDiagnostics) &&
+    numericKeys.every(
       (key) =>
         Number.isSafeInteger(limits[key]) &&
         Number.isSafeInteger(ceiling[key]) &&
@@ -189,7 +199,7 @@ function checkCompile(request: CheckRequest): InternalCheckResult {
     Object.freeze({
       status: 'rejected',
       diagnostics: Object.freeze(
-        request.limits.diagnostics > 0 ? [diagnostic(request, code, message, start, end)] : [],
+        request.limits.includeDiagnostics ? [diagnostic(request, code, message, start, end)] : [],
       ),
       usage: compileUsage,
     });
@@ -236,10 +246,9 @@ function checkCompile(request: CheckRequest): InternalCheckResult {
     compiled.imports > request.limits.imports ||
     compiled.declarations > request.limits.declarations ||
     compiled.syntaxNodes > request.limits.syntaxNodes ||
-    compiled.syntaxDepth > request.limits.syntaxDepth ||
-    compileUsage.typeWork > request.limits.typeInstantiationWork
+    compiled.syntaxDepth > request.limits.syntaxDepth
   )
-    return reject('SS_COMPILER_LIMIT', 'import, declaration, syntax, or type-work limit exceeded');
+    return reject('SS_COMPILER_LIMIT', 'import, declaration, or syntax limit exceeded');
   if (!compiled.ok)
     return reject(compiled.failure.code, compiled.failure.message, compiled.failure.start, compiled.failure.end);
   const verified = verifyProgram(compiled.program, request.registry, slot);

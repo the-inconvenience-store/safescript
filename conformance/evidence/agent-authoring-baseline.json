@@ -36,7 +36,7 @@
       "actualEffects": ["effect:tasks.create"],
       "expectedCapabilities": ["capability:tasks.write"],
       "actualCapabilities": ["capability:tasks.write"],
-      "compileUsage": { "sourceBytes": 771, "syntaxNodes": 124, "typeWork": 248 },
+      "compileUsage": { "sourceBytes": 771, "syntaxNodes": 124 },
       "executionStatus": "completed",
       "executionUsage": {
         "fuel": 206,
@@ -68,7 +68,7 @@
       "actualEffects": ["effect:notifications.send", "effect:tasks.create"],
       "expectedCapabilities": ["capability:notifications.send", "capability:tasks.write"],
       "actualCapabilities": ["capability:notifications.send", "capability:tasks.write"],
-      "compileUsage": { "sourceBytes": 2984, "syntaxNodes": 437, "typeWork": 874 },
+      "compileUsage": { "sourceBytes": 2984, "syntaxNodes": 437 },
       "executionStatus": "completed",
       "executionUsage": {
         "fuel": 928,
@@ -100,7 +100,7 @@
       "actualEffects": ["effect:http.fetch", "effect:profiles.enrich"],
       "expectedCapabilities": ["capability:http.request", "capability:profiles.read"],
       "actualCapabilities": ["capability:http.request", "capability:profiles.read"],
-      "compileUsage": { "sourceBytes": 4183, "syntaxNodes": 512, "typeWork": 1024 },
+      "compileUsage": { "sourceBytes": 4183, "syntaxNodes": 512 },
       "executionStatus": "completed",
       "executionUsage": {
         "fuel": 1003,
@@ -132,7 +132,7 @@
       "actualEffects": ["effect:actuator.set"],
       "expectedCapabilities": ["capability:actuator.write"],
       "actualCapabilities": ["capability:actuator.write"],
-      "compileUsage": { "sourceBytes": 2543, "syntaxNodes": 430, "typeWork": 860 },
+      "compileUsage": { "sourceBytes": 2543, "syntaxNodes": 430 },
       "executionStatus": "completed",
       "executionUsage": {
         "fuel": 485,

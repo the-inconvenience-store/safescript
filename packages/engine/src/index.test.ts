@@ -1152,6 +1152,32 @@ export async function onDealUpdated(`,
         })
       ).status,
     ).toBe('rejected');
+    const withoutDiagnostics = await bridge.check({
+      ...checkRequest,
+      limits: {
+        ...STANDARD_COMPILE_LIMITS,
+        includeDiagnostics: false,
+        modules: STANDARD_COMPILE_LIMITS.modules + 1,
+      },
+    });
+    expect(withoutDiagnostics.status).toBe('rejected');
+    if (withoutDiagnostics.status === 'rejected') expect(withoutDiagnostics.diagnostics).toEqual([]);
+    expect(
+      (
+        await bridge.check({
+          ...checkRequest,
+          limits: { ...STANDARD_COMPILE_LIMITS, typeInstantiationWork: 1 } as never,
+        })
+      ).status,
+    ).toBe('rejected');
+    expect(
+      (
+        await bridge.check({
+          ...checkRequest,
+          limits: { ...STANDARD_COMPILE_LIMITS, diagnostics: 0 } as never,
+        })
+      ).status,
+    ).toBe('rejected');
     expect(
       (
         await bridge.check({

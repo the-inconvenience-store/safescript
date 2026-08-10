@@ -37,23 +37,27 @@ export function completeLimits<T extends CompileLimits | ExecutionLimits>(
   ...overrides: readonly (Partial<T> | undefined)[]
 ): T {
   const limits = { ...standard };
-  const standardRecord = standard as unknown as Readonly<Record<string, number>>;
+  const standardRecord = standard as unknown as Readonly<Record<string, number | boolean>>;
+  const limitsRecord = limits as unknown as Record<string, number | boolean>;
   for (const override of overrides) {
     if (!override) continue;
     for (const [name, value] of Object.entries(override)) {
+      const standardValue = standardRecord[name];
+      if (typeof standardValue === 'boolean') {
+        if (typeof value !== 'boolean') throw new TypeError(`invalid ${name} limit`);
+        limitsRecord[name] = Boolean(limitsRecord[name]) && value;
+        continue;
+      }
       if (
         typeof value !== 'number' ||
-        !(name in standard) ||
+        typeof standardValue !== 'number' ||
         !Number.isSafeInteger(value) ||
         value < 0 ||
-        value > (standardRecord[name] as number)
+        value > standardValue
       ) {
         throw new TypeError(`invalid ${name} limit`);
       }
-      (limits as unknown as Record<string, number>)[name] = Math.min(
-        (limits as unknown as Record<string, number>)[name] as number,
-        value,
-      );
+      limitsRecord[name] = Math.min(limitsRecord[name] as number, value);
     }
   }
   return Object.freeze(limits) as T;

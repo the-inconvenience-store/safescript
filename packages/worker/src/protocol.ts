@@ -62,10 +62,10 @@ const compileLimits = record(
     'syntax_nodes',
     'syntax_depth',
     'type_depth',
-    'type_instantiation_work',
-    'diagnostics',
     'derived_template_bytes',
-  ].map((name) => ({ name, schema: uint() })),
+  ]
+    .map((name) => ({ name, schema: uint() }))
+    .concat({ name: 'include_diagnostics', schema: boolean() }),
 );
 const executionLimits = record(
   [
@@ -267,7 +267,6 @@ const bridgeError = record([
 const compileUsage = record([
   { name: 'source_bytes', schema: uint() },
   { name: 'syntax_nodes', schema: uint() },
-  { name: 'type_work', schema: uint() },
 ]);
 const programSummary = record([
   { name: 'effects', schema: array(text()) },

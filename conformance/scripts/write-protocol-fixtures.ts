@@ -27,7 +27,7 @@ const existing = JSON.parse(await readFile(fixtureUrl, 'utf8')) as Readonly<{ ho
 const digest = '0'.repeat(64);
 const invocationId = ids.invocation(`invocation:${'1'.repeat(32)}`);
 const requestId = ids.request(invocationId, 0);
-const compileUsage = { sourceBytes: 0, syntaxNodes: 0, typeWork: 0 };
+const compileUsage = { sourceBytes: 0, syntaxNodes: 0 };
 const registry = {
   id: ids.contract('contract:fixture'),
   digest,

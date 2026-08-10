@@ -150,12 +150,12 @@ describe('public SDK conformance', () => {
       check: async () => ({
         status: 'rejected',
         diagnostics: [],
-        usage: { sourceBytes: 0, syntaxNodes: 0, typeWork: 0 },
+        usage: { sourceBytes: 0, syntaxNodes: 0 },
       }),
       inspect: async () => ({
         status: 'rejected',
         diagnostics: [],
-        usage: { sourceBytes: 0, syntaxNodes: 0, typeWork: 0 },
+        usage: { sourceBytes: 0, syntaxNodes: 0 },
       }),
       execute: async (request, host) => {
         bridgeRequestInput = request.input;
