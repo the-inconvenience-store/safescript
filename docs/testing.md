@@ -73,7 +73,7 @@ The current corpus covers:
 - application-extension, code-mode, device-rule, and walking-skeleton reference programs;
 - deterministic checks and semantic graph inspection;
 - source and checked-artifact execution equivalence;
-- locked semantic resource ledgers and standard profiles;
+- deterministic bounded resource measurements and standard profiles;
 - language rejection cases and hostile atomic boundaries;
 - action capacity reservation, ordering, and no replay;
 - cancellation and late completion;
@@ -96,4 +96,4 @@ bun run typecheck
 bun run build
 ```
 
-Any change to the semantic fuel schedule, standard resource profile, or locked reference ledger is a semantic compatibility change and must intentionally update the conformance evidence.
+Fuel measurements are release-local. A schedule or standard-profile change must intentionally update the release evidence and preserve deterministic exhaustion, fail-before-work charging, hard bounds, and adapter equivalence. Exact positive totals are not a cross-release compatibility promise.

@@ -128,6 +128,8 @@ SafeScript should meter untrusted computation. The YAGNI candidate is the normat
 
 The standard profile is calibrated from a highest positive reference workload of only 1,013 fuel and four host calls, then given fixed headroom ratios (`docs/resource-schedule.md:42-55`). Direct and worker adapters currently run the same compiler/interpreter implementation, so exact resource-ledger parity does not yet test independent semantics. Wasm and non-TypeScript runtimes are deferred (`docs/current-scope.md:45-58`).
 
+Resolution: keep deterministic fuel and independent hard ceilings, but use release-local additive semantic-step, linear-work, and byte-work units. Remove arbitrary operation weights and exact positive totals from the cross-release compatibility promise.
+
 **YAGNI test:** keep coarse deterministic fuel, value-size, call-depth, output, and host-call limits; defer a permanently compatible per-operation cost constitution until an independent backend or billing/portability requirement exists.
 
 ### 6. Checked artifacts before an artifact product exists

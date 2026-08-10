@@ -82,4 +82,4 @@ Inspection derives a public semantic program graph from accepted source and veri
 
 ## Adapter conformance
 
-The conformance suite exercises adapters only through a bridge factory. It locks reference checks, source/artifact equivalence, semantic graphs, resource ledgers, cancellation, action ordering, deterministic time/randomness/traces, canonical values, hostile boundary cases, and exact release identity. See [testing and conformance](testing.md).
+The conformance suite exercises adapters only through a bridge factory. It checks reference programs, source/artifact equivalence, semantic graphs, deterministic bounded resources, cancellation, action ordering, deterministic time/randomness/traces, canonical values, hostile boundary cases, and exact release identity. See [testing and conformance](testing.md).

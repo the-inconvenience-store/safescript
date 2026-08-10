@@ -34,7 +34,7 @@ The **runtime** checks and executes source. It owns parsing restrictions, loweri
 - `@safescript/worker` packages that engine behind the bounded worker protocol.
 - `@safescript/sdk` provides contract authoring and the six-method host facade, backed by a supervised local worker by default.
 - `@safescript/cli` is an offline JSON adapter over the public SDK.
-- `@safescript/conformance` contains adapter-neutral reference programs, resource ledgers, and compatibility tests.
+- `@safescript/conformance` contains adapter-neutral reference programs, resource measurements, and compatibility tests.
 
 The current implementation is a TypeScript host SDK with a worker-backed default and an explicit conformant direct bridge. See [current scope and roadmap](current-scope.md) for the exact implemented/deferred boundary.
 

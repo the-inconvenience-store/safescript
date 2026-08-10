@@ -22,7 +22,7 @@ The repository currently implements:
 - slot-scoped agent/editor authoring bundles with repair guidance;
 - offline JSON CLI commands for check, inspect, execute, and test;
 - the worker protocol specification, standalone runtime worker, pinned manifest-verified Node launcher, default process bridge adapter, and lazy restart-bounded supervisor;
-- adapter-neutral conformance references, resource ledgers, hostile cases, release metadata, and authoring evidence;
+- adapter-neutral conformance references, resource measurements, hostile cases, release metadata, and authoring evidence;
 - an interactive CRM integration and read-only semantic-graph projection.
 
 The coordinated public TypeScript package set and sole public compatibility contract is SafeScript 0.6.0. Internal envelope and artifact format markers are validation details, not independently selectable product versions.
@@ -55,7 +55,7 @@ The current repository does not yet provide:
 - durable invocations, workflow coordination, approvals, retries, or audit persistence;
 - package ecosystems or arbitrary TypeScript/JavaScript compatibility.
 
-Future adapters must preserve the same serializable bridge contracts and pass the same conformance suite. Future execution backends must preserve the language semantics, typed action boundary, deterministic resource schedule, exact release contract, and fail-closed behavior.
+Future adapters must preserve the same serializable bridge contracts and pass the same conformance suite. Future execution backends must preserve the language semantics, typed action boundary, deterministic release-local resource schedule, exact release contract, and fail-closed behavior. Exact cross-backend fuel totals become normative only when an independent backend is implemented and the shared units are validated.
 
 ## Product boundary
 

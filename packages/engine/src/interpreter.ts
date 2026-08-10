@@ -3,6 +3,7 @@ import type { CanonicalValue, ExecutionErrorCode, Schema, SourceLocation } from 
 
 import type { StructuredAction, VerifiedStructuredProgram } from './structured-ir.js';
 import { interpretStructured } from './structured-interpreter.js';
+import { SEMANTIC_STEP_FUEL } from './resource-schedule.js';
 
 /** Host hooks that keep limits, actions, cancellation, and traces outside pure IR evaluation. */
 export interface InterpreterHooks {
@@ -38,7 +39,7 @@ export function interpret(
   hooks: InterpreterHooks,
 ): Promise<CanonicalValue> {
   // Program entry remains one stable semantic operation even though it no longer needs a wrapper terminator.
-  hooks.charge(1);
+  hooks.charge(SEMANTIC_STEP_FUEL);
   hooks.trace('structured', program.program.source);
   return interpretStructured(program.program, input, hooks);
 }

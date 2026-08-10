@@ -26,84 +26,7 @@ export type ReferenceResourceLedger = Readonly<{
   usage: ExecutionUsage;
 }>;
 
-/**
- * Normative Semantic resource evidence captured through the public runtime bridge.
- *
- * @remarks Changes are release-significant: update only when intentionally changing
- * language/runtime semantics, and rerun the complete resource conformance gate.
- */
-export const REFERENCE_RESOURCE_LEDGERS: readonly ReferenceResourceLedger[] = Object.freeze([
-  {
-    name: 'walking-skeleton',
-    usage: {
-      fuel: 205,
-      allocations: 4,
-      allocatedBytes: 79,
-      peakCollectionItems: 0,
-      peakValueDepth: 3,
-      peakValueNodes: 17,
-      peakValueBytes: 80,
-      peakCallDepth: 1,
-      hostCalls: 1,
-      peakConcurrentActions: 1,
-      traceBytes: 649,
-      outputBytes: 5,
-    },
-  },
-  {
-    name: 'application-extension',
-    usage: {
-      fuel: 640,
-      allocations: 18,
-      allocatedBytes: 576,
-      peakCollectionItems: 2,
-      peakValueDepth: 3,
-      peakValueNodes: 17,
-      peakValueBytes: 80,
-      peakCallDepth: 4,
-      hostCalls: 3,
-      peakConcurrentActions: 2,
-      traceBytes: 1821,
-      outputBytes: 5,
-    },
-  },
-  {
-    name: 'code-mode',
-    usage: {
-      fuel: 1013,
-      allocations: 32,
-      allocatedBytes: 758,
-      peakCollectionItems: 4,
-      peakValueDepth: 3,
-      peakValueNodes: 17,
-      peakValueBytes: 80,
-      peakCallDepth: 2,
-      hostCalls: 4,
-      peakConcurrentActions: 2,
-      traceBytes: 3187,
-      outputBytes: 5,
-    },
-  },
-  {
-    name: 'device-rule',
-    usage: {
-      fuel: 330,
-      allocations: 9,
-      allocatedBytes: 130,
-      peakCollectionItems: 1,
-      peakValueDepth: 3,
-      peakValueNodes: 17,
-      peakValueBytes: 80,
-      peakCallDepth: 4,
-      hostCalls: 1,
-      peakConcurrentActions: 1,
-      traceBytes: 1874,
-      outputBytes: 5,
-    },
-  },
-] satisfies readonly ReferenceResourceLedger[]);
-
-/** The locked standard profile consumed by the conformance release gate. */
+/** The standard profile consumed by the conformance release gate. */
 export const REFERENCE_EXECUTION_LIMITS: ExecutionLimits = Object.freeze({
   maxDepth: 64,
   maxNodes: 32_768,
@@ -133,7 +56,7 @@ function encode(schema: Schema, value: unknown): readonly number[] {
   return Object.freeze([...encoded.value]);
 }
 
-/** Measures the normative workloads through an injected public adapter. */
+/** Measures release-local reference workloads through an injected public adapter. */
 export async function measureReferenceResourceLedgers(
   createBridge: RuntimeBridgeFactory,
 ): Promise<readonly ReferenceResourceLedger[]> {

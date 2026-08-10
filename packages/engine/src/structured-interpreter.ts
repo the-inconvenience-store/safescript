@@ -1,6 +1,7 @@
 /** Bounded evaluator for verifier-approved SafeScript 1.1 structured IR. */
 import type { CanonicalValue } from '@safescript/contracts';
 import { InterpreterFault, type InterpreterHooks } from './interpreter.js';
+import { byteFuel, linearFuel, SEMANTIC_STEP_FUEL } from './resource-schedule.js';
 import type {
   StructuredAction,
   StructuredExpression,
@@ -235,7 +236,7 @@ export async function interpretStructured(
   for (const fn of program.functions) root.define(fn.name, { kind: 'closure', fn, environment: root });
   const call = async (closure: Closure, arguments_: RuntimeValue[]): Promise<RuntimeValue> => {
     const leave = hooks.enterCall();
-    hooks.charge(5);
+    hooks.charge(SEMANTIC_STEP_FUEL);
     if (arguments_.length < closure.fn.parameters.length)
       throw new InterpreterFault('invalid_ir', 'call arity mismatch');
     const environment = new Environment(closure.environment);
@@ -253,7 +254,7 @@ export async function interpretStructured(
     }
   };
   const evaluate = async (expression: StructuredExpression, environment: Environment): Promise<RuntimeValue> => {
-    hooks.charge(1);
+    hooks.charge(SEMANTIC_STEP_FUEL);
     switch (expression.tag) {
       case 'literal':
         return expression.kind === 'int64' ? BigInt(expression.value as string) : (expression.value as CanonicalValue);
@@ -447,7 +448,7 @@ export async function interpretStructured(
       }
     };
     for (const statement of statements) {
-      hooks.charge(1);
+      hooks.charge(SEMANTIC_STEP_FUEL);
       hooks.trace(statement.tag, statement.source);
       if (hooks.cancelled()) throw new InterpreterFault('cancelled');
       switch (statement.tag) {
@@ -481,7 +482,7 @@ export async function interpretStructured(
           if (!Array.isArray(values)) throw new InterpreterFault('invalid_ir', 'for-of requires a bounded list');
           hooks.collection(values.length);
           for (const value of values) {
-            hooks.charge(3);
+            hooks.charge(SEMANTIC_STEP_FUEL);
             const iteration = new Environment(environment);
             iteration.define(statement.name, value, statement.mutable);
             try {
@@ -499,7 +500,7 @@ export async function interpretStructured(
           const keys = Array.isArray(value) ? value.map((_item, index) => String(index)) : Object.keys(record(value));
           hooks.collection(keys.length);
           for (const key of keys) {
-            hooks.charge(3);
+            hooks.charge(SEMANTIC_STEP_FUEL);
             const iteration = new Environment(environment);
             iteration.define(statement.name, key, statement.mutable);
             try {
@@ -518,7 +519,7 @@ export async function interpretStructured(
           let first = true;
           while ((statement.checkAfter && first) || truth(await evaluate(statement.condition, loopEnvironment))) {
             first = false;
-            hooks.charge(2);
+            hooks.charge(SEMANTIC_STEP_FUEL);
             try {
               await executeStatements(statement.body, new Environment(loopEnvironment));
             } catch (signal) {
@@ -570,7 +571,7 @@ async function invokeBuiltin(
   if (builtin.name.startsWith('Object.')) {
     const value = arguments_[0] as RuntimeValue;
     const entries = Object.entries(record(value));
-    if (builtin.name !== 'Object.hasOwn') hooks.charge(entries.length * 2);
+    if (builtin.name !== 'Object.hasOwn') hooks.charge(linearFuel(entries.length));
     if (builtin.name === 'Object.keys') return created(Object.freeze(entries.map(([key]) => key)));
     if (builtin.name === 'Object.values') return created(Object.freeze(entries.map(([, item]) => canonical(item))));
     if (builtin.name === 'Object.entries')
@@ -597,13 +598,13 @@ async function invokeBuiltin(
       const value = arguments_[0];
       if (Array.isArray(value)) {
         hooks.collection(value.length);
-        hooks.charge(value.length * 2);
+        hooks.charge(linearFuel(value.length));
         return created(Object.freeze([...value]));
       }
       if (typeof value === 'string') {
         const values = [...value];
         hooks.collection(values.length);
-        hooks.charge(values.length * 2);
+        hooks.charge(linearFuel(values.length));
         return created(Object.freeze(values));
       }
       throw new InterpreterFault('invalid_ir', 'Array.from requires a bounded list or string');
@@ -618,7 +619,7 @@ async function invokeBuiltin(
     const values = arguments_.map((value) => Number(value));
     const name = builtin.name.slice('Math.'.length);
     if (name === 'random') {
-      hooks.charge(4);
+      hooks.charge(SEMANTIC_STEP_FUEL);
       return hooks.random();
     }
     const functions: Readonly<Record<string, (...items: number[]) => number>> = {
@@ -646,11 +647,7 @@ async function invokeBuiltin(
     };
     const operation = functions[name];
     if (!operation) throw new InterpreterFault('invalid_ir', `unsupported Math intrinsic ${name}`);
-    hooks.charge(
-      ['sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2', 'log', 'log2', 'log10', 'exp', 'pow'].includes(name)
-        ? 32
-        : 4,
-    );
+    hooks.charge(SEMANTIC_STEP_FUEL);
     const result = operation(...values);
     if (!Number.isFinite(result)) throw new InterpreterFault('non_finite_number');
     return Number.isSafeInteger(result) ? BigInt(result) : result;
@@ -699,7 +696,7 @@ async function invokeBuiltin(
     } catch {
       return created(Object.freeze({ tag: 'error', value: Object.freeze({ code: 'invalid_json' }) }));
     }
-    hooks.charge(Math.ceil(new TextEncoder().encode(text).length / 8));
+    hooks.charge(byteFuel(new TextEncoder().encode(text).length));
     const result = Object.freeze({ tag: 'ok', value: converted });
     hooks.scan([result]);
     return created(result);
@@ -788,14 +785,14 @@ async function invokeBuiltin(
   if (builtin.name === 'Temporal.Now.instant') {
     const value = hooks.fixedInstant();
     if (value === undefined) throw new InterpreterFault('fixed_instant_required');
-    hooks.charge(8);
+    hooks.charge(SEMANTIC_STEP_FUEL);
     return value;
   }
   if (builtin.name.startsWith('console.')) {
     if (!['console.log', 'console.info', 'console.warn', 'console.error'].includes(builtin.name))
       throw new InterpreterFault('invalid_ir', 'unsupported console operation');
     arguments_.forEach(canonical);
-    hooks.charge(5);
+    hooks.charge(SEMANTIC_STEP_FUEL);
     hooks.trace(builtin.name, source);
     return null;
   }
@@ -807,7 +804,7 @@ async function invokeBuiltin(
         throw new InterpreterFault('invalid_ir', 'join requires a bounded string list');
       const separator = arguments_[0] === undefined ? ',' : arguments_[0];
       if (typeof separator !== 'string') throw new InterpreterFault('invalid_ir', 'join separator must be text');
-      hooks.charge(receiver.length * 2);
+      hooks.charge(linearFuel(receiver.length));
       return created((receiver as readonly string[]).join(separator));
     }
     if (builtin.name === 'with') {
@@ -816,11 +813,11 @@ async function invokeBuiltin(
         throw new InterpreterFault('invalid_arithmetic', 'replacement index out of range');
       const result = [...receiver];
       result[index] = canonical(arguments_[1] as RuntimeValue);
-      hooks.charge(receiver.length * 2);
+      hooks.charge(linearFuel(receiver.length));
       return created(Object.freeze(result));
     }
     if (builtin.name === 'toReversed') {
-      hooks.charge(receiver.length * 2);
+      hooks.charge(linearFuel(receiver.length));
       return created(Object.freeze([...receiver].reverse()));
     }
     if (builtin.name === 'toSpliced') {
@@ -831,7 +828,7 @@ async function invokeBuiltin(
       const result = [...receiver];
       result.splice(start, remove, ...arguments_.slice(2).map(canonical));
       hooks.collection(result.length);
-      hooks.charge(receiver.length * 2);
+      hooks.charge(linearFuel(receiver.length));
       return created(Object.freeze(result));
     }
     if (builtin.name === 'toSorted') {
@@ -841,7 +838,7 @@ async function invokeBuiltin(
         const value = result[index] as CanonicalValue;
         let position = index;
         while (position > 0) {
-          hooks.charge(3);
+          hooks.charge(SEMANTIC_STEP_FUEL);
           const prior = result[position - 1] as CanonicalValue;
           const comparison =
             comparator && isClosure(comparator)
@@ -861,7 +858,7 @@ async function invokeBuiltin(
         throw new InterpreterFault('invalid_ir', `${builtin.name} requires a checked callback`);
       const produced: CanonicalValue[] = [];
       for (const [index, item] of receiver.entries()) {
-        hooks.charge(2);
+        hooks.charge(SEMANTIC_STEP_FUEL);
         const value = await call(callback, [item, BigInt(index), receiver]);
         if (builtin.name === 'map') produced.push(canonical(value));
         else if (builtin.name === 'flatMap') {
@@ -883,7 +880,7 @@ async function invokeBuiltin(
         throw new InterpreterFault('invalid_ir', 'reduce requires a callback and initial value');
       let accumulator = arguments_[1] as RuntimeValue;
       for (const [index, item] of receiver.entries()) {
-        hooks.charge(2);
+        hooks.charge(SEMANTIC_STEP_FUEL);
         accumulator = await call(callback, [accumulator, item, BigInt(index), receiver]);
       }
       return accumulator;
@@ -891,7 +888,7 @@ async function invokeBuiltin(
     if (builtin.name === 'includes')
       return receiver.some((item) => stable(item) === stable(canonical(arguments_[0] as RuntimeValue)));
     if (builtin.name === 'slice') {
-      hooks.charge(receiver.length * 2);
+      hooks.charge(linearFuel(receiver.length));
       return created(
         Object.freeze(
           receiver.slice(Number(arguments_[0] ?? 0), arguments_[1] === undefined ? undefined : Number(arguments_[1])),
@@ -899,7 +896,7 @@ async function invokeBuiltin(
       );
     }
     if (builtin.name === 'concat') {
-      hooks.charge(receiver.length * 2);
+      hooks.charge(linearFuel(receiver.length));
       return created(Object.freeze(receiver.concat(...arguments_.map(canonical))));
     }
   }
@@ -917,6 +914,6 @@ async function invokeBuiltin(
     if (builtin.name === 'toUpperCase') return created(receiver.toUpperCase());
     if (builtin.name === 'toLowerCase') return created(receiver.toLowerCase());
   }
-  hooks.charge(1);
+  hooks.charge(SEMANTIC_STEP_FUEL);
   throw new InterpreterFault('invalid_ir', `unsupported pure intrinsic ${builtin.name}`);
 }

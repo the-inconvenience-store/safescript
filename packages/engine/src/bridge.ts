@@ -50,6 +50,7 @@ import {
 import { createArtifact, verifyArtifact, type CheckedArtifact } from './artifact.js';
 import { compileProgramModules, measureCompilerSource } from './compiler.js';
 import { interpret, InterpreterFault } from './interpreter.js';
+import { allocationFuel, byteFuel, hostActionFuel, scanFuel, SEMANTIC_STEP_FUEL } from './resource-schedule.js';
 import { structuredActions, verifyProgram, type StructuredAction } from './structured-ir.js';
 import { deriveSemanticGraph } from './semantic-graph.js';
 
@@ -383,7 +384,7 @@ class ExecutionMeter {
   allocate(value: CanonicalValue): void {
     const metrics = canonicalMetrics(value);
     this.assertValue(metrics);
-    this.chargeRaw(4 + Math.ceil(metrics.bytes / 16), metrics.bytes);
+    this.chargeRaw(allocationFuel(metrics.bytes), metrics.bytes);
     this.observe(value, metrics.bytes, metrics);
   }
 
@@ -391,7 +392,7 @@ class ExecutionMeter {
     const metrics = values.map(canonicalMetrics);
     const nodes = metrics.reduce((total, item) => total + item.nodes, 0);
     const bytes = metrics.reduce((total, item) => total + item.bytes, 0);
-    this.charge(2 * nodes + Math.ceil(bytes / 16));
+    this.charge(scanFuel(nodes, bytes));
     values.forEach((value, index) => {
       const metric = metrics[index] ?? canonicalMetrics(value);
       this.observe(value, metric.bytes, metric);
@@ -534,7 +535,7 @@ class ActionDispatcher {
     // A group is one atomic semantic operation: no request is observable unless
     // every member's host-call reservation and fuel charge can be committed.
     this.meter.charge(
-      prepared.reduce((fuel, item) => fuel + 100 + item.operation.effectCost + Math.ceil(item.input.length / 16), 0),
+      prepared.reduce((fuel, item) => fuel + hostActionFuel(item.operation.effectCost, item.input.length), 0),
     );
     this.usage.hostCalls += prepared.length;
     this.usage.peakConcurrentActions = Math.max(this.usage.peakConcurrentActions, prepared.length);
@@ -894,7 +895,7 @@ export class DirectRuntimeBridge implements RuntimeBridge {
       if (usageValue.outputBytes + output.value.length > request.limits.outputBytes)
         throw new ExecutionFault('resource_exhausted', 'outputBytes');
       meter.observe(value, output.value.length);
-      meter.charge(1 + Math.ceil(output.value.length / 16));
+      meter.charge(SEMANTIC_STEP_FUEL + byteFuel(output.value.length));
       usageValue.outputBytes += output.value.length;
       return Object.freeze({
         status: 'completed',

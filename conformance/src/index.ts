@@ -11,11 +11,7 @@ export {
   walkingSkeletonReference,
 } from './references.js';
 export type { ReferenceIntegration } from './references.js';
-export {
-  measureReferenceResourceLedgers,
-  REFERENCE_RESOURCE_LEDGERS,
-  REFERENCE_EXECUTION_LIMITS,
-} from './resources.js';
+export { measureReferenceResourceLedgers, REFERENCE_EXECUTION_LIMITS } from './resources.js';
 export type { ReferenceResourceLedger } from './resources.js';
 export { evaluateAuthoringGate, AUTHORING_THRESHOLDS } from './authoring.js';
 export type {

@@ -45,7 +45,7 @@ The standard execution profile bounds:
 | One value nodes            |           32,768 |
 | One value bytes            |            1 MiB |
 
-Fuel represents specified language work rather than elapsed time. Charges commit before their protected operation. The normative charges and compatibility rule are in the [Semantic resource schedule](resource-schedule.md).
+Fuel represents specified language work rather than elapsed time. Charges commit before their protected operation. The release-local additive rules are in the [Semantic resource schedule](resource-schedule.md).
 
 Execution facts report actual fuel, allocations, cumulative allocated bytes, peak value/collection/call/concurrency measures, host calls, trace bytes, and output bytes. Allocated bytes increase monotonically; the runtime does not infer release from JavaScript garbage collection. Resource exhaustion returns the exact exhausted dimension in bounded detail and never causes an implicit retry.
 

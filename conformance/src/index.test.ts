@@ -15,11 +15,7 @@ import { createNodeProcessRuntimeBridge } from '@safescript/sdk';
 
 import { withRuntimeBridge } from './index.js';
 import { blindApplicationExtensionReference, blindDeviceRuleReference } from './authoring-fixtures.js';
-import {
-  measureReferenceResourceLedgers,
-  REFERENCE_RESOURCE_LEDGERS,
-  REFERENCE_EXECUTION_LIMITS,
-} from './resources.js';
+import { measureReferenceResourceLedgers, REFERENCE_EXECUTION_LIMITS } from './resources.js';
 import {
   applicationExtensionReference,
   codeModeReference,
@@ -265,9 +261,7 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
     },
   );
 
-  it.each(references)('matches the locked $name semantic resource ledger', async (reference) => {
-    const expected = REFERENCE_RESOURCE_LEDGERS.find(({ name }) => name === reference.name);
-    if (!expected) throw new Error(`missing locked ledger for ${reference.name}`);
+  it.each(references)('reports deterministic bounded resources for $name', async (reference) => {
     const host = { handleAction: async (action: Parameters<typeof completedAction>[0]) => completedAction(action) };
     const first = await factory().execute(
       executionRequest(reference, { kind: 'source', source: referenceCheckRequest(reference) }, 'b'),
@@ -280,8 +274,12 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
     expect(first.status).toBe('completed');
     expect(second.status).toBe('completed');
     if (first.status === 'completed' && second.status === 'completed') {
-      expect(first.facts.usage).toEqual(expected.usage);
-      expect(second.facts.usage).toEqual(expected.usage);
+      expect(first.facts.usage).toEqual(second.facts.usage);
+      expect(first.facts.usage.fuel).toBeGreaterThan(0);
+      expect(first.facts.usage.fuel).toBeLessThanOrEqual(REFERENCE_EXECUTION_LIMITS.fuel);
+      expect(first.facts.usage.allocatedBytes).toBeLessThanOrEqual(REFERENCE_EXECUTION_LIMITS.allocatedBytes);
+      expect(first.facts.usage.hostCalls).toBeLessThanOrEqual(REFERENCE_EXECUTION_LIMITS.hostCalls);
+      expect(first.facts.usage.outputBytes).toBeLessThanOrEqual(REFERENCE_EXECUTION_LIMITS.outputBytes);
     }
   });
 
@@ -289,8 +287,8 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
     expect(REFERENCE_EXECUTION_LIMITS).toEqual(STANDARD_EXECUTION_LIMITS);
   });
 
-  it('exposes the locked measurement gate through the adapter factory seam', async () => {
-    expect(await measureReferenceResourceLedgers(factory)).toEqual(REFERENCE_RESOURCE_LEDGERS);
+  it('exposes deterministic release-local measurements through the adapter factory seam', async () => {
+    expect(await measureReferenceResourceLedgers(factory)).toEqual(await measureReferenceResourceLedgers(factory));
   });
 
   it('regenerates disposable artefacts and semantic graphs from host-owned source', async () => {
