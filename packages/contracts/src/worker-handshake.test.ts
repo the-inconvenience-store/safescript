@@ -16,26 +16,23 @@ const hello: WorkerProtocolSessionHello = Object.freeze({
   version: SAFESCRIPT_VERSION,
   sdk_build: 'sdk-build',
   expected_worker: Object.freeze({ version: SAFESCRIPT_VERSION, build_digest: digest, override: false }),
-  required_features: Object.freeze([]),
-  optional_features: Object.freeze(['actions.concurrent']),
   limits: STANDARD_WORKER_OPERATIONAL_LIMITS,
 });
 
 const support: WorkerProtocolHandshakeSupport = Object.freeze({
   version: SAFESCRIPT_VERSION,
-  features: Object.freeze(['actions.concurrent']),
   worker: Object.freeze({ version: SAFESCRIPT_VERSION, compiler_build: 'compiler-build', build_digest: digest }),
   limits: STANDARD_WORKER_OPERATIONAL_LIMITS,
   implementation: 'test-worker',
 });
 
 describe('single-contract worker handshake', () => {
-  it('accepts one exact SafeScript contract and selects requested features', () => {
+  it('accepts one exact SafeScript contract and selects bounded limits', () => {
     const result = negotiateWorkerProtocolHandshake(hello, support);
     expect(result.compatible).toBe(true);
     if (!result.compatible) return;
     expect(result.welcome.version).toBe('0.6.0');
-    expect(result.welcome.features).toEqual(['actions.concurrent']);
+    expect(result.welcome.limits).toEqual(STANDARD_WORKER_OPERATIONAL_LIMITS);
     expect(validateWorkerProtocolWelcome(hello, result.welcome).compatible).toBe(true);
   });
 
@@ -56,9 +53,7 @@ describe('single-contract worker handshake', () => {
     if (!result.compatible) expect(result.incompatible.dimensions).toContain('worker_build_digest');
   });
 
-  it('fails closed on unavailable required features and invalid limits', () => {
-    const feature = negotiateWorkerProtocolHandshake({ ...hello, required_features: ['missing.feature'] }, support);
-    expect(feature.compatible).toBe(false);
+  it('fails closed on invalid limits', () => {
     const limits = negotiateWorkerProtocolHandshake(
       { ...hello, limits: { ...hello.limits, max_frame_bytes: 0n } },
       support,

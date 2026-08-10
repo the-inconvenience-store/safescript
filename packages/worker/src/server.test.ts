@@ -33,8 +33,6 @@ const hello: WorkerProtocolSessionHello = Object.freeze({
     build_digest: digest,
     override: false,
   }),
-  required_features: Object.freeze([]),
-  optional_features: Object.freeze([]),
   limits: STANDARD_WORKER_OPERATIONAL_LIMITS,
 });
 

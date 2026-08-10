@@ -45,8 +45,6 @@ export const DEFAULT_PROCESS_WORKER_HELLO: WorkerProtocolSessionHello = Object.f
     build_digest: ZERO_DIGEST,
     override: false,
   }),
-  required_features: Object.freeze([]),
-  optional_features: Object.freeze([]),
   limits: STANDARD_WORKER_OPERATIONAL_LIMITS,
 });
 

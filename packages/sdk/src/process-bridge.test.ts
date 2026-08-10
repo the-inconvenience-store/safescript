@@ -324,36 +324,6 @@ describe('process RuntimeBridge state machine', () => {
     expect(await bridge.close()).toEqual({ status: 'closed' });
   });
 
-  it('applies explicit override feature requirements during negotiation', async () => {
-    const workerDirectory = new URL('../../worker/', import.meta.url).pathname;
-    const build = Bun.spawn([process.execPath, 'scripts/build.ts'], {
-      cwd: workerDirectory,
-      stdout: 'ignore',
-      stderr: 'pipe',
-    });
-    expect(await build.exited).toBe(0);
-    const manifest = (await Bun.file(new URL('../../worker/dist/build-manifest.json', import.meta.url)).json()) as {
-      buildDigest: string;
-    };
-    const nodePath = Bun.which('node');
-    if (!nodePath) throw new Error('test requires the supported Node runtime');
-    const bridge = createNodeProcessRuntimeBridge({
-      override: {
-        entryPath: new URL('../../worker/dist/entry.js', import.meta.url).pathname,
-        nodePath,
-        digestAllowlist: [manifest.buildDigest],
-        requiredFeatures: ['worker.test.unsupported'],
-      },
-      handshakeTimeoutMs: 1_000,
-    });
-
-    expect(await bridge.cancel({ invocationId: actionRequest.invocationId })).toEqual({
-      status: 'bridge_error',
-      error: { code: 'worker_start_failed', phase: 'cancel' },
-    });
-    expect(await bridge.close()).toEqual({ status: 'closed' });
-  });
-
   it('expires partial frames and retains only the selected stderr tail', async () => {
     const hello = {
       ...DEFAULT_PROCESS_WORKER_HELLO,

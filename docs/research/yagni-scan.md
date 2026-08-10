@@ -213,6 +213,8 @@ The worker hello/welcome protocol carries required features, optional features, 
 
 Exact release/build/limit validation can remain without a feature-negotiation abstraction until two conforming workers actually expose different optional features.
 
+Resolution: required, optional, supported, and selected worker feature arrays were removed from the handshake, protocol schemas, CDDL, fixtures, SDK override options, tests, and documentation. Feature-name validation, set intersection, and the `required_feature` incompatibility dimension were also removed. Exact release, SDK, worker, compiler, implementation, protocol, and build-digest checks remain. Operational limits are still selected by the minimum of the host request, worker maximum, and built-in ceiling. Feature negotiation requires at least two supported worker variants with concrete optional behavior under one release contract.
+
 ### 10b. Automatic worker restart policy
 
 **Confidence: medium-high.**

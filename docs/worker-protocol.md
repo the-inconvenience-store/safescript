@@ -73,7 +73,7 @@ An action outcome is either a completed canonical operation `Result` or a host f
 
 Envelope schema 1 is immutable. A future envelope that cannot be decoded by schema 1 requires a new envelope version and bootstrap rules; peers MUST NOT guess it.
 
-Peers require exact SafeScript 0.6.0 identity and may select only named features advertised by both sides. Schema changes ship with a new coordinated SafeScript release. Fields and kinds are never silently ignored, reused, or assigned a new meaning.
+Peers require exact SafeScript 0.6.0 identity. Schema changes ship with a new coordinated SafeScript release. Fields and kinds are never silently ignored, reused, or assigned a new meaning.
 
 ## Wire failures
 

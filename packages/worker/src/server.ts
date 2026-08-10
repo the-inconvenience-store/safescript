@@ -31,7 +31,6 @@ const ZERO_DIGEST = '0'.repeat(64);
 
 export const DEFAULT_WORKER_HANDSHAKE_SUPPORT: WorkerProtocolHandshakeSupport = Object.freeze({
   version: SAFESCRIPT_VERSION,
-  features: Object.freeze([]),
   worker: Object.freeze({
     version: SAFESCRIPT_VERSION,
     compiler_build: 'structured-ir-operation-permissions',

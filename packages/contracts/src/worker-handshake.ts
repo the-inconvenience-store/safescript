@@ -5,7 +5,6 @@ import {
 } from './worker-protocol.js';
 
 const MAX_UINT64 = (1n << 64n) - 1n;
-const FEATURE = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9_]*)+$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const MAX_TEXT_BYTES = 256;
 
@@ -45,14 +44,11 @@ export interface WorkerProtocolSessionHello {
   readonly version: string;
   readonly sdk_build: string;
   readonly expected_worker: WorkerProtocolExpectedWorker;
-  readonly required_features: readonly string[];
-  readonly optional_features: readonly string[];
   readonly limits: WorkerProtocolOperationalLimits;
 }
 
 export interface WorkerProtocolHandshakeSupport {
   readonly version: string;
-  readonly features: readonly string[];
   readonly worker: WorkerProtocolWorkerIdentity;
   readonly limits: WorkerProtocolOperationalLimits;
   readonly implementation: string;
@@ -60,7 +56,6 @@ export interface WorkerProtocolHandshakeSupport {
 
 export interface WorkerProtocolSessionWelcome {
   readonly version: string;
-  readonly features: readonly string[];
   readonly worker: WorkerProtocolWorkerIdentity;
   readonly limits: WorkerProtocolOperationalLimits;
   readonly implementation: string;
@@ -68,7 +63,6 @@ export interface WorkerProtocolSessionWelcome {
 
 export const WORKER_PROTOCOL_INCOMPATIBILITY_DIMENSIONS = Object.freeze([
   'version',
-  'required_feature',
   'worker_build_digest',
   'operational_limit',
 ] as const);
@@ -87,12 +81,6 @@ export type WorkerProtocolHandshakeResult =
 
 const TEXT_SCHEMA = Object.freeze({ kind: 'text' as const, maxBytes: MAX_TEXT_BYTES });
 const SHA256_SCHEMA = Object.freeze({ kind: 'text' as const, maxBytes: 64 });
-const FEATURE_LIST_SCHEMA: WorkerProtocolSchema = Object.freeze({
-  kind: 'array',
-  item: Object.freeze({ kind: 'text', maxBytes: 64 }),
-  maxItems: 256,
-});
-
 const EXPECTED_WORKER_SCHEMA: WorkerProtocolSchema = Object.freeze({
   kind: 'record',
   fields: Object.freeze([
@@ -139,8 +127,6 @@ const HELLO_SCHEMA: WorkerProtocolSchema = Object.freeze({
     Object.freeze({ name: 'version', schema: TEXT_SCHEMA }),
     Object.freeze({ name: 'sdk_build', schema: TEXT_SCHEMA }),
     Object.freeze({ name: 'expected_worker', schema: EXPECTED_WORKER_SCHEMA }),
-    Object.freeze({ name: 'required_features', schema: FEATURE_LIST_SCHEMA }),
-    Object.freeze({ name: 'optional_features', schema: FEATURE_LIST_SCHEMA }),
     Object.freeze({ name: 'limits', schema: OPERATIONAL_LIMITS_SCHEMA }),
   ]),
 });
@@ -149,7 +135,6 @@ const WELCOME_SCHEMA: WorkerProtocolSchema = Object.freeze({
   kind: 'record',
   fields: Object.freeze([
     Object.freeze({ name: 'version', schema: TEXT_SCHEMA }),
-    Object.freeze({ name: 'features', schema: FEATURE_LIST_SCHEMA }),
     Object.freeze({ name: 'worker', schema: WORKER_IDENTITY_SCHEMA }),
     Object.freeze({ name: 'limits', schema: OPERATIONAL_LIMITS_SCHEMA }),
     Object.freeze({ name: 'implementation', schema: TEXT_SCHEMA }),
@@ -226,14 +211,6 @@ function validText(value: unknown, allowEmpty = false): value is string {
 
 function validVersion(value: unknown): value is string {
   return value === SAFESCRIPT_VERSION;
-}
-
-function validFeatures(features: readonly string[]): boolean {
-  return (
-    features.length <= 256 &&
-    features.every((feature) => feature.length <= 64 && FEATURE.test(feature)) &&
-    features.every((feature, index) => index === 0 || (features[index - 1] as string) < feature)
-  );
 }
 
 function validLimits(limits: WorkerProtocolOperationalLimits): boolean {
@@ -318,23 +295,11 @@ export function negotiateWorkerProtocolHandshake(
   if (!hello.expected_worker.override && hello.expected_worker.build_digest !== support.worker.build_digest)
     failures.add('worker_build_digest');
   if (!validLimits(hello.limits) || !validLimits(support.limits)) failures.add('operational_limit');
-  if (
-    !validFeatures(hello.required_features) ||
-    !validFeatures(hello.optional_features) ||
-    !validFeatures(support.features)
-  )
-    failures.add('required_feature');
-  const supported = new Set(support.features);
-  const required = new Set(hello.required_features);
-  if (hello.optional_features.some((feature) => required.has(feature))) failures.add('required_feature');
-  if (hello.required_features.some((feature) => !supported.has(feature))) failures.add('required_feature');
   if (failures.size > 0) return incompatible(failures);
-  const requested = new Set([...hello.required_features, ...hello.optional_features]);
   return Object.freeze({
     compatible: true,
     welcome: Object.freeze({
       version: SAFESCRIPT_VERSION,
-      features: Object.freeze([...requested].filter((feature) => supported.has(feature)).sort()),
       worker: Object.freeze({ ...support.worker }),
       limits: selectLimits(hello.limits, support.limits),
       implementation: support.implementation,
@@ -352,9 +317,6 @@ export function validateWorkerProtocolWelcome(
   if (!validWorker(welcome.worker) || !validText(welcome.implementation)) failures.add('worker_build_digest');
   if (!hello.expected_worker.override && welcome.worker.build_digest !== hello.expected_worker.build_digest)
     failures.add('worker_build_digest');
-  const requested = new Set([...hello.required_features, ...hello.optional_features]);
-  if (!validFeatures(welcome.features) || welcome.features.some((feature) => !requested.has(feature)))
-    failures.add('required_feature');
   if (!validLimits(welcome.limits) || LIMIT_KEYS.some((key) => welcome.limits[key] > hello.limits[key]))
     failures.add('operational_limit');
   if (failures.size > 0) return incompatible(failures);

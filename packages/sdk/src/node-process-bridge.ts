@@ -15,10 +15,9 @@ import {
 } from './process-bridge.js';
 
 const SHA256 = /^[0-9a-f]{64}$/;
-const FEATURE = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9_]*)+$/;
 const ZERO_DIGEST = '0'.repeat(64);
 const BUNDLED_PACKAGE_VERSION = '0.6.0';
-const BUNDLED_WORKER_BUILD_DIGEST = 'f0f4c298fff106ca3ca334e9fd6bde45bf7584b9a29b410897d5244800081eda';
+const BUNDLED_WORKER_BUILD_DIGEST = '7399b093d21d84b1b36975f345e0c3e403a7a488178d745e47f17f29515428be';
 
 interface WorkerBuildManifest {
   readonly schema: 1;
@@ -37,7 +36,6 @@ export interface NodeWorkerOverride {
   readonly entryPath: string;
   readonly nodePath?: string;
   readonly digestAllowlist?: readonly string[];
-  readonly requiredFeatures?: readonly string[];
 }
 
 export interface NodeProcessRuntimeBridgeOptions {
@@ -98,13 +96,7 @@ function validateOverride(override: NodeWorkerOverride): void {
     (override.digestAllowlist !== undefined &&
       (!Array.isArray(override.digestAllowlist) ||
         override.digestAllowlist.length === 0 ||
-        !override.digestAllowlist.every((value) => SHA256.test(value)))) ||
-    (override.requiredFeatures !== undefined &&
-      (!Array.isArray(override.requiredFeatures) ||
-        !override.requiredFeatures.every(
-          (value, index) =>
-            FEATURE.test(value) && (index === 0 || (override.requiredFeatures?.[index - 1] as string) < value),
-        )))
+        !override.digestAllowlist.every((value) => SHA256.test(value))))
   )
     throw new TypeError('worker override requires absolute paths and valid digest allow-list values');
 }
@@ -146,9 +138,6 @@ async function overriddenWorker(override: NodeWorkerOverride): Promise<ResolvedW
 function hello(options: NodeProcessRuntimeBridgeOptions): WorkerProtocolSessionHello {
   return Object.freeze({
     ...DEFAULT_PROCESS_WORKER_HELLO,
-    required_features: Object.freeze(
-      options.override?.requiredFeatures?.slice() ?? DEFAULT_PROCESS_WORKER_HELLO.required_features,
-    ),
     expected_worker: Object.freeze({
       version: SAFESCRIPT_VERSION,
       build_digest:

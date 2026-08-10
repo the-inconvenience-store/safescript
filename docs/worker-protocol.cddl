@@ -37,14 +37,11 @@ session-hello = {
   version: "0.6.0",
   sdk_build: bounded-text,
   expected_worker: expected-worker,
-  required_features: [* feature-name],
-  optional_features: [* feature-name],
   limits: operational-limits,
 }
 
 session-welcome = {
   version: "0.6.0",
-  features: [* feature-name],
   worker: worker-identity,
   limits: operational-limits,
   implementation: bounded-text,
@@ -66,9 +63,7 @@ worker-identity = {
   compiler_build: bounded-text,
   build_digest: sha256,
 }
-incompatibility-dimension =
-  "version" / "required_feature" / "worker_build_digest" /
-  "operational_limit"
+incompatibility-dimension = "version" / "worker_build_digest" / "operational_limit"
 
 operational-limits = {
   max_frame_bytes: uint,
@@ -416,5 +411,4 @@ instant = { epoch_seconds: int, nanoseconds: 0..999999999 }
 canonical-bytes = bstr
 sha256 = tstr .size 64
 identifier = tstr
-feature-name = tstr
 bounded-text = tstr
