@@ -8,7 +8,6 @@ SafeScript 0.7.0 removes unused compatibility and orchestration machinery. It al
 
 - Added a bounded, bridge-local compiled-program cache. Concurrent requests for the same program share one compilation. Count and retained-weight limits control eviction.
 - Added optional read-through and write-through artifact storage. The host supplies the storage adapter and owns tenancy, retention, durability, and operations. SafeScript verifies stored artifacts and falls back to source compilation after a corrupt entry or storage failure.
-- Added a YAGNI research report that records the reviewed complexity, evidence, and recommendations.
 
 ### Changed
 
