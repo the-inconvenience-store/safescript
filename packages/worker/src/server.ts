@@ -34,7 +34,7 @@ export const DEFAULT_WORKER_HANDSHAKE_SUPPORT: WorkerProtocolHandshakeSupport = 
   features: Object.freeze([]),
   worker: Object.freeze({
     version: SAFESCRIPT_VERSION,
-    compiler_build: 'typed-ir-current',
+    compiler_build: 'structured-ir-current',
     build_digest: ZERO_DIGEST,
   }),
   limits: STANDARD_WORKER_OPERATIONAL_LIMITS,

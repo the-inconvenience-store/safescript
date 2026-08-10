@@ -18,7 +18,7 @@ const SHA256 = /^[0-9a-f]{64}$/;
 const FEATURE = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9_]*)+$/;
 const ZERO_DIGEST = '0'.repeat(64);
 const BUNDLED_PACKAGE_VERSION = '0.6.0';
-const BUNDLED_WORKER_BUILD_DIGEST = '83a2a54d5462d80abde691170eb0f0822c1362e20eb5822be99f390b7fcdbb2d';
+const BUNDLED_WORKER_BUILD_DIGEST = 'a77daedeb6ce536c83fe68f3b47a5e001e5fccad6ed8bb191e446765a6a8f2a1';
 
 interface WorkerBuildManifest {
   readonly schema: 1;
@@ -122,7 +122,7 @@ async function bundledWorker(nodePath: string): Promise<ResolvedWorker> {
       packageManifest.name !== '@safescript/worker' ||
       packageManifest.version !== BUNDLED_PACKAGE_VERSION ||
       manifest.packageVersion !== BUNDLED_PACKAGE_VERSION ||
-      manifest.compilerBuild !== 'typed-ir-current' ||
+      manifest.compilerBuild !== 'structured-ir-current' ||
       manifest.entry !== 'entry.js' ||
       !SHA256.test(manifest.buildDigest) ||
       manifest.buildDigest !== BUNDLED_WORKER_BUILD_DIGEST ||

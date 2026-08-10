@@ -11,8 +11,8 @@ import {
   type SlotDefinition,
 } from '@safescript/contracts';
 
-import { type IrProgram } from './ir.js';
 import { compileStructuredProgram } from './structured-compiler.js';
+import type { StructuredProgram } from './structured-ir.js';
 
 /**
  * Stable private failure lowered to a public machine-readable diagnostic by the bridge.
@@ -32,7 +32,7 @@ export interface CompileFailure {
 export type CompileProgramResult =
   | Readonly<{
       ok: true;
-      program: IrProgram;
+      program: StructuredProgram;
       handler: string;
       syntaxNodes: number;
       syntaxDepth: number;
@@ -245,9 +245,6 @@ export function compileProgram(
         imports,
         declarations,
       };
-    const inputType = { kind: 'ref' as const, type: slot.input };
-    const resultType = { kind: 'ref' as const, type: slot.output };
-    const input = 'r0:input';
     return {
       ok: true,
       handler: structured.handler,
@@ -255,26 +252,7 @@ export function compileProgram(
       syntaxDepth: syntax.depth,
       imports,
       declarations,
-      program: Object.freeze({
-        version: Object.freeze([1, 1] as const),
-        entry: 'b0:entry',
-        input: Object.freeze({ register: input, type: inputType }),
-        resultType,
-        blocks: Object.freeze([
-          Object.freeze({
-            id: 'b0:entry',
-            parameters: Object.freeze([]),
-            instructions: Object.freeze([]),
-            terminator: Object.freeze({
-              tag: 'structured',
-              input,
-              program: structured.program,
-              source: Object.freeze({ module: moduleId, start: 0, end: sourceFile.getEnd() }),
-            }),
-          }),
-        ]),
-        summary: structured.program.summary,
-      }),
+      program: structured.program,
     };
   }
 }

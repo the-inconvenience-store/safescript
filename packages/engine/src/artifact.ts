@@ -16,14 +16,14 @@ import {
   type SlotDefinition,
 } from '@safescript/contracts';
 
-import { verifyProgram, type IrProgram, type VerifiedProgram } from './ir.js';
+import { verifyProgram, type StructuredProgram, type VerifiedStructuredProgram } from './structured-ir.js';
 
 const encoder = new TextEncoder();
 const ARTIFACT_SCHEMA: Schema = Object.freeze({ kind: 'string' });
 
 interface ArtifactRecord {
   readonly magic: 'SafeScript checked artifact';
-  readonly format: 1;
+  readonly format: 2;
   readonly compiler: string;
   readonly contractId: string;
   readonly contractDigest: string;
@@ -32,7 +32,7 @@ interface ArtifactRecord {
   readonly sourceHash: string;
   readonly irDigest: string;
   readonly handler: string;
-  readonly program: IrProgram;
+  readonly program: StructuredProgram;
 }
 
 /**
@@ -42,7 +42,7 @@ interface ArtifactRecord {
 export interface CheckedArtifact {
   readonly bytes: CanonicalBytes;
   readonly digest: IrDigest;
-  readonly program: VerifiedProgram;
+  readonly program: VerifiedStructuredProgram;
   readonly handler: string;
 }
 
@@ -84,7 +84,7 @@ function isRecord(value: unknown): value is ArtifactRecord {
   const record = value as Partial<ArtifactRecord>;
   return (
     record.magic === 'SafeScript checked artifact' &&
-    record.format === 1 &&
+    record.format === 2 &&
     typeof record.compiler === 'string' &&
     typeof record.contractId === 'string' &&
     typeof record.contractDigest === 'string' &&
@@ -97,7 +97,7 @@ function isRecord(value: unknown): value is ArtifactRecord {
   );
 }
 
-function digest(program: IrProgram): IrDigest {
+function digest(program: StructuredProgram): IrDigest {
   return hash('ir', encoder.encode(stringify(program))) as unknown as IrDigest;
 }
 
@@ -108,7 +108,7 @@ function digest(program: IrProgram): IrDigest {
 export function createArtifact(
   request: CheckRequest,
   slot: SlotDefinition,
-  program: VerifiedProgram,
+  program: VerifiedStructuredProgram,
   handler: string,
   compiler: string,
 ): CheckedArtifact | undefined {
@@ -117,7 +117,7 @@ export function createArtifact(
   const irDigest = digest(program.program);
   const record: ArtifactRecord = {
     magic: 'SafeScript checked artifact',
-    format: 1,
+    format: 2,
     compiler,
     contractId: request.registry.id,
     contractDigest: request.registry.digest,

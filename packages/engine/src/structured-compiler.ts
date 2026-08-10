@@ -650,6 +650,9 @@ export function compileStructuredProgram(
       handler: handler.name.text,
       program: Object.freeze({
         version: Object.freeze([1, 1] as const),
+        inputType: Object.freeze({ kind: 'ref' as const, type: slot.input }),
+        resultType: Object.freeze({ kind: 'ref' as const, type: slot.output }),
+        source: Object.freeze({ module: moduleId, start: 0, end: sourceFile.getEnd() }),
         handler: handler.name.text,
         eventParameter: (handler.parameters[0]?.name as ts.Identifier).text,
         contextParameter: contextName,

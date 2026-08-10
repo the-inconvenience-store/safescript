@@ -1,8 +1,8 @@
 /** Bounded evaluator for verifier-approved SafeScript 1.1 structured IR. */
 import type { CanonicalValue } from '@safescript/contracts';
-import type { ActionInstruction } from './ir.js';
 import { InterpreterFault, type InterpreterHooks } from './interpreter.js';
 import type {
+  StructuredAction,
   StructuredExpression,
   StructuredFunction,
   StructuredPattern,
@@ -379,19 +379,7 @@ export async function interpretStructured(
         return result;
       }
       case 'action': {
-        const action: ActionInstruction = {
-          tag: 'action',
-          operationId: expression.operationId,
-          effectId: expression.effectId,
-          capabilityId: expression.capabilityId,
-          actionSiteId: expression.actionSiteId,
-          input: '',
-          inputType: expression.inputType,
-          resultType: expression.resultType,
-          resume: '',
-          source: expression.source,
-        };
-        return hooks.action(action, canonical(await evaluate(expression.input, environment)));
+        return hooks.action(expression, canonical(await evaluate(expression.input, environment)));
       }
       case 'function':
         return {
@@ -417,23 +405,12 @@ export async function interpretStructured(
           expression.arguments[0]?.tag === 'array' &&
           expression.arguments[0].items.every((item) => !('spread' in item) && item.tag === 'action')
         ) {
-          const actions: { instruction: ActionInstruction; input: CanonicalValue }[] = [];
+          const actions: { instruction: StructuredAction; input: CanonicalValue }[] = [];
           for (const item of expression.arguments[0].items) {
             if ('spread' in item || item.tag !== 'action')
               throw new InterpreterFault('invalid_ir', 'invalid concurrent action group');
             actions.push({
-              instruction: {
-                tag: 'action',
-                operationId: item.operationId,
-                effectId: item.effectId,
-                capabilityId: item.capabilityId,
-                actionSiteId: item.actionSiteId,
-                input: '',
-                inputType: item.inputType,
-                resultType: item.resultType,
-                resume: '',
-                source: item.source,
-              },
+              instruction: item,
               input: canonical(await evaluate(item.input, environment)),
             });
           }

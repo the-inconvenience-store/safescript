@@ -10,6 +10,7 @@ import type {
   SlotDefinition,
   SourceLocation,
 } from '@safescript/contracts';
+import { ids, resultSchema } from '@safescript/contracts';
 
 export type StructuredExpression =
   | Readonly<{
@@ -188,11 +189,22 @@ export interface StructuredFunction {
 
 export interface StructuredProgram {
   readonly version: readonly [1, 1];
+  readonly inputType: Schema;
+  readonly resultType: Schema;
+  readonly source: SourceLocation;
   readonly handler: string;
   readonly eventParameter: string;
   readonly contextParameter: string;
   readonly functions: readonly StructuredFunction[];
   readonly summary: ProgramSummary;
+}
+
+export type StructuredAction = Extract<StructuredExpression, { tag: 'action' }>;
+
+/** Structured IR plus operation lookups proven consistent with the current contract and slot. */
+export interface VerifiedStructuredProgram {
+  readonly program: StructuredProgram;
+  readonly operations: ReadonlyMap<OperationId, ContractRegistry['operations'][number]>;
 }
 
 function object(value: unknown): value is Record<string, unknown> {
@@ -208,6 +220,94 @@ function location(value: unknown): value is SourceLocation {
     Number(value.start) >= 0 &&
     Number(value.end) >= Number(value.start)
   );
+}
+
+function stable(value: unknown): string {
+  if (typeof value === 'bigint') return `{"$bigint":${JSON.stringify(String(value))}}`;
+  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
+  if (value !== null && typeof value === 'object')
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stable(item)}`)
+      .join(',')}}`;
+  return JSON.stringify(value);
+}
+
+function sameSchema(left: Schema, right: Schema): boolean {
+  return stable(left) === stable(right);
+}
+
+/** Resolves named schema references while rejecting missing or cyclic alias chains. */
+export function resolveSchema(value: Schema, registry: ContractRegistry, seen = new Set<string>()): Schema | undefined {
+  if (value.kind !== 'ref') return value;
+  if (seen.has(value.type)) return undefined;
+  const definition = registry.schemas.types.find((candidate) => candidate.id === value.type);
+  return definition ? resolveSchema(definition.schema, registry, new Set(seen).add(value.type)) : undefined;
+}
+
+/** Returns a closed record field schema after reference resolution. */
+export function fieldType(value: Schema, field: string, registry: ContractRegistry): Schema | undefined {
+  const resolved = resolveSchema(value, registry);
+  if (resolved?.kind === 'record') return resolved.fields.find((candidate) => candidate.name === field)?.schema;
+  if (resolved?.kind === 'variant' && field === 'tag') return { kind: 'string' };
+  return undefined;
+}
+
+function schema(value: unknown, registry: ContractRegistry, depth = 0): value is Schema {
+  if (!object(value) || typeof value.kind !== 'string' || depth > 128) return false;
+  const child = (item: unknown) => schema(item, registry, depth + 1);
+  switch (value.kind) {
+    case 'unit':
+    case 'boolean':
+      return Object.keys(value).length === 1;
+    case 'int64':
+      return (
+        (value.minimum === undefined || typeof value.minimum === 'bigint') &&
+        (value.maximum === undefined || typeof value.maximum === 'bigint')
+      );
+    case 'float64':
+      return (
+        (value.minimum === undefined || typeof value.minimum === 'number') &&
+        (value.maximum === undefined || typeof value.maximum === 'number')
+      );
+    case 'string':
+    case 'bytes':
+      return value.maxBytes === undefined || (Number.isSafeInteger(value.maxBytes) && Number(value.maxBytes) >= 0);
+    case 'instant':
+      return true;
+    case 'list':
+      return (
+        child(value.item) &&
+        (value.maxItems === undefined || (Number.isSafeInteger(value.maxItems) && Number(value.maxItems) >= 0))
+      );
+    case 'tuple':
+      return Array.isArray(value.items) && value.items.every(child);
+    case 'record':
+      return (
+        Array.isArray(value.fields) &&
+        new Set(value.fields.map((field) => (object(field) ? field.name : undefined))).size === value.fields.length &&
+        value.fields.every((field) => object(field) && typeof field.name === 'string' && child(field.schema))
+      );
+    case 'variant':
+      return (
+        Array.isArray(value.variants) &&
+        new Set(value.variants.map((variant) => (object(variant) ? variant.tag : undefined))).size ===
+          value.variants.length &&
+        value.variants.every((variant) => object(variant) && typeof variant.tag === 'string' && child(variant.schema))
+      );
+    case 'brand':
+      return (
+        typeof value.type === 'string' &&
+        registry.schemas.types.some((definition) => definition.id === value.type) &&
+        child(value.base)
+      );
+    case 'ref':
+      return (
+        typeof value.type === 'string' && registry.schemas.types.some((definition) => definition.id === value.type)
+      );
+    default:
+      return false;
+  }
 }
 
 function expression(
@@ -286,17 +386,30 @@ function expression(
       return ['ok', 'error'].includes(String(value.variant)) && child(value.value);
     case 'action': {
       const operation = registry.operations.find((candidate) => candidate.id === value.operationId);
-      return (
+      if (
         !!operation &&
         operation.effect === value.effectId &&
         operation.capability === value.capabilityId &&
         slot.effects.includes(operation.effect) &&
         slot.capabilities.includes(operation.capability) &&
         typeof value.actionSiteId === 'string' &&
-        object(value.inputType) &&
-        object(value.resultType) &&
+        schema(value.inputType, registry) &&
+        schema(value.resultType, registry) &&
+        sameSchema(value.inputType, { kind: 'ref', type: operation.input }) &&
+        sameSchema(
+          value.resultType,
+          resultSchema({ kind: 'ref', type: operation.output }, { kind: 'ref', type: operation.error }),
+        ) &&
         child(value.input)
-      );
+      ) {
+        try {
+          ids.actionSite(value.actionSiteId);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      return false;
     }
     default:
       return false;
@@ -403,13 +516,20 @@ export function verifyStructuredProgram(
     !Array.isArray(value.version) ||
     value.version[0] !== 1 ||
     value.version[1] !== 1 ||
+    !schema(value.inputType, registry) ||
+    !schema(value.resultType, registry) ||
+    !sameSchema(value.inputType, { kind: 'ref', type: slot.input }) ||
+    !sameSchema(value.resultType, { kind: 'ref', type: slot.output }) ||
+    !location(value.source) ||
     typeof value.handler !== 'string' ||
     typeof value.eventParameter !== 'string' ||
     typeof value.contextParameter !== 'string' ||
     !Array.isArray(value.functions) ||
     !object(value.summary) ||
     !Array.isArray(value.summary.effects) ||
-    !Array.isArray(value.summary.capabilities)
+    !value.summary.effects.every((effect) => typeof effect === 'string') ||
+    !Array.isArray(value.summary.capabilities) ||
+    !value.summary.capabilities.every((capability) => typeof capability === 'string')
   )
     return false;
   const names = new Set<string>();
@@ -427,13 +547,32 @@ export function verifyStructuredProgram(
     )
   )
     return false;
-  return names.has(value.handler);
+  if (!names.has(value.handler)) return false;
+  const program = value as unknown as StructuredProgram;
+  const actions = structuredActions(program);
+  return (
+    stable([...new Set(actions.map((action) => action.effectId))].sort()) ===
+      stable([...program.summary.effects].sort()) &&
+    stable([...new Set(actions.map((action) => action.capabilityId))].sort()) ===
+      stable([...program.summary.capabilities].sort())
+  );
 }
 
-export function structuredActions(
-  program: StructuredProgram,
-): readonly Extract<StructuredExpression, { tag: 'action' }>[] {
-  const actions: Extract<StructuredExpression, { tag: 'action' }>[] = [];
+/** Rejects untrusted artifact IR unless all structured, schema, slot, action, and summary invariants hold. */
+export function verifyProgram(
+  value: unknown,
+  registry: ContractRegistry,
+  slot: SlotDefinition,
+): VerifiedStructuredProgram | undefined {
+  if (!verifyStructuredProgram(value, registry, slot)) return undefined;
+  return Object.freeze({
+    program: value,
+    operations: new Map(registry.operations.map((operation) => [operation.id, operation] as const)),
+  });
+}
+
+export function structuredActions(program: StructuredProgram): readonly StructuredAction[] {
+  const actions: StructuredAction[] = [];
   const visitExpression = (item: StructuredExpression): void => {
     if (item.tag === 'action') {
       actions.push(item);

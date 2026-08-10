@@ -18,8 +18,12 @@ import {
 } from '@safescript/contracts';
 
 import type { CheckedArtifact } from './artifact.js';
-import { fieldType, type IrInstruction, type IrProgram, type RegisterId } from './ir.js';
-import type { StructuredExpression, StructuredProgram, StructuredStatement } from './structured-ir.js';
+import {
+  fieldType,
+  type StructuredExpression,
+  type StructuredProgram,
+  type StructuredStatement,
+} from './structured-ir.js';
 
 const encoder = new TextEncoder();
 const UNIT: Schema = Object.freeze({ kind: 'unit' });
@@ -74,146 +78,6 @@ class GraphLimitFault extends Error {
     readonly actual: number,
   ) {
     super(`semantic graph ${limit} limit exceeded`);
-  }
-}
-
-function instructionInputs(instruction: IrInstruction): readonly RegisterId[] {
-  switch (instruction.tag) {
-    case 'constant':
-      return [];
-    case 'project-field':
-      return [instruction.from];
-    case 'compare':
-    case 'binary':
-      return [instruction.left, instruction.right];
-    case 'construct-record':
-      return instruction.fields.map(([, register]) => register);
-    case 'construct-variant':
-      return [instruction.payload];
-    case 'build-template':
-      return instruction.parts.flatMap((part) => (typeof part === 'string' ? [] : [part.register]));
-  }
-}
-
-function deriveFlat(
-  builder: Builder,
-  program: IrProgram,
-  root: SemanticNodeId,
-  slot: SlotDefinition,
-  request: CheckRequest,
-  handlerName: string,
-): void {
-  const handler = builder.node(`program/declaration/handler:${handlerName}`, {
-    kind: 'declaration',
-    semanticKind: 'handler',
-    label: handlerName,
-    type: { kind: 'ref', type: slot.output },
-    symbolId: derivedSymbolId(encoder.encode(`${request.source.entry}:function:${handlerName}`)),
-    ...(program.blocks[0]?.terminator.source === undefined ? {} : { source: program.blocks[0].terminator.source }),
-  });
-  builder.edge('contains', root, handler);
-  const values = new Map<RegisterId, SemanticNodeId>();
-  const controls = new Map<string, SemanticNodeId>();
-  const input = builder.node('program/input', {
-    kind: 'input',
-    semanticKind: 'slot-input',
-    label: 'input',
-    type: program.input.type,
-  });
-  builder.edge('contains', handler, input);
-  values.set(program.input.register, input);
-
-  for (const [blockIndex, block] of program.blocks.entries()) {
-    const blockPath = `program/control/${blockIndex}:${block.terminator.tag}`;
-    const control = builder.node(blockPath, {
-      kind: 'control',
-      semanticKind: block.terminator.tag,
-      source: block.terminator.source,
-    });
-    controls.set(block.id, control);
-    builder.edge('contains', handler, control);
-    for (const [parameterIndex, parameter] of block.parameters.entries()) {
-      const node = builder.node(`${blockPath}/parameter/${parameterIndex}`, {
-        kind: 'expression',
-        semanticKind: 'control-parameter',
-        type: parameter.type,
-      });
-      builder.edge('contains', control, node);
-      values.set(parameter.register, node);
-    }
-    for (const [index, instruction] of block.instructions.entries()) {
-      const node = builder.node(`${blockPath}/expression/${index}:${instruction.tag}`, {
-        kind: instruction.tag === 'constant' ? 'constant' : 'expression',
-        semanticKind: instruction.tag,
-        source: instruction.source,
-        type: instruction.type,
-        ...(instruction.tag === 'constant' ? { constant: instruction.value } : {}),
-        ...('operator' in instruction ? { operator: instruction.operator } : {}),
-        ...(instruction.tag === 'project-field' ? { label: instruction.field } : {}),
-      });
-      builder.edge('contains', control, node);
-      for (const [inputIndex, register] of instructionInputs(instruction).entries()) {
-        const source = values.get(register);
-        if (source) builder.edge('data', source, node, String(inputIndex));
-      }
-      values.set(instruction.destination, node);
-    }
-    const terminator = block.terminator;
-    if (terminator.tag === 'branch') {
-      const condition = values.get(terminator.condition);
-      if (condition) builder.edge('data', condition, control, 'condition');
-    } else if (terminator.tag === 'switch') {
-      const value = values.get(terminator.value);
-      if (value) builder.edge('data', value, control, 'value');
-    } else if (terminator.tag === 'action') {
-      const operation = request.registry.operations.find((candidate) => candidate.id === terminator.operationId);
-      const action = builder.node(`${blockPath}/action`, {
-        kind: 'action',
-        semanticKind: 'host-action',
-        source: terminator.source,
-        type: terminator.resultType,
-        actionSiteId: terminator.actionSiteId,
-        operationId: terminator.operationId,
-        effectId: terminator.effectId,
-        capabilityId: terminator.capabilityId,
-        ...(operation ? { effectCost: operation.effectCost, idempotency: operation.idempotency } : {}),
-      });
-      builder.edge('contains', control, action);
-      const inputValue = values.get(terminator.input);
-      if (inputValue) builder.edge('input', inputValue, action);
-    } else if (terminator.tag === 'return') {
-      const value = values.get(terminator.value);
-      const output = builder.node(`${blockPath}/output`, {
-        kind: 'output',
-        semanticKind: 'return',
-        source: terminator.source,
-        type: program.resultType,
-      });
-      builder.edge('contains', control, output);
-      if (value) builder.edge('output', value, output);
-    }
-  }
-  for (const block of program.blocks) {
-    const from = controls.get(block.id);
-    if (!from) continue;
-    const terminator = block.terminator;
-    if (terminator.tag === 'jump') {
-      const target = controls.get(terminator.target);
-      if (target) builder.edge('control', from, target);
-    } else if (terminator.tag === 'branch') {
-      const whenTrue = controls.get(terminator.whenTrue);
-      const whenFalse = controls.get(terminator.whenFalse);
-      if (whenTrue) builder.edge('control', from, whenTrue, 'true');
-      if (whenFalse) builder.edge('control', from, whenFalse, 'false');
-    } else if (terminator.tag === 'switch') {
-      for (const item of terminator.cases) {
-        const target = controls.get(item.target);
-        if (target) builder.edge('control', from, target, item.variant);
-      }
-    } else if (terminator.tag === 'action') {
-      const target = controls.get(terminator.resume);
-      if (target) builder.edge('control', from, target, 'resume');
-    }
   }
 }
 
@@ -546,10 +410,7 @@ export function deriveSemanticGraph(
       label: artifact.handler,
       symbolId: derivedSymbolId(encoder.encode(`${request.source.entry}:handler:${artifact.handler}`)),
     });
-    const program = artifact.program.program;
-    const structured = program.blocks[0]?.terminator;
-    if (structured?.tag === 'structured') deriveStructured(builder, structured.program, root, request, slot);
-    else deriveFlat(builder, program, root, slot, request, artifact.handler);
+    deriveStructured(builder, artifact.program.program, root, request, slot);
   } catch (error) {
     if (error instanceof GraphLimitFault)
       return { code: 'graph_limit_exceeded', limit: error.limit, maximum: error.maximum, actual: error.actual };

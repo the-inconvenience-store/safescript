@@ -33,7 +33,7 @@ The exact fingerprinted contract definitions that a checked program depends on a
 _Avoid_: Full contract snapshot
 
 **Typed IR**:
-The verified SafeScript control-flow form produced from accepted source. It uses typed single-assignment values and explicit basic blocks and contains no host handles or ambient authority.
+The verified structured SafeScript program produced from accepted source. It contains closed expressions and statements, typed action boundaries, source locations, and no host handles or ambient authority.
 _Avoid_: Generated JavaScript, bytecode plugin
 
 **Semantic program graph**:

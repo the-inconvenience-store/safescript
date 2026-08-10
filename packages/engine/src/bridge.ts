@@ -50,12 +50,11 @@ import {
 import { createArtifact, verifyArtifact, type CheckedArtifact } from './artifact.js';
 import { compileProgramModules, measureCompilerSource } from './compiler.js';
 import { interpret, InterpreterFault } from './interpreter.js';
-import { verifyProgram, type IrTerminator } from './ir.js';
-import { structuredActions } from './structured-ir.js';
+import { structuredActions, verifyProgram, type StructuredAction } from './structured-ir.js';
 import { deriveSemanticGraph } from './semantic-graph.js';
 
 const COMPILER = Object.freeze({
-  build: 'typed-ir-current',
+  build: 'structured-ir-current',
 });
 const COMPILER_NAME = COMPILER.build;
 const encoder = new TextEncoder();
@@ -496,23 +495,12 @@ class ExecutionTrace {
   }
 }
 
-function actionInstructions(artifact: CheckedArtifact): Extract<IrTerminator, { tag: 'action' }>[] {
-  return artifact.program.program.blocks.flatMap((block) =>
-    block.terminator.tag === 'action'
-      ? [block.terminator]
-      : block.terminator.tag === 'structured'
-        ? structuredActions(block.terminator.program).map((action) => ({
-            ...action,
-            tag: 'action' as const,
-            input: '',
-            resume: '',
-          }))
-        : [],
-  );
+function actionInstructions(artifact: CheckedArtifact): readonly StructuredAction[] {
+  return structuredActions(artifact.program.program);
 }
 
 type ExecutionRequest = Parameters<RuntimeBridge['execute']>[0];
-type ActionInstruction = Extract<IrTerminator, { tag: 'action' }>;
+type ActionInstruction = StructuredAction;
 
 class ActionDispatcher {
   private sequence = 0;
@@ -869,7 +857,7 @@ export class DirectRuntimeBridge implements RuntimeBridge {
     let callDepth = 0;
     try {
       trace.add('invocation_started', {
-        module: artifact.program.program.blocks[0]?.terminator.source.module as SourceLocation['module'],
+        module: artifact.program.program.source.module as SourceLocation['module'],
         start: 0,
         end: 0,
       });

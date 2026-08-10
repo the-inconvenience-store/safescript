@@ -11,11 +11,11 @@ For a check request, the direct bridge:
 3. parses with the pinned TypeScript compiler API without invoking ambient module resolution;
 4. applies SafeScript-owned syntax, type, control-flow, module, effect, and capability rules;
 5. lowers accepted code to typed SafeScript IR;
-6. independently verifies IR shape, types, definitions, dominance/control flow, actions, and slot permissions;
+6. independently verifies structured IR shape and depth, schemas, handler, actions, summaries, and slot permissions;
 7. creates a checked artifact bound to source, compiler build, contract, definitions, and slot;
 8. returns the artifact, reachable authority summary, provenance, diagnostics, and usage.
 
-The compiler lowers current SafeScript into a verified structured program inside typed IR, allowing helper calls, recursion, loops, destructuring, collections, intrinsics, and action groups. This is a private execution representation; integrations should depend on source, bridge records, and the public semantic graph instead.
+The compiler lowers current SafeScript directly into one verified structured IR, allowing helper calls, recursion, loops, destructuring, collections, intrinsics, and action groups. This is a private execution representation; integrations should depend on source, bridge records, and the public semantic graph instead. Legacy flat control-flow IR and its artifacts are not accepted.
 
 The compiler never emits JavaScript for execution.
 
