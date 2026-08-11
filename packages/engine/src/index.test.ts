@@ -3,6 +3,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   MAX_DIAGNOSTIC_MESSAGE_LENGTH,
   SEMANTIC_GRAPH_SCHEMA,
+  STANDARD_SEMANTIC_EDIT_LIMITS,
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
   STANDARD_SEMANTIC_GRAPH_LIMITS,
@@ -18,12 +19,16 @@ import {
   type ExecuteRequest,
   type InspectResult,
   type InspectViewRequest,
+  type SemanticEditId,
+  type SemanticNodeId,
   type Schema,
   type StringSchema,
   type TypeDefinition,
 } from '@safescript/contracts';
 
 import { artifactKey, createDirectRuntimeBridge } from './index.js';
+import { compileProgram } from './compiler.js';
+import { EditableSourceDocument, applySourceTransformations } from './source-transform.js';
 
 const source = `import { Err, Ok, type Result } from "safescript:prelude"
 import {
@@ -206,6 +211,51 @@ function encoded(schema: Schema, value: unknown): readonly number[] {
   if (!result.ok) throw new Error(result.failure.code);
   return [...result.value];
 }
+
+describe('semantic transformation final checking', () => {
+  it('runs the complete transformed source through the real restricted compiler and maps its rejection', () => {
+    const selectedSlot = registry.slots[0];
+    if (!selectedSlot) throw new Error('test registry requires a slot');
+    const selected = 'Ok()';
+    const utf16Start = source.indexOf(selected);
+    const start = new TextEncoder().encode(source.slice(0, utf16Start)).length;
+    const result = applySourceTransformations(
+      new EditableSourceDocument(checkRequest.source),
+      [
+        {
+          kind: 'replace',
+          editId: 'edit:real-check' as SemanticEditId,
+          targets: [`semantic-node:${'4'.repeat(64)}` as SemanticNodeId],
+          range: { start, end: start + selected.length },
+          content: { bytes: new TextEncoder().encode('Ok(]'), origin: 'fragment' },
+        },
+      ],
+      STANDARD_SEMANTIC_EDIT_LIMITS,
+      (candidate) => {
+        const checked = compileProgram(
+          new TextDecoder().decode(Uint8Array.from(candidate.source)),
+          moduleId,
+          registry,
+          selectedSlot,
+        );
+        return checked.ok
+          ? { ok: true }
+          : {
+              ok: false,
+              diagnostics: [
+                { message: checked.failure.message, start: checked.failure.start, end: checked.failure.end },
+              ],
+            };
+      },
+    );
+    expect(result.status).toBe('rejected');
+    expect(result).toMatchObject({
+      reason: 'candidate_rejected',
+      diagnostics: [{ location: { kind: 'fragment', editId: 'edit:real-check' } }],
+    });
+    expect('source' in result).toBe(false);
+  });
+});
 
 function event(stage = 'open', minorUnits = 2_000_000n) {
   const makeDeal = (value: string) => ({

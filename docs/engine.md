@@ -97,6 +97,12 @@ Set `trace` to `true` to collect trace records or `false` to disable collection.
 
 Inspection derives graph schema 1.0 from a private checked semantic model shared by later editing facilities. The model joins syntax and symbols from the no-ambient TypeScript program with SafeScript types, lowering facts, contract facts, ordered containers, and UTF-8 locations. Only closed language-neutral records cross the public boundary; TypeScript compiler objects remain private. The graph is never executable input and never controls lowering. See [artifacts and inspection](artifacts-and-inspection.md) for graph identity, limits, and editor guidance.
 
+## Lossless transformation kernel
+
+The private semantic-edit rewriter indexes canonical UTF-8 source boundaries, newline and indentation conventions, and scanner-derived comments. Normalized transformations use original byte coordinates, pass through a versioned non-overlap conflict matrix, preserve untouched byte slices exactly, reuse moved slices with their owned comments, and apply explicit destructive comment policy. Category-tagged fragments are parsed and printed locally with the pinned TypeScript syntax API; the complete candidate is still reparsed and checked by the ordinary SafeScript compiler.
+
+Every transformed, preserved, moved, generated, and removed region contributes deterministic provenance and resource accounting. Final-check diagnostics map back to original source, caller fragments, or generated edit targets. A rejection exposes the mapped diagnostics and measured limits but never the unaccepted candidate source. This kernel remains private until semantic target resolution, operation implementations, and the bridge integration are complete.
+
 ## Adapter conformance
 
 The conformance suite exercises adapters only through a bridge factory. It checks reference programs, source/artifact equivalence, semantic graphs, deterministic bounded resources, cancellation, action ordering, deterministic time/randomness/traces, canonical values, hostile boundary cases, and exact release identity. See [testing and conformance](testing.md).

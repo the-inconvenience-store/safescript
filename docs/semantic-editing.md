@@ -1,6 +1,6 @@
 # Semantic editing design
 
-This document specifies the compiler-owned semantic edit API. Schema 1.0 contracts, strict validators, capability-view records, and worker wire records are implemented; transformation and bridge execution remain staged work. [Current scope](current-scope.md) remains authoritative until the complete coverage and conformance gate passes.
+This document specifies the compiler-owned semantic edit API. Schema 1.0 contracts, strict validators, capability-view records, worker wire records, and the private lossless transformation kernel are implemented; semantic operation resolution and bridge execution remain staged work. [Current scope](current-scope.md) remains authoritative until the complete coverage and conformance gate passes.
 
 ## Outcome
 
@@ -364,7 +364,7 @@ The bounded bridge-local compilation cache may retain these private checked stru
 
 Each stage keeps build, lint, typecheck, and tests green. The public feature is not declared complete until the final coverage audit.
 
-Stages 1 through 3 are implemented: every public location uses UTF-8 byte offsets; tagged semantic graph schema 1.0 is projected from the private checked semantic model; and the complete closed edit/capability contract algebra, validators, limits, diagnostics, result unions, and worker message records are published. No bridge currently applies an edit—the mutation engine and integration remain release work until the remaining stages and final audit are complete.
+Stages 1 through 4 are implemented: every public location uses UTF-8 byte offsets; tagged semantic graph schema 1.0 is projected from the private checked semantic model; the complete closed edit/capability contract algebra, validators, limits, diagnostics, result unions, and worker message records are published; and the private rewriter now owns UTF-8 indexing, comment ownership, category-bound fragment printing, conflict planning, unchanged-byte preservation, transformation provenance, limit accounting, and final-source diagnostic mapping. No bridge currently resolves or applies semantic operations—the primitive/gesture layers and integration remain release work until the remaining stages and final audit are complete.
 
 1. Convert every public source location to UTF-8 bytes and add Unicode boundary tests.
 2. Build the private semantic model and replace the semantic graph contract with explicit schema `1.0`, complete source coverage, structural anchors, and tagged inspection.

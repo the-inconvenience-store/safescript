@@ -20,6 +20,7 @@ The repository currently implements:
 - deterministic fixed time, seeded randomness, checked JSON/bytes/math/string/object/collection intrinsics, and bounded traces;
 - tagged semantic graph 1.0 inspection with source-complete editable boundaries, stable semantic IDs, ordered anchors, explicit semantic relationships, and independent export limits;
 - semantic edit schema 1.0 contracts with a closed 30-operation algebra, capability-view records, preconditions, independent limits, atomic result/diff/diagnostic unions, strict hostile-input validators, and canonical worker payload records;
+- a private lossless semantic transformation kernel with UTF-8 source indexing, deterministic comment ownership and fragment printing, conflict planning, provenance mapping, final-source checking, and independent limit accounting;
 - host contract declaration/codecs/fingerprint derivation;
 - the six-method TypeScript facade and deterministic scripted-action tests;
 - slot-scoped agent/editor authoring bundles with repair guidance;
