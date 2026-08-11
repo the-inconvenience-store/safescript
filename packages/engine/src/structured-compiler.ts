@@ -17,6 +17,7 @@ import type {
   StructuredProgram,
   StructuredStatement,
 } from './structured-ir.js';
+import { Utf8SourceIndex } from './source-offsets.js';
 
 export interface StructuredCompileFailure {
   readonly code: CompilerDiagnosticCode;
@@ -105,9 +106,10 @@ class Lowerer {
     readonly registry: ContractRegistry,
     readonly slot: SlotDefinition,
     readonly contextName: string,
+    readonly offsets: Utf8SourceIndex,
   ) {}
   location(node: ts.Node): SourceLocation {
-    return Object.freeze({ module: this.moduleId, start: node.getStart(this.file), end: node.getEnd() });
+    return this.offsets.location(this.moduleId, node.getStart(this.file), node.getEnd());
   }
   fail(node: ts.Node, code: CompilerDiagnosticCode, message: string): never {
     const source = this.location(node);
@@ -483,10 +485,10 @@ function modifiers(node: ts.Node, kind: ts.SyntaxKind): boolean {
   return ts.canHaveModifiers(node) && ts.getModifiers(node)?.some((item) => item.kind === kind) === true;
 }
 
-function safetyFailure(sourceFile: ts.SourceFile): StructuredCompileFailure | undefined {
+function safetyFailure(sourceFile: ts.SourceFile, offsets: Utf8SourceIndex): StructuredCompileFailure | undefined {
   let failure: StructuredCompileFailure | undefined;
   const reject = (node: ts.Node, code: CompilerDiagnosticCode, message: string): void => {
-    if (!failure) failure = { code, message, start: node.getStart(sourceFile), end: node.getEnd() };
+    if (!failure) failure = { code, message, ...offsets.span(node.getStart(sourceFile), node.getEnd()) };
   };
   const rootIdentifier = (expression: ts.Expression): string | undefined => {
     let current = expression;
@@ -563,10 +565,11 @@ export function compileStructuredProgram(
   moduleId: ModuleId,
   registry: ContractRegistry,
   slot: SlotDefinition,
+  offsets: Utf8SourceIndex,
 ): { ok: true; program: StructuredProgram; handler: string } | { ok: false; failure: StructuredCompileFailure } {
   try {
     sourceFile = checkedSource(sourceFile);
-    const unsafe = safetyFailure(sourceFile);
+    const unsafe = safetyFailure(sourceFile, offsets);
     if (unsafe) throw new Failure(unsafe);
     const declarations = sourceFile.statements.filter(ts.isFunctionDeclaration);
     const handler = declarations.find(
@@ -581,8 +584,7 @@ export function compileStructuredProgram(
       throw new Failure({
         code: 'SS_HANDLER_SHAPE',
         message: 'SafeScript requires one named exported async handler with event and context parameters',
-        start: handler?.getStart(sourceFile) ?? 0,
-        end: handler?.getEnd() ?? sourceFile.getEnd(),
+        ...offsets.span(handler?.getStart(sourceFile) ?? 0, handler?.getEnd() ?? sourceFile.getEnd()),
       });
     const allowedTopLevel = sourceFile.statements.every(
       (statement) =>
@@ -595,11 +597,10 @@ export function compileStructuredProgram(
       throw new Failure({
         code: 'SS_MODULE_SHAPE',
         message: 'top-level execution and mutable state are rejected',
-        start: 0,
-        end: sourceFile.getEnd(),
+        ...offsets.span(0, sourceFile.getEnd()),
       });
     const contextName = (handler.parameters[1]?.name as ts.Identifier).text;
-    const lowerer = new Lowerer(sourceFile, moduleId, registry, slot, contextName);
+    const lowerer = new Lowerer(sourceFile, moduleId, registry, slot, contextName, offsets);
     const functions: StructuredFunction[] = declarations.map((fn) => {
       if (!fn.name || !fn.body || fn.asteriskToken)
         lowerer.fail(fn, 'SS_UNSUPPORTED_FUNCTION', 'named non-generator functions require bodies');
@@ -627,7 +628,7 @@ export function compileStructuredProgram(
         version: Object.freeze([1, 1] as const),
         inputType: Object.freeze({ kind: 'ref' as const, type: slot.input }),
         resultType: Object.freeze({ kind: 'ref' as const, type: slot.output }),
-        source: Object.freeze({ module: moduleId, start: 0, end: sourceFile.getEnd() }),
+        source: offsets.location(moduleId, 0, sourceFile.getEnd()),
         handler: handler.name.text,
         eventParameter: (handler.parameters[0]?.name as ts.Identifier).text,
         contextParameter: contextName,

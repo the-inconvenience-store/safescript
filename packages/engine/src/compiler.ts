@@ -13,6 +13,7 @@ import {
 
 import { compileStructuredProgram } from './structured-compiler.js';
 import type { StructuredProgram } from './structured-ir.js';
+import { Utf8SourceIndex } from './source-offsets.js';
 
 /**
  * Stable private failure lowered to a public machine-readable diagnostic by the bridge.
@@ -23,6 +24,10 @@ export interface CompileFailure {
   readonly message: string;
   readonly start: number;
   readonly end: number;
+}
+
+function utf8Failure(failure: CompileFailure, offsets: Utf8SourceIndex): CompileFailure {
+  return Object.freeze({ ...failure, ...offsets.span(failure.start, failure.end) });
 }
 
 /**
@@ -132,6 +137,7 @@ export function compileProgram(
   slot: SlotDefinition,
 ): CompileProgramResult {
   const sourceFile = ts.createSourceFile(String(moduleId), source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const offsets = new Utf8SourceIndex(source);
   const syntax = countSyntax(sourceFile);
   const imports = sourceFile.statements.filter(ts.isImportDeclaration).length;
   const declarations = sourceFile.statements.filter(
@@ -149,12 +155,15 @@ export function compileProgram(
   if (parseFailure)
     return {
       ok: false,
-      failure: {
-        code: 'SS_SYNTAX',
-        message: ts.flattenDiagnosticMessageText(parseFailure.messageText, '\n'),
-        start: parseFailure.start,
-        end: parseFailure.start + parseFailure.length,
-      },
+      failure: utf8Failure(
+        {
+          code: 'SS_SYNTAX',
+          message: ts.flattenDiagnosticMessageText(parseFailure.messageText, '\n'),
+          start: parseFailure.start,
+          end: parseFailure.start + parseFailure.length,
+        },
+        offsets,
+      ),
       syntaxNodes: syntax.nodes,
       syntaxDepth: syntax.depth,
       imports,
@@ -165,14 +174,14 @@ export function compileProgram(
   if (importFailure)
     return {
       ok: false,
-      failure: importFailure,
+      failure: utf8Failure(importFailure, offsets),
       syntaxNodes: syntax.nodes,
       syntaxDepth: syntax.depth,
       imports,
       declarations,
     };
   {
-    const structured = compileStructuredProgram(sourceFile, moduleId, registry, slot);
+    const structured = compileStructuredProgram(sourceFile, moduleId, registry, slot, offsets);
     if (!structured.ok)
       return {
         ok: false,

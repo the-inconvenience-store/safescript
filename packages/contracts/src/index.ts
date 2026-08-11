@@ -1417,7 +1417,7 @@ function deepFreeze<T>(root: T): T {
   return root;
 }
 
-/** Half-open source span in one submitted module. */
+/** Half-open UTF-8 byte span in one submitted module. */
 export interface SourceLocation {
   readonly module: ModuleId;
   readonly start: number;
@@ -1602,7 +1602,7 @@ export interface HostFailure {
 /** Knowledge of whether a failed host operation changed external state. `unknown` is never safe to retry implicitly. */
 export type EffectState = 'not_performed' | 'unknown';
 
-/** Source provenance retained on an action site after lowering to IR. */
+/** UTF-8 byte source provenance retained on an action site after lowering to IR. */
 export interface SourceProvenance {
   readonly module: ModuleId;
   readonly start: number;

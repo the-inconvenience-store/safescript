@@ -54,7 +54,7 @@ Graph export is separately bounded to 100,000 nodes, 250,000 edges, and 4 MiB by
 
 ## Diagnostics
 
-Compiler diagnostics have a stable `SS_...` code, source location, bounded message, optional bounded related locations, and structured repair guidance. Codes describe public source semantics—for example ambient authority, handler shape, unsafe type, floating action, mutation, non-exhaustive switch, or compiler resource exhaustion.
+Compiler diagnostics have a stable `SS_...` code, source location, bounded message, optional bounded related locations, and structured repair guidance. Every source location is a half-open UTF-8 byte range in one named module, matching the canonical bytes carried across the runtime bridge rather than TypeScript's internal UTF-16 positions. Codes describe public source semantics—for example ambient authority, handler shape, unsafe type, floating action, mutation, non-exhaustive switch, or compiler resource exhaustion.
 
 Code and source provenance are the compatibility surface. Rendered message text is intentionally non-normative and capped, so integrations should branch on code rather than matching strings. `diagnosticRepair(code)` supplies a category and safe remediation action without exposing compiler internals.
 

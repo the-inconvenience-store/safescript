@@ -292,6 +292,37 @@ describe('direct RuntimeBridge walking skeleton', () => {
     }
   });
 
+  it('carries UTF-8 source ranges from compilation into host action requests', async () => {
+    const unicodeSource = `// 🛡️\n${source}`;
+    const request = checkWithSource(unicodeSource);
+    const callStart = unicodeSource.indexOf('ctx.tasks.create(');
+    const callEnd = unicodeSource.indexOf('\n\n', callStart);
+    const bytes = new TextEncoder();
+    let action: ActionRequest | undefined;
+    const completed = await createDirectRuntimeBridge().execute(executeRequest({ kind: 'source', source: request }), {
+      handleAction: async (received) => {
+        action = received;
+        return {
+          requestId: received.requestId,
+          result: {
+            tag: 'completed',
+            value: encoded(resultSchema(ref(typeIds.task), ref(typeIds.taskError)), {
+              tag: 'ok',
+              value: { id: 'task-utf8' },
+            }),
+          },
+        };
+      },
+    });
+
+    expect(completed.status).toBe('completed');
+    expect(action?.source).toEqual({
+      module: moduleId,
+      start: bytes.encode(unicodeSource.slice(0, callStart)).length,
+      end: bytes.encode(unicodeSource.slice(0, callEnd)).length,
+    });
+  });
+
   it('resolves host actions from the registry instead of a tasks.create special case', async () => {
     const notificationOperationId = ids.operation('operation:notifications.send');
     const notificationOperation = {
@@ -1010,6 +1041,23 @@ export async function onDealUpdated(`,
     }
   });
 
+  it('reports rejected source locations as UTF-8 byte ranges', async () => {
+    const invalidSource = `// 🧪\n${source.replace('ctx.tasks.create(', 'ctx.tasks.missing(')}`;
+    const callStart = invalidSource.indexOf('ctx.tasks.missing(');
+    const callEnd = invalidSource.indexOf('\n\n', callStart);
+    const bytes = new TextEncoder();
+    const result = await createDirectRuntimeBridge().check(checkWithSource(invalidSource));
+
+    expect(result.status).toBe('rejected');
+    if (result.status === 'rejected') {
+      expect(result.diagnostics[0]?.location).toEqual({
+        module: moduleId,
+        start: bytes.encode(invalidSource.slice(0, callStart)).length,
+        end: bytes.encode(invalidSource.slice(0, callEnd)).length,
+      });
+    }
+  });
+
   it('bounds non-normative diagnostic text independently of stable code and provenance', async () => {
     const importedName = `Missing${'X'.repeat(MAX_DIAGNOSTIC_MESSAGE_LENGTH * 2)}`;
     const result = await createDirectRuntimeBridge().check(
@@ -1113,6 +1161,29 @@ describe('inspection and bridge lifecycle', () => {
     if (omitted.status === 'accepted') {
       expect(omitted.views).toEqual({});
       expect(omitted.viewErrors).toEqual({});
+    }
+  });
+
+  it('reports semantic graph locations as UTF-8 byte ranges', async () => {
+    const unicodeSource = `// 🧭\n${source}`;
+    const callStart = unicodeSource.indexOf('ctx.tasks.create(');
+    const callEnd = unicodeSource.indexOf('\n\n', callStart);
+    const inspected = await createDirectRuntimeBridge().inspect({
+      ...checkWithSource(unicodeSource),
+      views: ['semantic_graph'],
+    });
+
+    expect(inspected.status).toBe('accepted');
+    if (inspected.status === 'accepted') {
+      const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(inspected.views.semantic_graph ?? []))) as {
+        readonly nodes: readonly { readonly kind: string; readonly source?: unknown }[];
+      };
+      const bytes = new TextEncoder();
+      expect(graph.nodes.find((node) => node.kind === 'action')?.source).toEqual({
+        module: moduleId,
+        start: bytes.encode(unicodeSource.slice(0, callStart)).length,
+        end: bytes.encode(unicodeSource.slice(0, callEnd)).length,
+      });
     }
   });
 
