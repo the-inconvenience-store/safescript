@@ -182,6 +182,7 @@ export class RuntimeWorkerServer {
       const dataRequest =
         envelope.value.kind === 'bridge.check.request' ||
         envelope.value.kind === 'bridge.inspect.request' ||
+        envelope.value.kind === 'bridge.apply_semantic_edits.request' ||
         envelope.value.kind === 'bridge.execute.request';
       if (dataRequest && this.#dataInFlight >= Number(this.#welcome?.limits.max_in_flight ?? 0n)) {
         await this.#fail();
@@ -233,6 +234,20 @@ export class RuntimeWorkerServer {
       );
       if (!request.ok) return this.#requestError(envelope, request.failure.detail ?? request.failure.code);
       await this.#reply(envelope, 'bridge.inspect.result', await this.#bridge.inspect(request.value));
+      return;
+    }
+    if (envelope.kind === 'bridge.apply_semantic_edits.request') {
+      const request = decodeWorkerBridgePayload(
+        'bridge.apply_semantic_edits.request',
+        envelope.payload,
+        payloadLimits(this.#limits),
+      );
+      if (!request.ok) return this.#requestError(envelope, request.failure.detail ?? request.failure.code);
+      await this.#reply(
+        envelope,
+        'bridge.apply_semantic_edits.result',
+        await this.#bridge.applySemanticEdits(request.value),
+      );
       return;
     }
     if (envelope.kind === 'bridge.execute.request') {
@@ -357,6 +372,7 @@ export class RuntimeWorkerServer {
     K extends
       | 'bridge.check.result'
       | 'bridge.inspect.result'
+      | 'bridge.apply_semantic_edits.result'
       | 'bridge.execute.result'
       | 'bridge.cancel.result'
       | 'session.close.result'
@@ -370,11 +386,13 @@ export class RuntimeWorkerServer {
         ? Awaited<ReturnType<RuntimeBridge['check']>>
         : K extends 'bridge.inspect.result'
           ? Awaited<ReturnType<RuntimeBridge['inspect']>>
-          : K extends 'bridge.execute.result'
-            ? Awaited<ReturnType<RuntimeBridge['execute']>>
-            : K extends 'bridge.cancel.result'
-              ? Awaited<ReturnType<RuntimeBridge['cancel']>>
-              : Awaited<ReturnType<RuntimeBridge['close']>>,
+          : K extends 'bridge.apply_semantic_edits.result'
+            ? Awaited<ReturnType<RuntimeBridge['applySemanticEdits']>>
+            : K extends 'bridge.execute.result'
+              ? Awaited<ReturnType<RuntimeBridge['execute']>>
+              : K extends 'bridge.cancel.result'
+                ? Awaited<ReturnType<RuntimeBridge['cancel']>>
+                : Awaited<ReturnType<RuntimeBridge['close']>>,
   ): Promise<void> {
     const encoded = encodeWorkerBridgePayload(kind, value as never, payloadLimits(this.#limits));
     if (!encoded.ok) throw new Error('worker result is not protocol encodable');

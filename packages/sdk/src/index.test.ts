@@ -4,6 +4,9 @@ import ts from 'typescript';
 import {
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
+  STANDARD_SEMANTIC_EDIT_LIMITS,
+  SEMANTIC_EDIT_SCHEMA,
+  SEMANTIC_GRAPH_SCHEMA,
   derivedActionSiteId,
   decodeCanonical,
   encodeCanonical,
@@ -12,6 +15,7 @@ import {
   resultSchema,
   type ActionOutcome,
   type ActionRequest,
+  type ApplySemanticEditsRequest as BridgeApplySemanticEditsRequest,
   type CancelResult,
   type CheckRequest,
   type CheckResult,
@@ -103,6 +107,7 @@ class FakeBridge implements RuntimeBridge {
   readonly actions: ActionOutcome[] = [];
   closed = false;
   lastCheck?: CheckRequest;
+  lastSemanticEdit?: BridgeApplySemanticEditsRequest;
   executeResult?: (request: BridgeExecuteRequest, host: RuntimeBridgeHost) => Promise<ExecutionResult>;
 
   async check(request: CheckRequest): Promise<CheckResult> {
@@ -111,6 +116,13 @@ class FakeBridge implements RuntimeBridge {
   }
   async inspect(): Promise<InspectResult> {
     return { status: 'rejected', diagnostics: [], usage: { sourceBytes: 0, syntaxNodes: 0 } };
+  }
+  async applySemanticEdits(request: BridgeApplySemanticEditsRequest): ReturnType<RuntimeBridge['applySemanticEdits']> {
+    this.lastSemanticEdit = request;
+    return {
+      status: 'bridge_error',
+      error: { code: 'adapter_failure', phase: 'apply_semantic_edits' },
+    };
   }
   async execute(request: BridgeExecuteRequest, host: RuntimeBridgeHost): Promise<ExecutionResult> {
     if (this.executeResult) return this.executeResult(request, host);
@@ -922,6 +934,36 @@ export async function handle(_input: TestInput, _ctx: Context): Promise<TestOutp
     expect((await safe.inspect({ slot: 'missing' as 'main', source, views: [] })).status).toBe('bridge_error');
     expect((await safe.check({ slot: 'main', source })).status).toBe('bridge_error');
     expect((await safe.inspect({ slot: 'main', source, views: [] })).status).toBe('bridge_error');
+  });
+
+  it('assembles the typed semantic edit facade request with fixed schemas and complete limits', async () => {
+    const bridge = new FakeBridge();
+    const safe = createSafeScript({
+      contract,
+      bridge,
+      handlers: { read: () => ({ tag: 'ok', value: 'ok' }) as const },
+    });
+    const result = await safe.applySemanticEdits({
+      slot: 'main',
+      source: { moduleId: ids.module('module:main'), source: 'export {}' },
+      baseRevision: `semantic-revision:${'1'.repeat(64)}` as never,
+      edits: [
+        {
+          kind: 'rename_symbol',
+          editId: 'edit:sdk' as never,
+          target: `semantic-node:${'2'.repeat(64)}` as never,
+          newName: 'next',
+          preconditions: [],
+        },
+      ],
+    });
+    expect(result).toMatchObject({ status: 'bridge_error', error: { phase: 'apply_semantic_edits' } });
+    expect(bridge.lastSemanticEdit).toMatchObject({
+      editSchema: SEMANTIC_EDIT_SCHEMA,
+      graphSchema: SEMANTIC_GRAPH_SCHEMA,
+      editLimits: STANDARD_SEMANTIC_EDIT_LIMITS,
+      source: { module: 'module:main', source: [...new TextEncoder().encode('export {}')] },
+    });
   });
 
   it('fails invalid execution assembly without calling the bridge', async () => {

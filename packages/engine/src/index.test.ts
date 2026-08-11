@@ -2,8 +2,10 @@ import { describe, expect, it } from 'bun:test';
 
 import {
   MAX_DIAGNOSTIC_MESSAGE_LENGTH,
+  SEMANTIC_EDIT_SCHEMA,
   SEMANTIC_GRAPH_SCHEMA,
   STANDARD_SEMANTIC_EDIT_LIMITS,
+  STANDARD_SEMANTIC_EDIT_CAPABILITY_LIMITS,
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
   STANDARD_SEMANTIC_GRAPH_LIMITS,
@@ -20,6 +22,7 @@ import {
   type InspectResult,
   type InspectViewRequest,
   type SemanticEditId,
+  type SemanticEditCapabilityManifest,
   type SemanticGraph,
   type SemanticNodeId,
   type Schema,
@@ -200,6 +203,13 @@ const semanticGraphView = (
   kind: 'semantic_graph',
   schema: SEMANTIC_GRAPH_SCHEMA,
   limits,
+});
+
+const semanticCapabilitiesView = (): Extract<InspectViewRequest, { kind: 'semantic_edit_capabilities' }> => ({
+  kind: 'semantic_edit_capabilities',
+  schema: SEMANTIC_EDIT_SCHEMA,
+  scope: 'all',
+  limits: STANDARD_SEMANTIC_EDIT_CAPABILITY_LIMITS,
 });
 
 function semanticGraphBytes(result: Extract<InspectResult, { status: 'accepted' }>): readonly number[] {
@@ -1388,6 +1398,166 @@ export async function onDealUpdated(`,
       expect(updated).not.toContain('event.before');
       expect(updated).toContain('updatedEvent.before');
     }
+  });
+
+  it('applies semantic edits through the direct bridge and rebuilds hashes, diff, and requested views', async () => {
+    const bridge = createDirectRuntimeBridge();
+    const inspected = await bridge.inspect({
+      ...checkRequest,
+      views: [semanticGraphView(), semanticCapabilitiesView()],
+    });
+    expect(inspected.status).toBe('accepted');
+    if (inspected.status !== 'accepted') return;
+    const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(semanticGraphBytes(inspected)))) as SemanticGraph;
+    const capabilityView = inspected.views.find((view) => view.kind === 'semantic_edit_capabilities');
+    expect(capabilityView?.status).toBe('accepted');
+    if (!capabilityView || capabilityView.status !== 'accepted') return;
+    const manifest = JSON.parse(
+      new TextDecoder().decode(Uint8Array.from(capabilityView.bytes)),
+    ) as SemanticEditCapabilityManifest;
+    const binding = graph.nodes.find(
+      (node) => node.kind === 'binding' && node.semanticKind === 'symbol' && node.label === 'event',
+    );
+    if (!binding) throw new Error('expected compiler-produced event binding');
+    const rename = manifest.targets
+      .find((target) => target.target === binding.id)
+      ?.capabilities.find((capability) => capability.kind === 'rename_symbol');
+    if (!rename) throw new Error('expected compiler-produced rename capability');
+    const invalidTarget = graph.nodes.find((node) => node.semanticKind === 'literal' && node.constant === 'won');
+    if (!invalidTarget) throw new Error('expected compiler-produced string literal');
+    const request = {
+      ...checkRequest,
+      editSchema: SEMANTIC_EDIT_SCHEMA,
+      graphSchema: SEMANTIC_GRAPH_SCHEMA,
+      baseRevision: graph.semanticRevision,
+      edits: [
+        {
+          kind: 'rename_symbol' as const,
+          editId: 'edit:bridge-rename' as SemanticEditId,
+          target: binding.id,
+          newName: 'updatedEvent',
+          preconditions: rename.preconditions,
+        },
+      ],
+      editLimits: STANDARD_SEMANTIC_EDIT_LIMITS,
+      views: [semanticGraphView()],
+    };
+    const first = await bridge.applySemanticEdits(request);
+    const second = await bridge.applySemanticEdits(request);
+    expect(second).toEqual(first);
+    expect(first.status).toBe('accepted');
+    if (first.status !== 'accepted') return;
+    const updated = new TextDecoder().decode(Uint8Array.from(first.source.source));
+    expect(updated).toContain('updatedEvent: DealUpdated');
+    expect(first.sourceHash).not.toBe(graph.sourceHash);
+    expect(first.programHash).not.toBe(graph.programHash);
+    expect(first.semanticRevision).not.toBe(graph.semanticRevision);
+    expect(first.outcomes).toEqual([
+      expect.objectContaining({ editId: 'edit:bridge-rename', targets: expect.arrayContaining([binding.id]) }),
+    ]);
+    expect(first.diff.entries.some((entry) => entry.kind === 'renamed' && entry.before.includes(binding.id))).toBe(
+      true,
+    );
+    expect(first.views.map((view) => view.kind)).toEqual(['semantic_graph']);
+    expect(
+      await bridge.applySemanticEdits({
+        ...request,
+        baseRevision: `semantic-revision:${'0'.repeat(64)}` as typeof graph.semanticRevision,
+      }),
+    ).toMatchObject({ status: 'rejected', reason: 'stale_revision' });
+    expect(
+      await bridge.applySemanticEdits({
+        ...request,
+        editLimits: { ...STANDARD_SEMANTIC_EDIT_LIMITS, diffBytes: 1 },
+      }),
+    ).toMatchObject({
+      status: 'rejected',
+      reason: 'edit_limit_exceeded',
+      limit: { limit: 'diff_bytes', maximum: 1 },
+    });
+    expect(
+      await bridge.applySemanticEdits({
+        ...request,
+        edits: [...request.edits, request.edits[0] as (typeof request.edits)[number]],
+      }),
+    ).toMatchObject({ status: 'bridge_error', error: { phase: 'apply_semantic_edits', code: 'invalid_request' } });
+    expect(
+      await bridge.applySemanticEdits({
+        ...request,
+        edits: [
+          {
+            kind: 'replace_target',
+            editId: 'edit:invalid-candidate' as SemanticEditId,
+            target: invalidTarget.id,
+            replacement: {
+              category: 'expression',
+              source: [...new TextEncoder().encode('/x/')],
+            },
+            preconditions: [],
+          },
+        ],
+      }),
+    ).toMatchObject({ status: 'rejected', reason: 'transformed_source_rejected' });
+  });
+
+  it('closes semantic edit lifecycle failures and capability limits without partial bytes', async () => {
+    const bridge = createDirectRuntimeBridge();
+    const bounded = await bridge.inspect({
+      ...checkRequest,
+      views: [
+        {
+          ...semanticCapabilitiesView(),
+          limits: { ...STANDARD_SEMANTIC_EDIT_CAPABILITY_LIMITS, targets: 0 },
+        },
+      ],
+    });
+    expect(bounded.status).toBe('accepted');
+    if (bounded.status === 'accepted')
+      expect(bounded.views).toEqual([
+        {
+          kind: 'semantic_edit_capabilities',
+          status: 'rejected',
+          error: expect.objectContaining({ code: 'capability_limit_exceeded', limit: 'targets', maximum: 0 }),
+        },
+      ]);
+    expect(
+      await bridge.applySemanticEdits({
+        ...checkRequest,
+        source: { ...checkRequest.source, source: [0xff] },
+        editSchema: SEMANTIC_EDIT_SCHEMA,
+        graphSchema: SEMANTIC_GRAPH_SCHEMA,
+        baseRevision: `semantic-revision:${'1'.repeat(64)}` as never,
+        edits: [
+          {
+            kind: 'delete_target',
+            editId: 'edit:invalid-source' as SemanticEditId,
+            target: `semantic-node:${'2'.repeat(64)}` as SemanticNodeId,
+            commentPolicy: 'preserve_owned_comments',
+            preconditions: [],
+          },
+        ],
+        editLimits: STANDARD_SEMANTIC_EDIT_LIMITS,
+      }),
+    ).toMatchObject({ status: 'rejected', reason: 'source_rejected' });
+    await bridge.close();
+    expect(
+      await bridge.applySemanticEdits({
+        ...checkRequest,
+        editSchema: SEMANTIC_EDIT_SCHEMA,
+        graphSchema: SEMANTIC_GRAPH_SCHEMA,
+        baseRevision: `semantic-revision:${'1'.repeat(64)}` as never,
+        edits: [
+          {
+            kind: 'delete_target',
+            editId: 'edit:closed' as SemanticEditId,
+            target: `semantic-node:${'2'.repeat(64)}` as SemanticNodeId,
+            commentPolicy: 'preserve_owned_comments',
+            preconditions: [],
+          },
+        ],
+        editLimits: STANDARD_SEMANTIC_EDIT_LIMITS,
+      }),
+    ).toMatchObject({ status: 'bridge_error', error: { phase: 'apply_semantic_edits', code: 'bridge_closed' } });
   });
 
   it('returns a semantic graph only when requested', async () => {

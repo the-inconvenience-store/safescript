@@ -1,5 +1,5 @@
 /**
- * Six-method SafeScript facade and lifecycle coordination.
+ * Seven-method SafeScript facade and lifecycle coordination.
  * @packageDocumentation
  */
 import { randomBytes } from 'node:crypto';
@@ -7,11 +7,15 @@ import { randomBytes } from 'node:crypto';
 import {
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
+  STANDARD_SEMANTIC_EDIT_LIMITS,
+  SEMANTIC_EDIT_SCHEMA,
+  SEMANTIC_GRAPH_SCHEMA,
   decodeCanonical,
   encodeCanonical,
   hash,
   ids,
   type BridgeError,
+  type ApplySemanticEditsResult,
   type CanonicalBytes,
   type CancelResult,
   type CheckResult,
@@ -39,6 +43,7 @@ import {
   type AbortSignal,
   type ArtifactStore,
   type CheckRequest,
+  type ApplySemanticEditsRequest,
   type CreateSafeScriptOptions,
   type ExecuteRequest,
   type ExecutionResult,
@@ -406,6 +411,34 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
     }, closed);
   }
 
+  applySemanticEdits(request: ApplySemanticEditsRequest<PropertyKey>): Promise<ApplySemanticEditsResult> {
+    const closed = freeze({
+      status: 'bridge_error',
+      error: bridgeError('apply_semantic_edits', 'bridge_closed'),
+    }) as ApplySemanticEditsResult;
+    return this.run(async () => {
+      const slot = this.slotFor(request.slot);
+      if (!slot)
+        return freeze({ status: 'bridge_error', error: bridgeError('apply_semantic_edits', 'invalid_request') });
+      try {
+        const assembled = {
+          ...this.requests.check(slot, request.source, request.limits, request.includeArtifact ?? false),
+          editSchema: SEMANTIC_EDIT_SCHEMA,
+          graphSchema: SEMANTIC_GRAPH_SCHEMA,
+          baseRevision: request.baseRevision,
+          edits: request.edits,
+          editLimits: completeLimits(STANDARD_SEMANTIC_EDIT_LIMITS, request.editLimits),
+          ...(request.views ? { views: request.views } : {}),
+        };
+        const result = await this.bridge.applySemanticEdits(assembled);
+        if (result.status === 'bridge_error') this.knownArtifactKeys.clear();
+        return result;
+      } catch {
+        return freeze({ status: 'bridge_error', error: bridgeError('apply_semantic_edits') });
+      }
+    }, closed);
+  }
+
   execute(request: ExecuteRequest<PropertyKey, unknown, C>): Promise<ExecutionResult<unknown>> {
     const closed = freeze({
       status: 'bridge_error',
@@ -669,6 +702,7 @@ export function createSafeScript<C, O extends Operations, S extends Slots>(
   return freeze({
     check: (request: CheckRequest<PropertyKey>) => coordinator.check(request),
     inspect: (request: InspectRequest<PropertyKey>) => coordinator.inspect(request),
+    applySemanticEdits: (request: ApplySemanticEditsRequest<PropertyKey>) => coordinator.applySemanticEdits(request),
     execute: (request: ExecuteRequest<PropertyKey, unknown, C>) => coordinator.execute(request),
     test: (request: TestRequest<PropertyKey, unknown, unknown, O>) => coordinator.test(request),
     cancel: (invocationId: InvocationId) => coordinator.cancel(invocationId),

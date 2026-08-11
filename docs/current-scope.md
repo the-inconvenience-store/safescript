@@ -10,7 +10,7 @@ The repository currently implements:
 - the restricted TypeScript language described in the language guide;
 - one explicitly named source module with generated `host:api` and deterministic prelude/globals;
 - SafeScript-owned compilation to verified typed IR without generated-JavaScript execution;
-- supervised worker-backed default and explicit direct in-process `RuntimeBridge` for check, inspect, execute, cancel, and close;
+- supervised worker-backed default and explicit direct in-process `RuntimeBridge` for check, inspect, semantic edits, execute, cancel, and close;
 - bounded bridge-local caching of accepted verified compilations;
 - explicit optional checked-artifact creation and fail-closed verification;
 - optional SDK read-through and write-through integration with a host-provided artifact store;
@@ -23,7 +23,7 @@ The repository currently implements:
 - a private lossless semantic transformation kernel with UTF-8 source indexing, deterministic comment ownership and fragment printing, conflict planning, provenance mapping, final-source checking, and independent limit accounting;
 - a private six-operation semantic primitive kernel with revision, target, anchor, precondition, contextual-fragment, comment-policy, conflict, and syntax-coverage checks;
 - host contract declaration/codecs/fingerprint derivation;
-- the six-method TypeScript facade and deterministic scripted-action tests;
+- the seven-method TypeScript facade and deterministic scripted-action tests;
 - slot-scoped agent/editor authoring bundles with repair guidance;
 - offline JSON CLI commands for check, inspect, execute, and test;
 - the worker protocol specification, standalone runtime worker, pinned manifest-verified Node launcher, default process bridge adapter, and lazy terminal-failure supervisor;

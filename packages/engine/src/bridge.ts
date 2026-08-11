@@ -10,12 +10,16 @@ import {
   hash,
   ids,
   isActionOutcome,
+  isApplySemanticEditsRequest,
+  isSemanticEditCapabilityViewRequest,
   programHash,
   resultSchema,
   sourceHash,
   type ActionOutcome,
   type ActionRequest,
   type ActionRecord,
+  type ApplySemanticEditsRequest,
+  type ApplySemanticEditsResult,
   type BridgeError,
   type CanonicalBytes,
   type CanonicalValue,
@@ -35,6 +39,7 @@ import {
   type InspectRequest,
   type InspectResult,
   type InspectViewRequest,
+  type InspectViewResult,
   type OperationDefinition,
   type RuntimeBridge,
   type RuntimeBridgeHost,
@@ -45,6 +50,7 @@ import {
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
   STANDARD_SEMANTIC_GRAPH_LIMITS,
+  STANDARD_SEMANTIC_EDIT_CAPABILITY_LIMITS,
   SEMANTIC_GRAPH_SCHEMA,
   MAX_DIAGNOSTIC_MESSAGE_LENGTH,
   MAX_FAILURE_DETAIL_LENGTH,
@@ -69,6 +75,11 @@ import { interpret, InterpreterFault } from './interpreter.js';
 import { allocationFuel, byteFuel, hostActionFuel, scanFuel, SEMANTIC_STEP_FUEL } from './resource-schedule.js';
 import { verifyProgram, type StructuredAction } from './structured-ir.js';
 import { deriveSemanticGraph } from './semantic-graph.js';
+import { buildSemanticGraph } from './semantic-graph.js';
+import { deriveSemanticEditCapabilities } from './semantic-capabilities.js';
+import { applySemanticEditKernel } from './semantic-gestures.js';
+import { buildSemanticDiff } from './semantic-diff.js';
+import { SemanticModelLimitError } from './semantic-model.js';
 
 const COMPILER = Object.freeze({
   build: COMPILER_BUILD,
@@ -221,7 +232,8 @@ function exactRecord(value: unknown, keys: readonly string[]): value is Readonly
 }
 
 /** Validates the whole tagged view envelope before nested values are read. */
-function inspectViewValid(value: unknown): value is Extract<InspectViewRequest, { kind: 'semantic_graph' }> {
+function inspectViewValid(value: unknown): value is InspectViewRequest {
+  if (isSemanticEditCapabilityViewRequest(value)) return true;
   if (!exactRecord(value, ['kind', 'schema', 'limits']) || value.kind !== 'semantic_graph') return false;
   if (
     !exactRecord(value.schema, ['major', 'minor']) ||
@@ -301,6 +313,16 @@ function compilationCacheKey(request: CheckRequest): string {
       }),
     ),
   );
+}
+
+function checkRequestWithSource(request: CheckRequest, source: CheckRequest['source']): CheckRequest {
+  return Object.freeze({
+    registry: request.registry,
+    slotId: request.slotId,
+    source,
+    limits: request.limits,
+    ...(request.includeArtifact === undefined ? {} : { includeArtifact: request.includeArtifact }),
+  });
 }
 
 async function checkCompile(
@@ -388,6 +410,111 @@ async function checkCompile(
     },
     (result) => (result.status === 'accepted' ? result.compiled.weight : undefined),
   );
+}
+
+function compileEditCandidate(
+  request: ApplySemanticEditsRequest,
+  slot: SlotDefinition,
+  source: ApplySemanticEditsRequest['source'],
+):
+  | Readonly<{ ok: true; compiled: Compiled }>
+  | Readonly<{
+      ok: false;
+      check: RejectedCheck;
+      diagnostics: readonly { message: string; start: number; end: number }[];
+    }> {
+  const candidate = checkRequestWithSource(request, source);
+  const sourceText = decodeSource(source.source);
+  let compileUsage = usage(source.source.length);
+  const reject = (code: CompilerDiagnosticCode, message: string, start = 0, end = 0) =>
+    Object.freeze({
+      ok: false as const,
+      check: Object.freeze({
+        status: 'rejected' as const,
+        diagnostics: Object.freeze(
+          request.limits.includeDiagnostics ? [diagnostic(candidate, code, message, start, end)] : [],
+        ),
+        usage: compileUsage,
+      }),
+      diagnostics: Object.freeze([{ message, start, end }]),
+    });
+  if (sourceText === undefined) return reject('SS_SOURCE_ENCODING', 'source must be canonical UTF-8');
+  if (source.source.length > request.limits.sourceBytes)
+    return reject('SS_COMPILER_LIMIT', 'source byte limit exceeded');
+  const measure = measureCompilerSource(sourceText);
+  if (
+    measure.typeDepth > request.limits.typeDepth ||
+    measure.derivedTemplateBytes > request.limits.derivedTemplateBytes
+  )
+    return reject('SS_COMPILER_LIMIT', 'type-depth or derived-template limit exceeded');
+  const compiled = compileProgram(sourceText, source.module, request.registry, slot);
+  compileUsage = usage(source.source.length, compiled.syntaxNodes);
+  if (
+    compiled.imports > request.limits.imports ||
+    compiled.declarations > request.limits.declarations ||
+    compiled.syntaxNodes > request.limits.syntaxNodes ||
+    compiled.syntaxDepth > request.limits.syntaxDepth
+  )
+    return reject('SS_COMPILER_LIMIT', 'import, declaration, or syntax limit exceeded');
+  if (!compiled.ok)
+    return reject(compiled.failure.code, compiled.failure.message, compiled.failure.start, compiled.failure.end);
+  const verified = verifyProgram(compiled.program, request.registry, slot);
+  if (!verified) return reject('SS_INTERNAL_IR_INVALID', 'lowered program failed private typed-IR verification');
+  return Object.freeze({
+    ok: true,
+    compiled: Object.freeze({
+      compilation: createVerifiedCompilation(verified, compiled.handler, compiled.syntaxNodes),
+      usage: compileUsage,
+      slot,
+      weight: source.source.length + compiled.syntaxNodes * 64,
+    }),
+  });
+}
+
+function deriveViews(
+  request: CheckRequest,
+  compiled: Compiled,
+  views: readonly InspectViewRequest[],
+): readonly InspectViewResult[] {
+  let graph: ReturnType<typeof buildSemanticGraph> | undefined;
+  return Object.freeze(
+    views.map((view): InspectViewResult => {
+      if (view.kind === 'semantic_graph') {
+        const derived = deriveSemanticGraph(request, compiled.slot, compiled.compilation, COMPILER, view.limits);
+        if ('graph' in derived) graph = derived.graph;
+        return 'bytes' in derived
+          ? Object.freeze({ kind: 'semantic_graph', status: 'accepted', bytes: derived.bytes })
+          : Object.freeze({ kind: 'semantic_graph', status: 'rejected', error: Object.freeze(derived) });
+      }
+      graph ??= buildSemanticGraph(request, compiled.slot, compiled.compilation, COMPILER, {
+        nodes: STANDARD_SEMANTIC_EDIT_CAPABILITY_LIMITS.targets,
+        edges: STANDARD_SEMANTIC_EDIT_CAPABILITY_LIMITS.capabilities,
+      });
+      const derived = deriveSemanticEditCapabilities(
+        request.source,
+        graph,
+        request.registry,
+        compiled.slot,
+        view.scope,
+        view.limits,
+      );
+      return 'manifest' in derived
+        ? Object.freeze({ kind: 'semantic_edit_capabilities', status: 'accepted', bytes: derived.bytes })
+        : Object.freeze({ kind: 'semantic_edit_capabilities', status: 'rejected', error: derived });
+    }),
+  );
+}
+
+function semanticEditUsage(sourceBytes: number) {
+  return Object.freeze({
+    operations: 0,
+    fragmentBytes: 0,
+    transformedRegions: 0,
+    work: 0,
+    provenanceEntries: 0,
+    diffBytes: 0,
+    sourceBytes,
+  });
 }
 
 function executionUsage(usageValue: MutableUsage): ExecutionUsage {
@@ -783,25 +910,7 @@ export class DirectRuntimeBridge implements RuntimeBridge {
     if (check.status !== 'accepted') return check;
     let views: Extract<InspectResult, { status: 'accepted' }>['views'];
     try {
-      views = Object.freeze(
-        request.views.map((view) => {
-          if (view.kind !== 'semantic_graph') throw new Error('unsupported inspection view');
-          const graph = deriveSemanticGraph(
-            request,
-            result.compiled.slot,
-            result.compiled.compilation,
-            COMPILER,
-            view.limits,
-          );
-          return 'bytes' in graph
-            ? Object.freeze({ kind: 'semantic_graph' as const, status: 'accepted' as const, bytes: graph.bytes })
-            : Object.freeze({
-                kind: 'semantic_graph' as const,
-                status: 'rejected' as const,
-                error: Object.freeze(graph),
-              });
-        }),
-      );
+      views = deriveViews(request, result.compiled, request.views);
     } catch {
       return { status: 'bridge_error', error: bridgeError('inspect', 'adapter_failure') };
     }
@@ -810,6 +919,139 @@ export class DirectRuntimeBridge implements RuntimeBridge {
       check,
       views,
     });
+  }
+
+  async applySemanticEdits(request: ApplySemanticEditsRequest): Promise<ApplySemanticEditsResult> {
+    if (this.closed) return { status: 'bridge_error', error: bridgeError('apply_semantic_edits', 'bridge_closed') };
+    if (!isApplySemanticEditsRequest(request))
+      return {
+        status: 'bridge_error',
+        error: bridgeError('apply_semantic_edits', 'invalid_request', 'invalid semantic edit request'),
+      };
+    const checked = await checkCompile(request, this.compilationCache);
+    if (checked.status === 'bridge_error')
+      return {
+        status: 'bridge_error',
+        error: Object.freeze({ ...checked.error, phase: 'apply_semantic_edits' }),
+      };
+    if (checked.status === 'rejected')
+      return Object.freeze({
+        status: 'rejected',
+        reason: 'source_rejected',
+        diagnostics: checked.diagnostics,
+        editDiagnostics: Object.freeze([]),
+        editIds: Object.freeze([]),
+        targets: Object.freeze([]),
+        usage: semanticEditUsage(request.source.source.length),
+        compileUsage: checked.usage,
+      });
+
+    try {
+      const graph = buildSemanticGraph(request, checked.compiled.slot, checked.compiled.compilation, COMPILER, {
+        nodes: request.editLimits.work,
+        edges: request.editLimits.work,
+      });
+      let candidate:
+        | Extract<ReturnType<typeof compileEditCandidate>, { ok: true }>
+        | Extract<ReturnType<typeof compileEditCandidate>, { ok: false }>
+        | undefined;
+      const transformed = applySemanticEditKernel(
+        request.source,
+        graph,
+        request.baseRevision,
+        request.edits,
+        request.editLimits,
+        (source) => {
+          candidate = compileEditCandidate(request, checked.compiled.slot, source);
+          return candidate.ok ? { ok: true } : { ok: false, diagnostics: candidate.diagnostics };
+        },
+      );
+      if (transformed.status === 'rejected') {
+        const rejectedCandidate = candidate && !candidate.ok ? candidate : undefined;
+        return Object.freeze({
+          status: 'rejected',
+          reason: transformed.reason,
+          diagnostics: rejectedCandidate?.check.diagnostics ?? Object.freeze([]),
+          editDiagnostics: transformed.editDiagnostics,
+          editIds: transformed.editIds,
+          targets: transformed.targets,
+          usage: transformed.usage,
+          ...(transformed.limit ? { limit: transformed.limit } : {}),
+          ...(rejectedCandidate ? { compileUsage: rejectedCandidate.check.usage } : {}),
+        });
+      }
+      if (!candidate?.ok) throw new Error('accepted semantic edit has no accepted checked candidate');
+      const updatedRequest = checkRequestWithSource(request, transformed.source);
+      const finalCheck = projectAcceptedCheck(updatedRequest, candidate.compiled);
+      if (finalCheck.status === 'rejected')
+        return Object.freeze({
+          status: 'rejected',
+          reason: 'source_rejected',
+          diagnostics: finalCheck.diagnostics,
+          editDiagnostics: Object.freeze([]),
+          editIds: Object.freeze(request.edits.map((edit) => edit.editId)),
+          targets: Object.freeze([]),
+          usage: transformed.usage,
+          compileUsage: finalCheck.usage,
+        });
+      const rebuilt = buildSemanticGraph(
+        updatedRequest,
+        candidate.compiled.slot,
+        candidate.compiled.compilation,
+        COMPILER,
+        { nodes: request.editLimits.work, edges: request.editLimits.work },
+      );
+      const diff = buildSemanticDiff(graph, rebuilt, request.edits, transformed.changedRegions);
+      const diffBytes = encoder.encode(cacheText(diff)).length;
+      const finalUsage = Object.freeze({ ...transformed.usage, diffBytes });
+      if (diffBytes > request.editLimits.diffBytes)
+        return Object.freeze({
+          status: 'rejected',
+          reason: 'edit_limit_exceeded',
+          diagnostics: Object.freeze([]),
+          editDiagnostics: Object.freeze([
+            Object.freeze({
+              code: 'SE_EDIT_LIMIT_EXCEEDED' as const,
+              message: 'semantic diff byte limit exceeded',
+              editIds: Object.freeze(request.edits.map((edit) => edit.editId)),
+              targets: Object.freeze([]),
+              related: Object.freeze([]),
+            }),
+          ]),
+          editIds: Object.freeze(request.edits.map((edit) => edit.editId)),
+          targets: Object.freeze([]),
+          usage: finalUsage,
+          limit: Object.freeze({ limit: 'diff_bytes', maximum: request.editLimits.diffBytes, actual: diffBytes }),
+        });
+      const views = deriveViews(updatedRequest, candidate.compiled, request.views ?? []);
+      return Object.freeze({
+        status: 'accepted',
+        source: transformed.source,
+        sourceHash: rebuilt.sourceHash,
+        programHash: rebuilt.programHash,
+        semanticRevision: rebuilt.semanticRevision,
+        check: finalCheck,
+        outcomes: transformed.outcomes,
+        changedRegions: transformed.changedRegions,
+        provenance: transformed.provenance,
+        diff,
+        usage: finalUsage,
+        views,
+      });
+    } catch (error) {
+      if (error instanceof SemanticModelLimitError)
+        return Object.freeze({
+          status: 'rejected',
+          reason: 'edit_limit_exceeded',
+          diagnostics: Object.freeze([]),
+          editDiagnostics: Object.freeze([]),
+          editIds: Object.freeze(request.edits.map((edit) => edit.editId)),
+          targets: Object.freeze([]),
+          usage: semanticEditUsage(request.source.source.length),
+          limit: Object.freeze({ limit: 'work', maximum: request.editLimits.work, actual: error.actual }),
+        });
+      return { status: 'bridge_error', error: bridgeError('apply_semantic_edits', 'adapter_failure') };
+    }
   }
 
   execute(request: Parameters<RuntimeBridge['execute']>[0], host: RuntimeBridgeHost): Promise<ExecutionResult> {

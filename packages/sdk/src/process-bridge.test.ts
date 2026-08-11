@@ -5,6 +5,8 @@ import {
   decodeWorkerProtocolFrame,
   decodeCanonical,
   derivedActionSiteId,
+  derivedSemanticNodeId,
+  derivedSemanticRevisionId,
   encodeWorkerProtocolEnvelope,
   encodeWorkerProtocolFrame,
   encodeWorkerProtocolPayload,
@@ -12,9 +14,11 @@ import {
   ids,
   negotiateWorkerProtocolHandshake,
   resultSchema,
+  SEMANTIC_EDIT_SCHEMA,
   SEMANTIC_GRAPH_SCHEMA,
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
+  STANDARD_SEMANTIC_EDIT_LIMITS,
   STANDARD_SEMANTIC_GRAPH_LIMITS,
   WORKER_PROTOCOL_SESSION_WELCOME_PAYLOAD,
   type ActionRequest,
@@ -22,6 +26,7 @@ import {
   type IrDigest,
   type RuntimeBridge,
   type RuntimeBridgeHost,
+  type SemanticEditId,
   type WorkerProtocolEnvelope,
   type WorkerProtocolMessageKind,
 } from '@safescript/contracts';
@@ -116,6 +121,23 @@ const semanticGraphView = {
   schema: SEMANTIC_GRAPH_SCHEMA,
   limits: STANDARD_SEMANTIC_GRAPH_LIMITS,
 } as const;
+const semanticEditRequest = {
+  ...checkRequest,
+  editSchema: SEMANTIC_EDIT_SCHEMA,
+  graphSchema: SEMANTIC_GRAPH_SCHEMA,
+  baseRevision: derivedSemanticRevisionId(Uint8Array.of(1)),
+  edits: [
+    {
+      kind: 'rename_symbol',
+      editId: 'edit:rename' as SemanticEditId,
+      target: derivedSemanticNodeId(Uint8Array.of(2)),
+      newName: 'renamed',
+      preconditions: [],
+    },
+  ],
+  editLimits: STANDARD_SEMANTIC_EDIT_LIMITS,
+  views: [],
+} as Parameters<RuntimeBridge['applySemanticEdits']>[0];
 
 const actionRequest = {
   contractId: 'contract:test.process-bridge',
@@ -170,6 +192,14 @@ class FakeBridge implements RuntimeBridge {
   async inspect(request: Parameters<RuntimeBridge['inspect']>[0]) {
     this.calls.push(`inspect:${request.views.map((view) => view.kind).join(',')}`);
     return { status: 'bridge_error' as const, error: { code: 'adapter_failure' as const, phase: 'inspect' as const } };
+  }
+
+  async applySemanticEdits(request: Parameters<RuntimeBridge['applySemanticEdits']>[0]) {
+    this.calls.push(`edit:${request.edits.map((edit) => edit.kind).join(',')}`);
+    return {
+      status: 'bridge_error' as const,
+      error: { code: 'adapter_failure' as const, phase: 'apply_semantic_edits' as const },
+    };
   }
 
   async execute(request: Parameters<RuntimeBridge['execute']>[0], host: Parameters<RuntimeBridge['execute']>[1]) {
@@ -834,6 +864,7 @@ describe('process RuntimeBridge state machine', () => {
     expect(await process.inspect({ ...checkRequest, views: [semanticGraphView] })).toMatchObject({
       status: 'bridge_error',
     });
+    expect(await process.applySemanticEdits(semanticEditRequest)).toMatchObject({ status: 'bridge_error' });
     const hostCalls: string[] = [];
     expect(
       await process.execute(
@@ -863,6 +894,7 @@ describe('process RuntimeBridge state machine', () => {
     expect(fake.calls).toEqual([
       `check:${checkRequest.slotId}`,
       'inspect:semantic_graph',
+      'edit:rename_symbol',
       `execute:${actionRequest.invocationId}`,
       `outcome:${actionRequest.requestId}`,
       `cancel:${actionRequest.invocationId}`,

@@ -15,7 +15,7 @@ import {
 } from '@safescript/contracts';
 
 import type { VerifiedCompilation } from './artifact.js';
-import { buildSemanticModel, SemanticModelLimitError, type CheckedSemanticModel } from './semantic-model.js';
+import { buildSemanticModel, SemanticModelLimitError } from './semantic-model.js';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -97,37 +97,16 @@ interface DerivedGraph {
   readonly bytes: readonly number[];
 }
 
-function limitError(limit: keyof SemanticGraphLimits, maximum: number, actual: number): SemanticGraphError | undefined {
-  return actual > maximum ? { code: 'graph_limit_exceeded', limit, maximum, actual } : undefined;
-}
-
-/** Builds and canonically serialises a complete graph, or reports one independent export limit atomically. */
-export function deriveSemanticGraph(
+/** Builds the private checked graph used by editing before any public projection is serialized. @internal */
+export function buildSemanticGraph(
   request: CheckRequest,
   slot: SlotDefinition,
   artifact: VerifiedCompilation,
   compiler: CompilerVersion,
-  limits: SemanticGraphLimits,
-): DerivedGraph | SemanticGraphError {
+  limits: Readonly<{ nodes: number; edges: number }>,
+): SemanticGraph {
   const source = decoder.decode(Uint8Array.from(request.source.source));
-  let model: CheckedSemanticModel;
-  try {
-    model = buildSemanticModel(source, request, slot, artifact, limits);
-  } catch (error) {
-    if (error instanceof SemanticModelLimitError)
-      return {
-        code: 'graph_limit_exceeded',
-        limit: error.limit,
-        maximum: error.maximum,
-        actual: error.actual,
-      };
-    throw error;
-  }
-  const nodeError = limitError('nodes', limits.nodes, model.nodes.length);
-  if (nodeError) return nodeError;
-  const edgeError = limitError('edges', limits.edges, model.edges.length);
-  if (edgeError) return edgeError;
-
+  const model = buildSemanticModel(source, request, slot, artifact, limits);
   const sourceProgramHash = programHash(request.source);
   if (!sourceProgramHash.ok) throw new Error('accepted source has no program hash');
   const sourceDigest = sourceHash(Uint8Array.from(request.source.source));
@@ -156,7 +135,7 @@ export function deriveSemanticGraph(
     .filter((node) => node.kind === 'statement' || node.kind === 'branch' || node.kind === 'case')
     .map((node) => node.id);
   const actionNodes = model.nodes.filter((node) => node.kind === 'action').map((node) => node.id);
-  const graph: SemanticGraph = Object.freeze({
+  return Object.freeze({
     schema: SEMANTIC_GRAPH_SCHEMA,
     semanticRevision,
     sourceHash: sourceDigest,
@@ -183,6 +162,38 @@ export function deriveSemanticGraph(
       actionNodes: Object.freeze(actionNodes),
     }),
   });
+}
+
+function limitError(limit: keyof SemanticGraphLimits, maximum: number, actual: number): SemanticGraphError | undefined {
+  return actual > maximum ? { code: 'graph_limit_exceeded', limit, maximum, actual } : undefined;
+}
+
+/** Builds and canonically serialises a complete graph, or reports one independent export limit atomically. */
+export function deriveSemanticGraph(
+  request: CheckRequest,
+  slot: SlotDefinition,
+  artifact: VerifiedCompilation,
+  compiler: CompilerVersion,
+  limits: SemanticGraphLimits,
+): DerivedGraph | SemanticGraphError {
+  let graph: SemanticGraph;
+  try {
+    graph = buildSemanticGraph(request, slot, artifact, compiler, limits);
+  } catch (error) {
+    if (error instanceof SemanticModelLimitError)
+      return {
+        code: 'graph_limit_exceeded',
+        limit: error.limit,
+        maximum: error.maximum,
+        actual: error.actual,
+      };
+    throw error;
+  }
+  const nodeError = limitError('nodes', limits.nodes, graph.nodes.length);
+  if (nodeError) return nodeError;
+  const edgeError = limitError('edges', limits.edges, graph.edges.length);
+  if (edgeError) return edgeError;
+
   try {
     return { graph, bytes: boundedCanonicalBytes(graph, limits.bytes) };
   } catch (error) {

@@ -10,6 +10,7 @@ import {
   type SemanticEditDiagnostic,
   type SemanticEditId,
   type SemanticEditLimits,
+  type SemanticEditLimitError,
   type SemanticEditOutcome,
   type SemanticEditPrecondition,
   type SemanticEditUsage,
@@ -78,6 +79,7 @@ export type ApplyPrimitiveSemanticEditsResult =
       editIds: readonly SemanticEditId[];
       targets: readonly SemanticNodeId[];
       usage: SemanticEditUsage;
+      limit?: SemanticEditLimitError;
     }>;
 
 export type PrimitiveRejectionReason = Extract<ApplyPrimitiveSemanticEditsResult, { status: 'rejected' }>['reason'];
@@ -192,6 +194,7 @@ function rejected(
   targets: readonly SemanticNodeId[],
   usage: SemanticEditUsage,
   message: string,
+  limit?: SemanticEditLimitError,
 ): ApplyPrimitiveSemanticEditsResult {
   const code =
     reason === 'stale_revision'
@@ -225,6 +228,7 @@ function rejected(
     editIds: Object.freeze(editIds),
     targets: Object.freeze([...targets]),
     usage,
+    ...(limit ? { limit } : {}),
   });
 }
 
@@ -797,6 +801,7 @@ export function applyPrimitiveSemanticEdits(
       transformed.conflicts?.flatMap((conflict) => conflict.targets) ?? [],
       transformed.usage,
       transformed.reason,
+      transformed.limit,
     );
   }
   const outcomes = primitive.map((edit): SemanticEditOutcome => {

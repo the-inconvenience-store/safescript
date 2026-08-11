@@ -1,6 +1,6 @@
 # TypeScript SDK guide
 
-`@safescript/sdk` is the host-facing integration layer. It derives a contract, connects trusted handlers and an optional host-local action-policy hook, validates all bridge values, and exposes one six-method facade: `check`, `inspect`, `execute`, `test`, `cancel`, and `close`.
+`@safescript/sdk` is the host-facing integration layer. It derives a contract, connects trusted handlers and an optional host-local action-policy hook, validates all bridge values, and exposes one seven-method facade: `check`, `inspect`, `applySemanticEdits`, `execute`, `test`, `cancel`, and `close`.
 
 For a runnable first integration, start with [getting started](getting-started.md). This guide focuses on behavior and lifecycle rather than listing every exported type.
 
@@ -58,7 +58,7 @@ Accepted checks omit artifact bytes by default. Set `includeArtifact: true` when
 
 `inspect` performs the same check and optionally derives read-only views. Request the current view with a tagged `{ kind: 'semantic_graph', schema: { major: 1, minor: 0 }, limits }` record. Accepted inspection results contain a correlated `views` array whose element is independently accepted with bytes or rejected with `graph_limit_exceeded`. Graph generation has independent node, edge, and byte limits; no partial graph is returned.
 
-The contracts package also publishes the schema-1.0 `semantic_edit_capabilities` view and `ApplySemanticEditsRequest`/`ApplySemanticEditsResult` records. They are the stable integration surface for semantic editing, but the current six-method facade and runtime bridges do not yet project capabilities or apply edits. Callers must not send those records through `inspect` or a worker session until the integration stage lands.
+The schema-1.0 `semantic_edit_capabilities` view is available through `inspect`. The typed `applySemanticEdits` facade binds the selected contract and slot, fixes the graph and edit schema versions, fills conservative edit limits, and returns the transport-neutral `ApplySemanticEditsResult`. Direct and supervised process bridges expose the same operation and canonical worker records.
 
 See [artifacts and inspection](artifacts-and-inspection.md) before building an editor or analysis tool.
 

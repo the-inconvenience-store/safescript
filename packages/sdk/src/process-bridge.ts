@@ -13,6 +13,8 @@ import {
   WorkerProtocolFrameWriter,
   type ActionOutcome,
   type ActionRequest,
+  type ApplySemanticEditsRequest,
+  type ApplySemanticEditsResult,
   type BridgeError,
   type CancelRequest,
   type CancelResult,
@@ -75,6 +77,7 @@ type BridgePhase = BridgeError['phase'];
 type TerminalKind =
   | 'bridge.check.result'
   | 'bridge.inspect.result'
+  | 'bridge.apply_semantic_edits.result'
   | 'bridge.execute.result'
   | 'bridge.cancel.result'
   | 'session.close.result';
@@ -218,6 +221,17 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
     ) as Promise<InspectResult>;
   }
 
+  async applySemanticEdits(request: ApplySemanticEditsRequest): Promise<ApplySemanticEditsResult> {
+    if (!(await this.#available()))
+      return failedResult('apply_semantic_edits', this.#closedCode()) as ApplySemanticEditsResult;
+    return this.#request(
+      'bridge.apply_semantic_edits.request',
+      'bridge.apply_semantic_edits.result',
+      'apply_semantic_edits',
+      request,
+    ) as Promise<ApplySemanticEditsResult>;
+  }
+
   async execute(request: ExecuteRequest, host: RuntimeBridgeHost): Promise<ExecutionResult> {
     if (!(await this.#available())) return failedResult('execute', this.#closedCode()) as ExecutionResult;
     if (this.#activeInvocations.has(request.invocationId))
@@ -295,6 +309,7 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
     requestKind:
       | 'bridge.check.request'
       | 'bridge.inspect.request'
+      | 'bridge.apply_semantic_edits.request'
       | 'bridge.execute.request'
       | 'bridge.cancel.request'
       | 'session.close.request',
@@ -309,6 +324,7 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
     const dataRequest =
       requestKind === 'bridge.check.request' ||
       requestKind === 'bridge.inspect.request' ||
+      requestKind === 'bridge.apply_semantic_edits.request' ||
       requestKind === 'bridge.execute.request';
     if (dataRequest && this.#dataInFlight() >= this.#maxInFlight) return failedResult(phase, 'capacity_exceeded');
     if (requestKind === 'bridge.cancel.request' && this.#pending.size >= Number(this.#limits.max_pending_replies))
@@ -491,11 +507,13 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
         ? decodeWorkerBridgePayload('bridge.check.result', payload, payloadLimits(this.#limits))
         : kind === 'bridge.inspect.result'
           ? decodeWorkerBridgePayload('bridge.inspect.result', payload, payloadLimits(this.#limits))
-          : kind === 'bridge.execute.result'
-            ? decodeWorkerBridgePayload('bridge.execute.result', payload, payloadLimits(this.#limits))
-            : kind === 'bridge.cancel.result'
-              ? decodeWorkerBridgePayload('bridge.cancel.result', payload, payloadLimits(this.#limits))
-              : decodeWorkerBridgePayload('session.close.result', payload, payloadLimits(this.#limits));
+          : kind === 'bridge.apply_semantic_edits.result'
+            ? decodeWorkerBridgePayload('bridge.apply_semantic_edits.result', payload, payloadLimits(this.#limits))
+            : kind === 'bridge.execute.result'
+              ? decodeWorkerBridgePayload('bridge.execute.result', payload, payloadLimits(this.#limits))
+              : kind === 'bridge.cancel.result'
+                ? decodeWorkerBridgePayload('bridge.cancel.result', payload, payloadLimits(this.#limits))
+                : decodeWorkerBridgePayload('session.close.result', payload, payloadLimits(this.#limits));
     return decoded.ok
       ? Object.freeze({ ok: true, value: decoded.value })
       : Object.freeze({ ok: false, detail: decoded.failure.detail ?? decoded.failure.code });
@@ -513,6 +531,7 @@ export class ProcessRuntimeBridge implements RuntimeBridge {
       if (
         pending.kind === 'bridge.check.result' ||
         pending.kind === 'bridge.inspect.result' ||
+        pending.kind === 'bridge.apply_semantic_edits.result' ||
         pending.kind === 'bridge.execute.result'
       )
         count++;
@@ -707,6 +726,14 @@ export class SupervisedProcessRuntimeBridge implements RuntimeBridge {
     const acquired = await this.#acquire();
     if (!acquired.ok) return failedResult('inspect', acquired.code) as InspectResult;
     const result = await acquired.connection.bridge.inspect(request);
+    this.#observe(acquired.connection, result);
+    return result;
+  }
+
+  async applySemanticEdits(request: ApplySemanticEditsRequest): Promise<ApplySemanticEditsResult> {
+    const acquired = await this.#acquire();
+    if (!acquired.ok) return failedResult('apply_semantic_edits', acquired.code) as ApplySemanticEditsResult;
+    const result = await acquired.connection.bridge.applySemanticEdits(request);
     this.#observe(acquired.connection, result);
     return result;
   }

@@ -57,6 +57,24 @@ const checkRequest = {
   limits: STANDARD_COMPILE_LIMITS,
 } as unknown as CheckRequest;
 
+const semanticEditRequest = {
+  ...checkRequest,
+  editSchema: SEMANTIC_EDIT_SCHEMA,
+  graphSchema: SEMANTIC_GRAPH_SCHEMA,
+  baseRevision: `semantic-revision:${'1'.repeat(64)}`,
+  edits: [
+    {
+      kind: 'rename_symbol',
+      editId: 'edit:rename',
+      target: `semantic-node:${'2'.repeat(64)}`,
+      newName: 'renamed',
+      preconditions: [{ kind: 'old_name', value: 'before' }],
+    },
+  ],
+  editLimits: STANDARD_SEMANTIC_EDIT_LIMITS,
+  views: [],
+} as unknown as ApplySemanticEditsRequest;
+
 const actionRequest = {
   contractId: 'contract:test.worker',
   irDigest: digest,
@@ -80,6 +98,14 @@ class FakeBridge implements RuntimeBridge {
   async inspect(request: Parameters<RuntimeBridge['inspect']>[0]) {
     this.calls.push(`inspect:${request.views.map((view) => view.kind).join(',')}`);
     return { status: 'bridge_error' as const, error: { code: 'adapter_failure' as const, phase: 'inspect' as const } };
+  }
+
+  async applySemanticEdits(request: Parameters<RuntimeBridge['applySemanticEdits']>[0]) {
+    this.calls.push(`edit:${request.edits.map((edit) => edit.kind).join(',')}`);
+    return {
+      status: 'bridge_error' as const,
+      error: { code: 'adapter_failure' as const, phase: 'apply_semantic_edits' as const },
+    };
   }
 
   async execute(request: Parameters<RuntimeBridge['execute']>[0], host: Parameters<RuntimeBridge['execute']>[1]) {
@@ -199,34 +225,17 @@ describe('standalone runtime worker server', () => {
         value: capabilityInspect,
       });
 
-    const editRequest = {
-      ...checkRequest,
-      editSchema: SEMANTIC_EDIT_SCHEMA,
-      graphSchema: SEMANTIC_GRAPH_SCHEMA,
-      baseRevision: `semantic-revision:${'1'.repeat(64)}`,
-      edits: [
-        {
-          kind: 'rename_symbol',
-          editId: 'edit:rename',
-          target: `semantic-node:${'2'.repeat(64)}`,
-          newName: 'renamed',
-          preconditions: [{ kind: 'old_name', value: 'before' }],
-        },
-      ],
-      editLimits: STANDARD_SEMANTIC_EDIT_LIMITS,
-      views: [],
-    } as unknown as ApplySemanticEditsRequest;
-    const editEncoded = encodeWorkerBridgePayload('bridge.apply_semantic_edits.request', editRequest);
+    const editEncoded = encodeWorkerBridgePayload('bridge.apply_semantic_edits.request', semanticEditRequest);
     expect(editEncoded.ok).toBe(true);
     if (!editEncoded.ok) return;
     expect(decodeWorkerBridgePayload('bridge.apply_semantic_edits.request', editEncoded.value)).toEqual({
       ok: true,
-      value: editRequest,
+      value: semanticEditRequest,
     });
     expect(
       encodeWorkerBridgePayload('bridge.apply_semantic_edits.request', {
-        ...editRequest,
-        edits: [{ ...editRequest.edits[0], unknown: true }],
+        ...semanticEditRequest,
+        edits: [{ ...semanticEditRequest.edits[0], unknown: true }],
       } as never).ok,
     ).toBe(false);
     const rejected = {
@@ -298,6 +307,7 @@ describe('standalone runtime worker server', () => {
         },
       ],
     });
+    const editPayload = encodeWorkerBridgePayload('bridge.apply_semantic_edits.request', semanticEditRequest);
     const executePayload = encodeWorkerBridgePayload('bridge.execute.request', {
       registry: checkRequest.registry,
       slotId: checkRequest.slotId,
@@ -307,17 +317,19 @@ describe('standalone runtime worker server', () => {
       limits: STANDARD_EXECUTION_LIMITS,
       trace: false,
     });
-    if (!checkPayload.ok || !inspectPayload.ok || !executePayload.ok) throw new Error('request encoding failed');
+    if (!checkPayload.ok || !inspectPayload.ok || !editPayload.ok || !executePayload.ok)
+      throw new Error('request encoding failed');
     await server.receive(hostEnvelope('bridge.check.request', 2n, checkPayload.value));
     await server.receive(hostEnvelope('bridge.inspect.request', 3n, inspectPayload.value));
-    await server.receive(hostEnvelope('bridge.execute.request', 4n, executePayload.value));
+    await server.receive(hostEnvelope('bridge.apply_semantic_edits.request', 4n, editPayload.value));
+    await server.receive(hostEnvelope('bridge.execute.request', 5n, executePayload.value));
     await waitFor(() => frames.some((frame) => decodeFrame(frame).kind === 'action.request'));
 
     const actionEnvelope = decodeFrame(
       frames.find((frame) => decodeFrame(frame).kind === 'action.request') as Uint8Array,
     );
     const action = decodeWorkerBridgePayload('action.request', actionEnvelope.payload);
-    expect(action.ok && action.value).toMatchObject({ executeId: 4n, request: { requestId: actionRequest.requestId } });
+    expect(action.ok && action.value).toMatchObject({ executeId: 5n, request: { requestId: actionRequest.requestId } });
     const outcome = encodeWorkerBridgePayload('action.outcome', {
       request: actionEnvelope.id,
       outcome: {
@@ -326,7 +338,7 @@ describe('standalone runtime worker server', () => {
       },
     });
     if (!outcome.ok) throw new Error(outcome.failure.code);
-    await server.receive(hostEnvelope('action.outcome', 5n, outcome.value, actionEnvelope.id));
+    await server.receive(hostEnvelope('action.outcome', 6n, outcome.value, actionEnvelope.id));
     await server.drain();
 
     const cancelPayload = encodeWorkerBridgePayload('bridge.cancel.request', {
@@ -334,13 +346,14 @@ describe('standalone runtime worker server', () => {
     });
     const closePayload = encodeWorkerBridgePayload('session.close.request', {});
     if (!cancelPayload.ok || !closePayload.ok) throw new Error('control encoding failed');
-    await server.receive(hostEnvelope('bridge.cancel.request', 6n, cancelPayload.value));
+    await server.receive(hostEnvelope('bridge.cancel.request', 7n, cancelPayload.value));
     await server.drain();
-    await server.receive(hostEnvelope('session.close.request', 7n, closePayload.value));
+    await server.receive(hostEnvelope('session.close.request', 8n, closePayload.value));
     await server.drain();
 
     expect(frames.map((frame) => decodeFrame(frame).kind).sort()).toEqual([
       'action.request',
+      'bridge.apply_semantic_edits.result',
       'bridge.cancel.result',
       'bridge.check.result',
       'bridge.execute.result',
@@ -350,6 +363,7 @@ describe('standalone runtime worker server', () => {
     expect(bridge.calls).toEqual([
       'check:slot:test.worker',
       'inspect:semantic_graph',
+      'edit:rename_symbol',
       'execute:invocation:test.worker',
       'outcome:request:test.worker',
       'cancel:invocation:test.worker',

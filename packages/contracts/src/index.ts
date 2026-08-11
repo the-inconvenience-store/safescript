@@ -2546,6 +2546,9 @@ export interface RuntimeBridgeHost {
 export interface RuntimeBridge {
   check(request: CheckRequest): Promise<CheckResult>;
   inspect(request: InspectRequest): Promise<InspectResult>;
+  applySemanticEdits(
+    request: import('./semantic-edit.js').ApplySemanticEditsRequest,
+  ): Promise<import('./semantic-edit.js').ApplySemanticEditsResult>;
   execute(request: ExecuteRequest, host: RuntimeBridgeHost): Promise<ExecutionResult>;
   cancel(request: CancelRequest): Promise<CancelResult>;
   close(): Promise<CloseResult>;

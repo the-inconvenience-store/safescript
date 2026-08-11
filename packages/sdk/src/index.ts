@@ -23,6 +23,7 @@ export type {
 export { SdkConfigurationError } from './types.js';
 export type {
   AbortSignal,
+  ApplySemanticEditsRequest,
   ArtifactStore,
   ArtifactStoreContext,
   ActionContext,
@@ -57,6 +58,7 @@ export type {
   ModuleId,
   Result,
   RuntimeBridge,
+  ApplySemanticEditsResult,
   Schema,
   SemVer,
 } from '@safescript/contracts';

@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 
 import {
+  SEMANTIC_EDIT_SCHEMA,
   SEMANTIC_GRAPH_SCHEMA,
+  STANDARD_SEMANTIC_EDIT_LIMITS,
   STANDARD_SEMANTIC_GRAPH_LIMITS,
   STANDARD_EXECUTION_LIMITS,
   decodeCanonical,
@@ -12,6 +14,8 @@ import {
   type CheckRequest,
   type InspectResult,
   type RuntimeBridgeFactory,
+  type SemanticEditId,
+  type SemanticGraph,
   type Schema,
 } from '@safescript/contracts';
 import { createDirectRuntimeBridge } from '@safescript/engine';
@@ -174,6 +178,49 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
       expect(graph.operations).toEqual([...reference.expectedOperations].sort());
     }
     await bridge.close();
+  });
+
+  it('applies one compiler-derived identity edit deterministically', async () => {
+    const bridge = factory();
+    const request = referenceCheckRequest(walkingSkeletonReference);
+    const inspected = await bridge.inspect({ ...request, views: [semanticGraphView()] });
+    expect(inspected.status).toBe('accepted');
+    if (inspected.status !== 'accepted') return;
+    const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(semanticGraphBytes(inspected)))) as SemanticGraph;
+    const binding = graph.nodes.find(
+      (node) => node.kind === 'binding' && node.semanticKind === 'symbol' && node.label === 'event',
+    );
+    if (!binding) throw new Error('reference event binding was not projected');
+    const editRequest = {
+      ...request,
+      editSchema: SEMANTIC_EDIT_SCHEMA,
+      graphSchema: SEMANTIC_GRAPH_SCHEMA,
+      baseRevision: graph.semanticRevision,
+      edits: [
+        {
+          kind: 'rename_symbol' as const,
+          editId: 'edit:conformance-rename' as SemanticEditId,
+          target: binding.id,
+          newName: 'updatedEvent',
+          preconditions: [
+            { kind: 'target_kind' as const, value: binding.kind },
+            { kind: 'target_semantic_kind' as const, value: binding.semanticKind },
+            { kind: 'old_name' as const, value: 'event' },
+          ],
+        },
+      ],
+      editLimits: STANDARD_SEMANTIC_EDIT_LIMITS,
+      views: [semanticGraphView()],
+    };
+    const first = await bridge.applySemanticEdits(editRequest);
+    const second = await bridge.applySemanticEdits(editRequest);
+    expect(second).toEqual(first);
+    expect(first.status).toBe('accepted');
+    if (first.status === 'accepted') {
+      expect(new TextDecoder().decode(Uint8Array.from(first.source.source))).toContain('updatedEvent');
+      expect(first.semanticRevision).not.toBe(graph.semanticRevision);
+      expect(first.diff.entries.some((entry) => entry.kind === 'renamed')).toBe(true);
+    }
   });
 
   it.each(references)('executes the $name reference in source and artefact modes', async (reference) => {
@@ -627,5 +674,47 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
     expect(decodeCanonical(schema, Uint8Array.from([...bytes, 0]), { registry: referenceRegistry.schemas }).ok).toBe(
       false,
     );
+  });
+});
+
+describe('semantic edit adapter parity', () => {
+  it('returns byte-for-byte equivalent direct and node-process results', async () => {
+    const direct = createDirectRuntimeBridge();
+    const processBridge = adapters[1]?.factory();
+    if (!processBridge) throw new Error('node-process adapter is missing');
+    try {
+      const request = referenceCheckRequest(walkingSkeletonReference);
+      const inspected = await direct.inspect({ ...request, views: [semanticGraphView()] });
+      if (inspected.status !== 'accepted') throw new Error('direct semantic graph inspection failed');
+      const graph = JSON.parse(
+        new TextDecoder().decode(Uint8Array.from(semanticGraphBytes(inspected))),
+      ) as SemanticGraph;
+      const binding = graph.nodes.find(
+        (node) => node.kind === 'binding' && node.semanticKind === 'symbol' && node.label === 'event',
+      );
+      if (!binding) throw new Error('reference event binding was not projected');
+      const editRequest = {
+        ...request,
+        editSchema: SEMANTIC_EDIT_SCHEMA,
+        graphSchema: SEMANTIC_GRAPH_SCHEMA,
+        baseRevision: graph.semanticRevision,
+        edits: [
+          {
+            kind: 'rename_symbol' as const,
+            editId: 'edit:adapter-parity' as SemanticEditId,
+            target: binding.id,
+            newName: 'updatedEvent',
+            preconditions: [{ kind: 'old_name' as const, value: 'event' }],
+          },
+        ],
+        editLimits: STANDARD_SEMANTIC_EDIT_LIMITS,
+        views: [semanticGraphView()],
+      };
+      const directResult = await direct.applySemanticEdits(editRequest);
+      const processResult = await processBridge.applySemanticEdits(editRequest);
+      expect(processResult).toEqual(directResult);
+    } finally {
+      await Promise.all([direct.close(), processBridge.close()]);
+    }
   });
 });

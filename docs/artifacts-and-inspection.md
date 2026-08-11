@@ -71,7 +71,7 @@ The graph is disposable and read-only. It is not public IR, an executable node p
 
 Graph export has independent node, edge, and byte limits. Source checking can succeed while the correlated view result is `{ kind: 'semantic_graph', status: 'rejected', error }`. Export is atomic: consumers never receive partial trusted graph bytes.
 
-The public inspection union now also reserves a tagged, independently bounded `semantic_edit_capabilities` view. Its schema-1.0 request, accepted/rejected results, canonical manifest contract, and limits are defined in [semantic editing](semantic-editing.md). Capability projection is not operational yet: current direct and process bridges accept only `semantic_graph` inspection until the semantic-edit capability and bridge integration stages are complete.
+The public inspection union also includes a tagged, independently bounded `semantic_edit_capabilities` view. Its schema-1.0 request, accepted/rejected results, canonical manifest contract, and limits are defined in [semantic editing](semantic-editing.md). Direct and process bridges derive it from the same private checked model as semantic editing; the returned bytes remain disposable inspection data.
 
 ## Authoring bundles
 

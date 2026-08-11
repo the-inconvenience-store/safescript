@@ -1,6 +1,6 @@
 # Semantic editing design
 
-This document specifies the compiler-owned semantic edit API. Schema 1.0 contracts, strict validators, capability-view records, worker wire records, the private lossless transformation kernel, and the six-operation primitive kernel are implemented; semantic gestures and bridge execution remain staged work. [Current scope](current-scope.md) remains authoritative until the complete coverage and conformance gate passes.
+This document specifies the compiler-owned semantic edit API. Schema 1.0 contracts, strict validators, capability projection, primitive and gesture kernels, direct and process bridge execution, the typed SDK facade, and canonical worker parity are implemented. [Current scope](current-scope.md) remains authoritative until the complete coverage and release-audit gate passes.
 
 ## Outcome
 

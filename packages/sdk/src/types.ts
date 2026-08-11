@@ -4,6 +4,7 @@
  */
 import {
   type ActionRequest,
+  type ApplySemanticEditsResult,
   type CancelResult,
   type CanonicalBytes,
   type CheckResult,
@@ -21,6 +22,9 @@ import {
   type OperationId,
   type Result,
   type RuntimeBridge,
+  type SemanticEdit,
+  type SemanticEditLimits,
+  type SemanticRevisionId,
   type Sha256Digest,
 } from '@safescript/contracts';
 import type { EngineOptions } from '@safescript/engine';
@@ -108,6 +112,13 @@ export interface CheckRequest<K extends PropertyKey> {
 /** Source check plus explicitly requested read-only derived views. */
 export interface InspectRequest<K extends PropertyKey> extends CheckRequest<K> {
   readonly views: readonly InspectViewRequest[];
+}
+/** Host-facing atomic semantic edit request over one exact inspected revision. */
+export interface ApplySemanticEditsRequest<K extends PropertyKey> extends CheckRequest<K> {
+  readonly baseRevision: SemanticRevisionId;
+  readonly edits: readonly SemanticEdit[];
+  readonly editLimits?: Partial<SemanticEditLimits>;
+  readonly views?: readonly InspectViewRequest[];
 }
 /** Typed execution request including host-local context and deterministic invocation inputs. */
 export interface ExecuteRequest<K extends PropertyKey, I, C> {
@@ -230,7 +241,7 @@ export interface CreateSafeScriptOptions<C, O extends Operations, S extends Slot
 }
 
 /**
- * Deep six-method host interface for source checking, inspection, execution, deterministic tests, cancellation, and
+ * Deep seven-method host interface for source checking, inspection, semantic editing, execution, deterministic tests, cancellation, and
  * lifecycle.
  *
  * @remarks Calls made after `close()` resolve with stable `bridge_closed` results. `close()` is idempotent and waits
@@ -239,6 +250,7 @@ export interface CreateSafeScriptOptions<C, O extends Operations, S extends Slot
 export interface SafeScript<O extends Operations, S extends Slots, C> {
   check<K extends keyof S>(request: CheckRequest<K>): Promise<CheckResult>;
   inspect<K extends keyof S>(request: InspectRequest<K>): Promise<InspectResult>;
+  applySemanticEdits<K extends keyof S>(request: ApplySemanticEditsRequest<K>): Promise<ApplySemanticEditsResult>;
   execute<K extends keyof S>(
     request: ExecuteRequest<K, SlotInput<S, K>, C>,
   ): Promise<ExecutionResult<SlotOutput<S, K>>>;

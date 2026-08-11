@@ -39,11 +39,11 @@ The TypeScript facade constructs synchronously and starts its worker lazily on t
 
 ## Bridge exchanges
 
-In ready state the host may multiplex bounded `check`, `inspect`, and `execute` requests. Payloads are the canonical wire projection of the corresponding public `RuntimeBridge` request. Results preserve the existing closed result unions and do not expose exceptions or process objects.
+In ready state the host may multiplex bounded `check`, `inspect`, `applySemanticEdits`, and `execute` requests. Payloads are the canonical wire projection of the corresponding public `RuntimeBridge` request. Results preserve the existing closed result unions and do not expose exceptions or process objects.
 
 Acceptance of a request reserves its in-flight, decode, reply, and applicable semantic capacity before protected work. A worker returns exactly one terminal result after all facts belonging to that operation are final. Message completion order may differ from initiation order; envelope correlation, not arrival position, identifies an exchange.
 
-`check` and `inspect` never initiate actions. An `execute` result is terminal only after all of its initiated action exchanges are resolved, or after cancellation/worker failure has assigned their final observable effect states. A terminal result MUST NOT be followed by an action for that invocation.
+`check`, `inspect`, and `applySemanticEdits` never initiate actions. An `execute` result is terminal only after all of its initiated action exchanges are resolved, or after cancellation/worker failure has assigned their final observable effect states. A terminal result MUST NOT be followed by an action for that invocation.
 
 ## Action exchanges
 

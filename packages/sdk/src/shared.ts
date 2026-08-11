@@ -2,7 +2,7 @@
  * Private deterministic SDK helpers shared by contract and facade modules.
  * @packageDocumentation
  */
-import type { BridgeError, CompileLimits, ExecutionLimits } from '@safescript/contracts';
+import type { BridgeError, CompileLimits, ExecutionLimits, SemanticEditLimits } from '@safescript/contracts';
 
 /**
  * Encodes host strings to exact UTF-8 bytes without ambient locale behavior.
@@ -32,7 +32,7 @@ export function stable(value: unknown): string {
  * Merges lower limit overrides while rejecting unknown, invalid, or ceiling-raising values.
  * @internal
  */
-export function completeLimits<T extends CompileLimits | ExecutionLimits>(
+export function completeLimits<T extends CompileLimits | ExecutionLimits | SemanticEditLimits>(
   standard: T,
   ...overrides: readonly (Partial<T> | undefined)[]
 ): T {

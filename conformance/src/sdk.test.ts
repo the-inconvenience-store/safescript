@@ -149,6 +149,10 @@ describe('public SDK conformance', () => {
         diagnostics: [],
         usage: { sourceBytes: 0, syntaxNodes: 0 },
       }),
+      applySemanticEdits: async () => ({
+        status: 'bridge_error',
+        error: { code: 'adapter_failure', phase: 'apply_semantic_edits' },
+      }),
       execute: async (request, host) => {
         bridgeRequestInput = request.input;
         const actionSiteId = derivedActionSiteId(Uint8Array.of(1));
