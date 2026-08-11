@@ -15,6 +15,7 @@ export function reconcileSemanticFlow(previous: BuildingFlow, next: BuildingFlow
     }
   }
   return {
+    ...next,
     nodes: next.nodes.map((node) => ({ ...node, position: prior.get(node.semanticId) ?? node.position })),
     edges: next.edges,
   };

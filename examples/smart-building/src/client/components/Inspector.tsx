@@ -1,9 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 
-import type { OperationId, SemanticGraphAnchor, SemanticNodeId } from '@safescript/contracts';
+import type { OperationId } from '@safescript/contracts';
 
+import { moveBuildingStep } from '../../editor/composer.js';
 import type { SemanticIntent } from '../../editor/operations.js';
 import type { AcceptedBuildingDocument } from '../../runtime.js';
+
+const literalInput = (value: string, source: string): null | boolean | number | string => {
+  if (source === 'null') return null;
+  if (source === 'true') return true;
+  if (source === 'false') return false;
+  if (/^-?\d+(?:\.\d+)?n?$/.test(source) && /^-?\d+(?:\.\d+)?$/.test(value)) return Number(value);
+  return value;
+};
 
 export function Inspector({
   document,
@@ -17,19 +26,33 @@ export function Inspector({
   onEdit: (intent: SemanticIntent) => void;
 }>) {
   const node = document.flow.nodes.find(({ id }) => id === selected);
-  const [value, setValue] = useState('');
-  useEffect(() => setValue(node?.detail ?? ''), [node?.id]);
-  const capability = (kind: string) => node?.controls.find(({ operation }) => operation === kind)?.capability;
-  const children = useMemo(
-    () =>
-      node
-        ? document.graph.edges
-            .filter(({ kind, from, index }) => kind === 'contains' && from === node.semanticId && index !== undefined)
-            .sort((left, right) => (left.index ?? 0) - (right.index ?? 0))
-            .map(({ to }) => to)
-        : [],
-    [document.graph.edges, node],
-  );
+  const control = (kind: string) => node?.controls.find(({ operation }) => operation === kind);
+  const literal = control('set_literal_value');
+  const rename = control('rename_symbol');
+  const replace = control('replace_target');
+  const operators = control('change_operator');
+  const action = control('change_action_operation');
+  const actionInput = control('set_action_input_field');
+  const remove = control('delete_target');
+  const graphNode = (target: string | undefined) => document.graph.nodes.find(({ id }) => id === target);
+  const literalNode = graphNode(literal?.target);
+  const renameNode = graphNode(rename?.target);
+  const operatorNode = graphNode(operators?.target);
+  const sourceFor = (target: typeof literalNode): string => {
+    if (!target?.source) return '';
+    const bytes = new TextEncoder().encode(document.acceptedSource.source);
+    return new TextDecoder().decode(bytes.slice(target.source.start, target.source.end));
+  };
+  const [conditionValue, setConditionValue] = useState('');
+  const [literalValue, setLiteralValue] = useState('');
+  const [nameValue, setNameValue] = useState('');
+  const [actionValue, setActionValue] = useState('');
+  useEffect(() => {
+    setConditionValue(node?.detail.replace(/^When\s*/, '') ?? '');
+    setLiteralValue(literalNode?.constant === undefined ? '' : String(literalNode.constant));
+    setNameValue(renameNode?.label ?? '');
+    setActionValue(node?.detail.replace(/^Value ·\s*/, '') ?? '');
+  }, [document.graph.semanticRevision, literalNode?.id, node?.id, renameNode?.id]);
   if (!node)
     return (
       <aside className="inspector empty-state" aria-label="Edit inspector">
@@ -40,16 +63,8 @@ export function Inspector({
     );
 
   const submit = (intent: SemanticIntent) => onEdit(intent);
-  const literal = capability('set_literal_value');
-  const rename = capability('rename_symbol');
-  const replace = capability('replace_target');
-  const operators = capability('change_operator');
-  const action = capability('change_action_operation');
-  const actionInput = capability('set_action_input_field');
-  const insert = capability('insert_at_anchor');
-  const reorder = capability('reorder_children');
-  const moveRange = capability('move_statement_range');
-  const remove = capability('delete_target');
+  const moveEarlier = moveBuildingStep(document, node, 'earlier');
+  const moveLater = moveBuildingStep(document, node, 'later');
 
   return (
     <aside className="inspector" aria-label={`Edit ${node.title}`}>
@@ -60,54 +75,70 @@ export function Inspector({
       <p className="semantic-id" title={node.semanticId}>
         {node.semanticId.slice(0, 30)}…
       </p>
-      {(literal || rename || replace) && (
+      {replace?.capability.fragmentCategories.includes('expression') && (
         <fieldset>
-          <legend>Meaning</legend>
-          <label htmlFor="edit-value">New value or source fragment</label>
-          <input id="edit-value" value={value} onChange={(event) => setValue(event.target.value)} />
-          <div className="button-row">
-            {literal && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => submit({ kind: 'set_literal', target: node.semanticId, value })}
-              >
-                Set literal
-              </button>
-            )}
-            {rename && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => submit({ kind: 'rename_symbol', target: node.semanticId, name: value })}
-              >
-                Rename symbol
-              </button>
-            )}
-            {replace?.fragmentCategories.includes('expression') && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => submit({ kind: 'replace_condition', target: node.semanticId, source: value })}
-              >
-                Replace expression
-              </button>
-            )}
-          </div>
+          <legend>Condition</legend>
+          <label htmlFor="condition-value">Condition expression</label>
+          <input
+            id="condition-value"
+            value={conditionValue}
+            onChange={(event) => setConditionValue(event.target.value)}
+          />
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => submit({ kind: 'replace_condition', target: replace.target, source: conditionValue })}
+          >
+            Update condition
+          </button>
         </fieldset>
       )}
-      {operators && operators.operators.length > 0 && (
+      {literal && literalNode && (
+        <fieldset>
+          <legend>Literal</legend>
+          <label htmlFor="literal-value">Literal value</label>
+          <input id="literal-value" value={literalValue} onChange={(event) => setLiteralValue(event.target.value)} />
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() =>
+              submit({
+                kind: 'set_literal',
+                target: literal.target,
+                value: literalInput(literalValue, sourceFor(literalNode)),
+              })
+            }
+          >
+            Update literal
+          </button>
+        </fieldset>
+      )}
+      {rename && (
+        <fieldset>
+          <legend>Symbol</legend>
+          <label htmlFor="symbol-name">Symbol name</label>
+          <input id="symbol-name" value={nameValue} onChange={(event) => setNameValue(event.target.value)} />
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => submit({ kind: 'rename_symbol', target: rename.target, name: nameValue })}
+          >
+            Rename symbol
+          </button>
+        </fieldset>
+      )}
+      {operators && operators.capability.operators.length > 0 && (
         <fieldset>
           <legend>Operator</legend>
           <select
             aria-label="Replacement operator"
-            defaultValue={node.detail.replace('operator ', '')}
+            defaultValue={operatorNode?.operator}
             onChange={(event) =>
-              submit({ kind: 'change_operator', target: node.semanticId, operator: event.target.value })
+              submit({ kind: 'change_operator', target: operators.target, operator: event.target.value })
             }
             disabled={busy}
           >
-            {operators.operators.map((operator) => (
+            {operators.capability.operators.map((operator) => (
               <option key={operator}>{operator}</option>
             ))}
           </select>
@@ -119,90 +150,51 @@ export function Inspector({
           <label htmlFor="operation">Compatible operation</label>
           <select
             id="operation"
-            defaultValue={document.graph.nodes.find(({ id }) => id === node.semanticId)?.operationId}
+            defaultValue={document.graph.nodes.find(({ id }) => id === action.target)?.operationId}
             disabled={busy}
             onChange={(event) =>
-              submit({ kind: 'change_action', target: node.semanticId, operation: event.target.value as OperationId })
+              submit({ kind: 'change_action', target: action.target, operation: event.target.value as OperationId })
             }
           >
-            {action.operations.map((operation) => (
+            {action.capability.operations.map((operation) => (
               <option key={operation} value={operation}>
                 {operation.replace('operation:', '')}
               </option>
             ))}
           </select>
           {actionInput && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                submit({
-                  kind: 'set_action_input',
-                  target: node.semanticId,
-                  path: ['value'],
-                  source: value,
-                })
-              }
-            >
-              Set action value
-            </button>
+            <>
+              <label htmlFor="action-value">Action value expression</label>
+              <input id="action-value" value={actionValue} onChange={(event) => setActionValue(event.target.value)} />
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() =>
+                  submit({
+                    kind: 'set_action_input',
+                    target: actionInput.target,
+                    path: ['value'],
+                    source: actionValue,
+                  })
+                }
+              >
+                Set action value
+              </button>
+            </>
           )}
         </fieldset>
       )}
-      {insert && (
+      {(moveEarlier || moveLater) && (
         <fieldset>
-          <legend>Statements</legend>
-          <label htmlFor="statement">Statement fragment</label>
-          <input
-            id="statement"
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-            placeholder="const sample = 1n"
-          />
-          <button
-            type="button"
-            disabled={busy || insert.anchors.length === 0}
-            onClick={() => {
-              const anchor = insert.anchors.at(-1);
-              if (anchor)
-                submit({ kind: 'insert_statement', container: node.semanticId, index: anchor.index, source: value });
-            }}
-          >
-            Add at end
-          </button>
-          {reorder && children.length > 1 && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                submit({ kind: 'reorder_statements', container: node.semanticId, children: [...children].reverse() })
-              }
-            >
-              Reverse statement order
+          <legend>Position</legend>
+          <div className="button-row">
+            <button type="button" disabled={busy || !moveEarlier} onClick={() => moveEarlier && submit(moveEarlier)}>
+              Move earlier
             </button>
-          )}
-          {moveRange && children[0] && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                const destination = moveRange.anchors.find(
-                  (anchor: SemanticGraphAnchor) =>
-                    anchor.container === node.semanticId && anchor.index === children.length,
-                );
-                if (destination)
-                  submit({
-                    kind: 'move_statement_range',
-                    container: node.semanticId,
-                    first: children[0] as SemanticNodeId,
-                    last: children[0] as SemanticNodeId,
-                    destination,
-                  });
-              }}
-            >
-              Move first statement to end
+            <button type="button" disabled={busy || !moveLater} onClick={() => moveLater && submit(moveLater)}>
+              Move later
             </button>
-          )}
+          </div>
         </fieldset>
       )}
       {remove && (
@@ -210,9 +202,9 @@ export function Inspector({
           className="button button--danger"
           type="button"
           disabled={busy}
-          onClick={() => submit({ kind: 'delete_statement', target: node.semanticId })}
+          onClick={() => submit({ kind: 'delete_statement', target: remove.target })}
         >
-          Remove selected construct
+          Delete step
         </button>
       )}
     </aside>

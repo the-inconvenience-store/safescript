@@ -31,6 +31,7 @@ textarea {
 button,
 select,
 input {
+  min-height: 44px;
   border: 1px solid #385a53;
   border-radius: 8px;
   background: #10221f;
@@ -45,7 +46,14 @@ button:hover:not(:disabled),
 button:focus-visible {
   border-color: #f0b861;
   background: #19332e;
-  outline: 2px solid transparent;
+  outline: 2px solid #ffc66d;
+  outline-offset: 2px;
+}
+input:focus-visible,
+select:focus-visible {
+  border-color: #f0b861;
+  outline: 2px solid #ffc66d;
+  outline-offset: 2px;
 }
 button:disabled {
   opacity: 0.42;
@@ -176,10 +184,11 @@ h2 {
 .graph-column {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-rows: minmax(480px, 1fr) minmax(210px, 0.38fr);
   border-right: 1px solid #294039;
 }
 .canvas {
+  position: relative;
   min-height: 500px;
   background: #081513;
 }
@@ -192,7 +201,7 @@ h2 {
   overflow: auto;
 }
 .inspector {
-  border-left: 1px solid #294039;
+  border-top: 1px solid #294039;
 }
 .inspector h2 {
   margin-top: 0.35rem;
@@ -302,8 +311,8 @@ textarea:focus {
   white-space: pre-wrap;
 }
 .semantic-node {
-  width: 220px;
-  min-height: 98px;
+  width: 238px;
+  min-height: 124px;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
@@ -334,14 +343,72 @@ textarea:focus {
 }
 .semantic-node small {
   color: #9ab4ae;
+  display: -webkit-box;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
-.node-capabilities {
+.node-actions {
   margin-top: auto;
-  color: #6d9189;
-  font-size: 0.65rem;
+  padding-top: 0.45rem;
+  display: flex;
+  gap: 0.4rem;
+}
+.node-actions button {
+  flex: 1;
+  padding: 0.25rem 0.45rem;
+  border-radius: 6px;
+  font-size: 0.68rem;
+}
+.node-actions .node-delete {
+  color: #ffc8c3;
+  border-color: #754845;
+  background: #271a19;
+}
+.composer-toolbar {
+  position: absolute;
+  z-index: 8;
+  top: 16px;
+  left: 16px;
+}
+.canvas-hint {
+  position: absolute;
+  z-index: 7;
+  top: 17px;
+  right: 18px;
+  margin: 0;
+  color: #688a82;
+  font-size: 0.68rem;
+}
+.add-step-button {
+  padding-inline: 1rem;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.32);
+}
+.add-step-menu {
+  width: min(330px, calc(100vw - 48px));
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.5rem;
+  border: 1px solid #44675f;
+  border-radius: 12px;
+  background: #0b1b18;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.48);
+}
+.add-step-menu .eyebrow {
+  padding: 0.2rem 0.25rem;
+}
+.add-step-menu button {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.75rem;
+  text-align: left;
+}
+.add-step-menu small {
+  color: #8eaaa4;
+  font-size: 0.72rem;
+  font-weight: 450;
 }
 .react-flow__handle {
   width: 7px;
@@ -355,6 +422,10 @@ textarea:focus {
   border-radius: 9px;
   overflow: hidden;
   background: #10211e;
+}
+.react-flow__minimap {
+  width: 140px !important;
+  height: 92px !important;
 }
 .react-flow__controls-button {
   background: #10211e;
@@ -382,7 +453,7 @@ footer strong {
     grid-template-columns: 1fr;
   }
   .graph-column {
-    min-height: 680px;
+    min-height: 760px;
     border-right: 0;
     border-bottom: 1px solid #294039;
   }
@@ -405,15 +476,22 @@ footer strong {
     grid-template-columns: repeat(2, 1fr);
   }
   .graph-column {
-    grid-template-columns: 1fr;
+    min-height: auto;
+    grid-template-rows: 520px auto;
   }
   .canvas {
-    min-height: 560px;
+    min-height: 520px;
   }
   .inspector {
-    min-height: 300px;
+    min-height: 220px;
     border-top: 1px solid #294039;
-    border-left: 0;
+  }
+  .react-flow__minimap {
+    display: none;
+  }
+  .canvas-hint {
+    max-width: 115px;
+    text-align: right;
   }
   .code-column {
     grid-template-columns: 1fr;

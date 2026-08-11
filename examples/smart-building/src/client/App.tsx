@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import type { SemanticDiff } from '@safescript/contracts';
 
 import type { SemanticIntent } from '../editor/operations.js';
+import { buildingStepTemplates } from '../editor/composer.js';
 import type { AcceptedBuildingDocument } from '../runtime.js';
 import { editorApi, type EditorResponse } from './api.js';
 import { FlowCanvas } from './components/FlowCanvas.js';
@@ -119,7 +120,15 @@ export function App() {
       </section>
       <div className="workspace">
         <div className="graph-column">
-          <FlowCanvas flow={document.flow} diff={diff} selected={selected} onSelect={setSelected} />
+          <FlowCanvas
+            flow={document.flow}
+            diff={diff}
+            selected={selected}
+            templates={buildingStepTemplates(document)}
+            busy={busy}
+            onSelect={setSelected}
+            onEdit={(intent) => void edit(intent)}
+          />
           <Inspector document={document} selected={selected} busy={busy} onEdit={(intent) => void edit(intent)} />
         </div>
         <div className="code-column">

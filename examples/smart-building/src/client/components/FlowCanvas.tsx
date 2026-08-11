@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import {
   Background,
   Controls,
@@ -16,9 +16,19 @@ import {
 
 import type { SemanticDiff } from '@safescript/contracts';
 
+import type { BuildingStepTemplate } from '../../editor/composer.js';
+import type { SemanticIntent } from '../../editor/operations.js';
 import type { BuildingFlow, BuildingFlowNode } from '../../editor/projection.js';
+import { ComposerToolbar } from './ComposerToolbar.js';
 
-type CanvasNode = Node<BuildingFlowNode & Record<string, unknown>, 'semantic'>;
+type CanvasNodeData = BuildingFlowNode &
+  Readonly<{
+    busy: boolean;
+    onSelect: (id: string) => void;
+    onDelete: (target: BuildingFlowNode['semanticId']) => void;
+  }> &
+  Record<string, unknown>;
+type CanvasNode = Node<CanvasNodeData, 'semantic'>;
 
 function SemanticNodeCard({ data, selected }: NodeProps<CanvasNode>) {
   const inputs = data.ports.filter(({ direction }) => direction === 'input');
@@ -38,7 +48,37 @@ function SemanticNodeCard({ data, selected }: NodeProps<CanvasNode>) {
       <span className="node-kicker">{data.type}</span>
       <strong>{data.title}</strong>
       <small>{data.detail}</small>
-      <span className="node-capabilities">{data.controls.length} edits</span>
+      {(data.controls.length > 0 || data.statementId !== undefined) && (
+        <div className="node-actions nodrag nopan">
+          <button
+            type="button"
+            aria-label={`Edit ${data.title}`}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              data.onSelect(data.id);
+            }}
+          >
+            Edit
+          </button>
+          {data.controls.find(({ operation }) => operation === 'delete_target') && (
+            <button
+              className="node-delete"
+              type="button"
+              aria-label={`Delete ${data.title}`}
+              disabled={data.busy}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                const remove = data.controls.find(({ operation }) => operation === 'delete_target');
+                if (remove) data.onDelete(remove.target);
+              }}
+            >
+              Delete
+            </button>
+          )}
+        </div>
+      )}
       {outputs.map((port, index) => (
         <Handle
           key={port.id}
@@ -55,12 +95,17 @@ function SemanticNodeCard({ data, selected }: NodeProps<CanvasNode>) {
 
 const nodeTypes = { semantic: SemanticNodeCard };
 
-const canvasNodes = (flow: BuildingFlow): CanvasNode[] =>
+const canvasNodes = (
+  flow: BuildingFlow,
+  busy: boolean,
+  onSelect: (id: string) => void,
+  onDelete: (target: BuildingFlowNode['semanticId']) => void,
+): CanvasNode[] =>
   flow.nodes.map((node) => ({
     id: node.id,
     type: 'semantic',
     position: node.position,
-    data: { ...node },
+    data: { ...node, busy, onSelect, onDelete },
     ariaLabel: `${node.type}: ${node.title}. ${node.controls.length} available edits`,
   }));
 
@@ -77,17 +122,28 @@ export function FlowCanvas({
   flow,
   diff,
   selected,
+  templates,
+  busy,
   onSelect,
+  onEdit,
 }: Readonly<{
   flow: BuildingFlow;
   diff: SemanticDiff | undefined;
   selected: string | undefined;
+  templates: readonly BuildingStepTemplate[];
+  busy: boolean;
   onSelect: (id?: string) => void;
+  onEdit: (intent: SemanticIntent) => void;
 }>) {
-  const initialNodes = useMemo(() => canvasNodes(flow), []);
-  const initialEdges = useMemo(() => canvasEdges(flow), []);
+  const remove = useCallback(
+    (target: BuildingFlowNode['semanticId']) => onEdit({ kind: 'delete_statement', target }),
+    [onEdit],
+  );
+  const initialNodes = useMemo(() => canvasNodes(flow, busy, onSelect, remove), [busy, flow, onSelect, remove]);
+  const initialEdges = useMemo(() => canvasEdges(flow), [flow]);
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const compactViewport = typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches;
 
   useEffect(() => {
     setNodes((current) => {
@@ -99,13 +155,18 @@ export function FlowCanvas({
           if (position) for (const after of entry.after) positions.set(after, position);
         }
       }
-      return canvasNodes(flow).map((node) => ({ ...node, position: positions.get(node.id) ?? node.position }));
+      return canvasNodes(flow, busy, onSelect, remove).map((node) => ({
+        ...node,
+        position: positions.get(node.id) ?? node.position,
+      }));
     });
     setEdges(canvasEdges(flow));
-  }, [diff, flow, setEdges, setNodes]);
+  }, [busy, diff, flow, onSelect, remove, setEdges, setNodes]);
 
   return (
     <section className="canvas" aria-label="Semantic program graph">
+      <ComposerToolbar templates={templates} busy={busy} onEdit={onEdit} />
+      <p className="canvas-hint">Drag to explore · scroll to zoom</p>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -116,8 +177,9 @@ export function FlowCanvas({
         onPaneClick={() => onSelect(undefined)}
         nodesConnectable={false}
         elementsSelectable
-        fitView
-        fitViewOptions={{ padding: 0.22 }}
+        fitView={!compactViewport}
+        defaultViewport={compactViewport ? { x: 24, y: 112, zoom: 0.58 } : { x: 0, y: 0, zoom: 1 }}
+        fitViewOptions={{ padding: 0.16, minZoom: 0.58, maxZoom: 1 }}
         minZoom={0.12}
         maxZoom={1.8}
         colorMode="dark"

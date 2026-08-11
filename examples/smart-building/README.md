@@ -7,7 +7,7 @@ bun install
 bun run --cwd examples/smart-building dev
 ```
 
-Open <http://localhost:4173>. Select graph nodes to see only the edits advertised for that semantic target. The source editor, check/run controls, deliberately limited run, undo/redo, diagnostics, action records, results, traces, and resource usage all use the public `@safescript/sdk` facade.
+Open <http://localhost:4173>. The default projection deliberately shows nine task-level concepts instead of every syntax fact: the sensor event, calculations, automation rules, host actions, and checked result. Use **Add step** for capability-backed templates, or the visible Edit/Delete controls on a card. The source editor, check/run controls, deliberately limited run, undo/redo, diagnostics, action records, results, traces, and resource usage all use the public `@safescript/sdk` facade.
 
 ## Bidirectional lifecycle
 
@@ -32,7 +32,8 @@ The example owns history as complete accepted source programs. Undo and redo re-
 
 The modules deliberately keep responsibilities narrow:
 
-- [`projection.ts`](src/editor/projection.ts) derives React Flow nodes, edges, typed ports, and control descriptors from the graph and capability manifest.
+- [`projection.ts`](src/editor/projection.ts) folds low-level graph facts into task-level React Flow nodes, edges, typed ports, and control descriptors while retaining stable semantic targets.
+- [`composer.ts`](src/editor/composer.ts) exposes useful insert and range-move intents only when their container anchors are advertised by the current capability manifest.
 - [`operations.ts`](src/editor/operations.ts) translates visual intents into the closed public semantic-edit algebra.
 - [`document.ts`](src/editor/document.ts) owns accepted source, revision checks, re-inspection, failure preservation, and source-based undo/redo.
 - [`runtime.ts`](src/runtime.ts) composes the SDK contract, host policy, deterministic execution, and document controller.

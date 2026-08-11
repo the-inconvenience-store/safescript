@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 
 import { type SemanticRevisionId } from '@safescript/contracts';
 
+import { buildingStepTemplates, moveBuildingStep } from '../src/editor/composer.js';
 import { createBuildingEditor } from '../src/runtime.js';
 
 const open: ReturnType<typeof createBuildingEditor>[] = [];
@@ -19,7 +20,18 @@ describe('smart-building semantic editor', () => {
 
     expect(document.acceptedSource.source).toContain('temperatureDelta');
     expect(document.graph.nodes.length).toBeGreaterThan(10);
-    expect(document.flow.nodes.length).toBeGreaterThan(4);
+    expect(document.flow.nodes.length).toBe(9);
+    expect(document.flow.nodes.map(({ title }) => title)).toEqual([
+      'Sensor event',
+      'Comfort target',
+      'Temperature delta',
+      'HVAC rule',
+      'Set HVAC',
+      'Lighting rule',
+      'Set lighting',
+      'Record audit',
+      'Successful result',
+    ]);
     expect(document.flow.edges.length).toBeGreaterThan(3);
     expect(document.flow.nodes.every((node) => document.graph.nodes.some(({ id }) => id === node.semanticId))).toBe(
       true,
@@ -45,6 +57,51 @@ describe('smart-building semantic editor', () => {
     expect(changed.document.acceptedSource.moduleId).toBe(initial.acceptedSource.moduleId);
     expect(changed.document.graph.semanticRevision).not.toBe(initial.graph.semanticRevision);
     expect(changed.document.graph.nodes.some((node) => node.constant === '30')).toBe(true);
+  });
+
+  it('advertises useful add-step templates and removable automation nodes', async () => {
+    const editor = createBuildingEditor();
+    open.push(editor);
+    const initial = await editor.open();
+
+    const templates = buildingStepTemplates(initial);
+    expect(templates.map(({ label }) => label)).toEqual(['Calculation', 'Humidity alert rule']);
+    const rule = templates.find(({ id }) => id === 'humidity-alert');
+    if (!rule) throw new Error('humidity rule template is missing');
+    const added = await editor.applyIntent(rule.intent, initial.graph.semanticRevision);
+
+    expect(added.status).toBe('accepted');
+    if (added.status !== 'accepted') throw new Error('advertised rule insertion was rejected');
+    expect(added.document.flow.nodes.map(({ title }) => title)).toContain('Send alert');
+    expect(buildingStepTemplates(added.document)).toHaveLength(2);
+    const addedRule = added.document.flow.nodes.find(({ title }) => title === 'Send alert rule');
+    const remove = addedRule?.controls.find(({ operation }) => operation === 'delete_target');
+    if (!remove) throw new Error('added rule is not visibly removable');
+    const removed = await editor.applyIntent(
+      { kind: 'delete_statement', target: remove.target },
+      added.document.graph.semanticRevision,
+    );
+    expect(removed.status).toBe('accepted');
+    if (removed.status !== 'accepted') throw new Error('advertised rule deletion was rejected');
+    expect(removed.document.acceptedSource.source).not.toContain('high humidity');
+  });
+
+  it('moves a visible automation step through an advertised range destination', async () => {
+    const editor = createBuildingEditor();
+    open.push(editor);
+    const initial = await editor.open();
+    const hvacRule = initial.flow.nodes.find(({ title }) => title === 'HVAC rule');
+    if (!hvacRule) throw new Error('HVAC rule is missing');
+    const intent = moveBuildingStep(initial, hvacRule, 'later');
+    if (!intent) throw new Error('HVAC rule has no advertised later position');
+
+    const moved = await editor.applyIntent(intent, initial.graph.semanticRevision);
+
+    expect(moved.status).toBe('accepted');
+    if (moved.status !== 'accepted') throw new Error('advertised move was rejected');
+    expect(moved.document.acceptedSource.source.indexOf('event.lightLux')).toBeLessThan(
+      moved.document.acceptedSource.source.indexOf('temperatureDelta > 25n'),
+    );
   });
 
   it('translates a visual literal change into an advertised edit and adopts only checked source', async () => {

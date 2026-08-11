@@ -54,7 +54,7 @@ export function createBuildingDocumentController(safe: DocumentSdk) {
         acceptedSource: source,
         graph,
         capabilities,
-        flow: projectSemanticEditor(graph, capabilities),
+        flow: projectSemanticEditor(graph, capabilities, source.source),
       }),
     };
   };
