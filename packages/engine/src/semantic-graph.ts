@@ -2,6 +2,7 @@
 import {
   LANGUAGE_PROFILE,
   SEMANTIC_GRAPH_SCHEMA,
+  SEMANTIC_EDIT_SCHEMA,
   derivedSemanticRevisionId,
   programHash,
   sourceHash,
@@ -134,6 +135,7 @@ export function deriveSemanticGraph(
     encoder.encode(
       canonical({
         schema: SEMANTIC_GRAPH_SCHEMA,
+        editSchema: SEMANTIC_EDIT_SCHEMA,
         sourceHash: sourceDigest,
         programHash: sourceProgramHash.value,
         compiler,

@@ -8,15 +8,20 @@ import {
   encodeWorkerProtocolFrame,
   encodeWorkerProtocolPayload,
   SEMANTIC_GRAPH_SCHEMA,
+  SEMANTIC_EDIT_SCHEMA,
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
   STANDARD_SEMANTIC_GRAPH_LIMITS,
+  STANDARD_SEMANTIC_EDIT_LIMITS,
   STANDARD_WORKER_OPERATIONAL_LIMITS,
   SAFESCRIPT_VERSION,
   WORKER_PROTOCOL_SESSION_HELLO_PAYLOAD,
   WORKER_PROTOCOL_SESSION_WELCOME_PAYLOAD,
   type ActionRequest,
+  type ApplySemanticEditsRequest,
+  type ApplySemanticEditsResult,
   type CheckRequest,
+  type InspectRequest,
   type RuntimeBridge,
   type WorkerProtocolEnvelope,
   type WorkerProtocolMessageKind,
@@ -174,6 +179,89 @@ describe('standalone runtime worker server', () => {
     if (!encoded.ok) return;
     const decoded = decodeWorkerBridgePayload('bridge.check.request', encoded.value);
     expect(decoded).toEqual({ ok: true, value: checkRequest });
+
+    const capabilityInspect = {
+      ...checkRequest,
+      views: [
+        {
+          kind: 'semantic_edit_capabilities',
+          schema: SEMANTIC_EDIT_SCHEMA,
+          scope: { targets: [`semantic-node:${'3'.repeat(64)}`] },
+          limits: { targets: 1, capabilities: 10, bytes: 1_024 },
+        },
+      ],
+    } as unknown as InspectRequest;
+    const capabilityEncoded = encodeWorkerBridgePayload('bridge.inspect.request', capabilityInspect);
+    expect(capabilityEncoded.ok).toBe(true);
+    if (capabilityEncoded.ok)
+      expect(decodeWorkerBridgePayload('bridge.inspect.request', capabilityEncoded.value)).toEqual({
+        ok: true,
+        value: capabilityInspect,
+      });
+
+    const editRequest = {
+      ...checkRequest,
+      editSchema: SEMANTIC_EDIT_SCHEMA,
+      graphSchema: SEMANTIC_GRAPH_SCHEMA,
+      baseRevision: `semantic-revision:${'1'.repeat(64)}`,
+      edits: [
+        {
+          kind: 'rename_symbol',
+          editId: 'edit:rename',
+          target: `semantic-node:${'2'.repeat(64)}`,
+          newName: 'renamed',
+          preconditions: [{ kind: 'old_name', value: 'before' }],
+        },
+      ],
+      editLimits: STANDARD_SEMANTIC_EDIT_LIMITS,
+      views: [],
+    } as unknown as ApplySemanticEditsRequest;
+    const editEncoded = encodeWorkerBridgePayload('bridge.apply_semantic_edits.request', editRequest);
+    expect(editEncoded.ok).toBe(true);
+    if (!editEncoded.ok) return;
+    expect(decodeWorkerBridgePayload('bridge.apply_semantic_edits.request', editEncoded.value)).toEqual({
+      ok: true,
+      value: editRequest,
+    });
+    expect(
+      encodeWorkerBridgePayload('bridge.apply_semantic_edits.request', {
+        ...editRequest,
+        edits: [{ ...editRequest.edits[0], unknown: true }],
+      } as never).ok,
+    ).toBe(false);
+    const rejected = {
+      status: 'rejected',
+      reason: 'stale_revision',
+      diagnostics: [],
+      editDiagnostics: [
+        {
+          code: 'SE_STALE_REVISION',
+          message: 'base revision is stale',
+          editIds: ['edit:rename'],
+          targets: [],
+          related: [],
+        },
+      ],
+      editIds: ['edit:rename'],
+      targets: [],
+      usage: {
+        operations: 1,
+        fragmentBytes: 0,
+        transformedRegions: 0,
+        work: 1,
+        provenanceEntries: 0,
+        diffBytes: 0,
+        sourceBytes: 2,
+      },
+      limit: { limit: 'work', maximum: 10, actual: 11 },
+    } as unknown as ApplySemanticEditsResult;
+    const resultEncoded = encodeWorkerBridgePayload('bridge.apply_semantic_edits.result', rejected);
+    expect(resultEncoded.ok).toBe(true);
+    if (resultEncoded.ok)
+      expect(decodeWorkerBridgePayload('bridge.apply_semantic_edits.result', resultEncoded.value)).toEqual({
+        ok: true,
+        value: rejected,
+      });
   });
 
   it('handshakes, multiplexes every bridge operation, suspends actions, and closes cleanly', async () => {

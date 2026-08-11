@@ -69,6 +69,10 @@ The [CDDL](worker-protocol.cddl) defines every protocol payload. Its `bridge-*` 
 
 Inspection views are tagged, schema-bound records carrying their own limits. Accepted inspection responses preserve request order in a correlated tagged result array; a rejected view contains no partial bytes. Unknown schemas, duplicate view kinds, missing limits, and extra fields fail closed at the bridge boundary.
 
+Semantic edit schema 1.0 publishes `bridge.apply_semantic_edits.request` and `bridge.apply_semantic_edits.result` as closed payload records. A request binds an atomic, caller-correlated operation batch to one exact semantic revision and carries independent edit limits. Results are accepted, rejected, or bridge errors; accepted results carry complete checked source, per-edit outcomes, changed regions, transformation provenance, and a semantic diff, while rejected results never carry candidate source or partial views. Edit-limit rejections identify the measured limit, maximum, and actual value. These wire records grant no runtime authority and do not make the graph an edit input.
+
+The current worker codec validates and round-trips these records. Runtime routing and the SDK facade are introduced with the semantic-edit integration stage; before then, receiving an apply request in a live session is an `unexpected_message` state-machine failure rather than an edit attempt.
+
 An action outcome is either a completed canonical operation `Result` or a host failure with explicit effect state; there is no protocol-level policy rejection. SDK policy callbacks, credentials, host objects, invocation context, and policy state are deliberately absent from the wire schema.
 
 ## Schema evolution

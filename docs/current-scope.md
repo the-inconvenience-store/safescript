@@ -19,6 +19,7 @@ The repository currently implements:
 - typed action requests/outcomes, optional validated `beforeAction` policy, and at-most-once handler dispatch per request;
 - deterministic fixed time, seeded randomness, checked JSON/bytes/math/string/object/collection intrinsics, and bounded traces;
 - tagged semantic graph 1.0 inspection with source-complete editable boundaries, stable semantic IDs, ordered anchors, explicit semantic relationships, and independent export limits;
+- semantic edit schema 1.0 contracts with a closed 30-operation algebra, capability-view records, preconditions, independent limits, atomic result/diff/diagnostic unions, strict hostile-input validators, and canonical worker payload records;
 - host contract declaration/codecs/fingerprint derivation;
 - the six-method TypeScript facade and deterministic scripted-action tests;
 - slot-scoped agent/editor authoring bundles with repair guidance;
@@ -52,7 +53,7 @@ The current repository does not yet provide:
 - Python, Go, Rust, Java, or C# host SDKs;
 - a WebAssembly execution backend;
 - a SafeScript-provided artifact storage backend, signing, or export product;
-- checked semantic source-edit transformations;
+- checked semantic source-edit transformations, capability projection, and callable bridge/SDK edit integration;
 - a general visual editor product;
 - durable invocations, workflow coordination, approvals, retries, or audit persistence;
 - package ecosystems or arbitrary TypeScript/JavaScript compatibility.

@@ -3,6 +3,9 @@ import { readFile, writeFile } from 'node:fs/promises';
 import {
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
+  STANDARD_SEMANTIC_EDIT_LIMITS,
+  SEMANTIC_EDIT_SCHEMA,
+  SEMANTIC_GRAPH_SCHEMA,
   encodeWorkerProtocolEnvelope,
   encodeWorkerProtocolFrame,
   encodeWorkerProtocolPayload,
@@ -44,6 +47,32 @@ const checkRequest = {
     source: [],
   },
   limits: STANDARD_COMPILE_LIMITS,
+};
+const editRequest = {
+  ...checkRequest,
+  editSchema: SEMANTIC_EDIT_SCHEMA,
+  graphSchema: SEMANTIC_GRAPH_SCHEMA,
+  baseRevision: `semantic-revision:${digest}`,
+  edits: [
+    {
+      kind: 'rename_symbol',
+      editId: 'edit:fixture-rename',
+      target: `semantic-node:${digest}`,
+      newName: 'renamed',
+      preconditions: [{ kind: 'old_name', value: 'original' }],
+    },
+  ],
+  editLimits: STANDARD_SEMANTIC_EDIT_LIMITS,
+  views: [],
+};
+const editUsage = {
+  operations: 0,
+  fragmentBytes: 0,
+  transformedRegions: 0,
+  work: 0,
+  provenanceEntries: 0,
+  diffBytes: 0,
+  sourceBytes: 0,
 };
 const actionRequest = {
   contractId: registry.id,
@@ -115,6 +144,24 @@ const fixtures: readonly FixtureInput[] = [
     kind: 'bridge.inspect.result',
     replyTo: 1n,
     payload: bridgePayload('bridge.inspect.result', { status: 'rejected', diagnostics: [], usage: compileUsage }),
+  },
+  {
+    kind: 'bridge.apply_semantic_edits.request',
+    replyTo: null,
+    payload: bridgePayload('bridge.apply_semantic_edits.request', editRequest),
+  },
+  {
+    kind: 'bridge.apply_semantic_edits.result',
+    replyTo: 1n,
+    payload: bridgePayload('bridge.apply_semantic_edits.result', {
+      status: 'rejected',
+      reason: 'stale_revision',
+      diagnostics: [],
+      editDiagnostics: [],
+      editIds: ['edit:fixture-rename'],
+      targets: [`semantic-node:${digest}`],
+      usage: editUsage,
+    }),
   },
   {
     kind: 'bridge.execute.request',

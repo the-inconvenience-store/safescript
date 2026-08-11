@@ -1,6 +1,6 @@
 # Semantic editing design
 
-This document specifies the planned compiler-owned semantic edit API. It is an implementation plan, not a claim about current repository behavior; [current scope](current-scope.md) remains authoritative until the complete coverage and conformance gate passes.
+This document specifies the compiler-owned semantic edit API. Schema 1.0 contracts, strict validators, capability-view records, and worker wire records are implemented; transformation and bridge execution remain staged work. [Current scope](current-scope.md) remains authoritative until the complete coverage and conformance gate passes.
 
 ## Outcome
 
@@ -149,7 +149,7 @@ Targets, anchors, and preconditions resolve against the original semantic revisi
 
 ## Public edit request
 
-The transport-neutral bridge adds a compiler-only method with no host callback:
+The transport-neutral bridge will add a compiler-only method with no host callback. Its request and result contracts and worker protocol records are already published; the callable bridge method is added with the integration stage:
 
 ```ts
 interface RuntimeBridge {
@@ -364,7 +364,7 @@ The bounded bridge-local compilation cache may retain these private checked stru
 
 Each stage keeps build, lint, typecheck, and tests green. The public feature is not declared complete until the final coverage audit.
 
-Stages 1 and 2 are implemented: every public location uses UTF-8 byte offsets, and tagged semantic graph schema 1.0 is projected from the private checked semantic model. The semantic edit contracts and mutation API described below remain release work until the remaining stages and final audit are complete.
+Stages 1 through 3 are implemented: every public location uses UTF-8 byte offsets; tagged semantic graph schema 1.0 is projected from the private checked semantic model; and the complete closed edit/capability contract algebra, validators, limits, diagnostics, result unions, and worker message records are published. No bridge currently applies an edit—the mutation engine and integration remain release work until the remaining stages and final audit are complete.
 
 1. Convert every public source location to UTF-8 bytes and add Unicode boundary tests.
 2. Build the private semantic model and replace the semantic graph contract with explicit schema `1.0`, complete source coverage, structural anchors, and tagged inspection.

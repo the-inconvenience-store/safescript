@@ -9,6 +9,12 @@ import {
   JSON_VALUE_TYPE,
   MAX_FAILURE_DETAIL_LENGTH,
   MAX_FAILURE_PATH_SEGMENTS,
+  SEMANTIC_GRAPH_SCHEMA,
+  SEMANTIC_EDIT_KINDS,
+  SEMANTIC_EDIT_SCHEMA,
+  STANDARD_COMPILE_LIMITS,
+  STANDARD_SEMANTIC_EDIT_CAPABILITY_LIMITS,
+  STANDARD_SEMANTIC_EDIT_LIMITS,
   canonicalJson,
   canonicalize,
   decodeCanonical,
@@ -17,12 +23,280 @@ import {
   hash,
   ids,
   isActionOutcome,
+  isApplySemanticEditsRequest,
+  isSemanticEdit,
+  isSemanticEditCapabilityViewRequest,
   optionSchema,
   resultSchema,
   type ContractFailureCode,
   type Schema,
   type TypeDefinition,
 } from './index.js';
+
+describe('semantic edit contracts', () => {
+  it('publishes schema 1.0, conservative independent limits, and a closed operation catalog', () => {
+    expect(SEMANTIC_EDIT_SCHEMA).toEqual({ major: 1, minor: 0 });
+    expect(STANDARD_SEMANTIC_EDIT_LIMITS).toEqual({
+      operations: 1_024,
+      fragmentBytes: 1024 * 1024,
+      transformedRegions: 4_096,
+      work: 2_000_000,
+      provenanceEntries: 500_000,
+      diffBytes: 4 * 1024 * 1024,
+      sourceBytes: 1024 * 1024,
+    });
+    expect(STANDARD_SEMANTIC_EDIT_CAPABILITY_LIMITS).toEqual({
+      targets: 500_000,
+      capabilities: 2_000_000,
+      bytes: 8 * 1024 * 1024,
+    });
+    expect(SEMANTIC_EDIT_KINDS).toHaveLength(30);
+  });
+
+  it('validates one closed primitive and rejects unknown kinds or fields', () => {
+    const edit = {
+      kind: 'rename_symbol',
+      editId: 'edit:rename_1',
+      target: `semantic-node:${'a'.repeat(64)}`,
+      newName: 'renamed',
+      preconditions: [
+        { kind: 'target_semantic_kind', value: 'symbol' },
+        { kind: 'old_name', value: 'before' },
+      ],
+    };
+    expect(isSemanticEdit(edit)).toBe(true);
+    expect(isSemanticEdit({ ...edit, surprise: true })).toBe(false);
+    expect(isSemanticEdit({ ...edit, kind: 'rewrite_everything' })).toBe(false);
+  });
+
+  it('validates every primitive and gesture as a closed serialisable record', () => {
+    const node = `semantic-node:${'b'.repeat(64)}`;
+    const other = `semantic-node:${'c'.repeat(64)}`;
+    const anchor = { container: node, index: 0 };
+    const expression = { category: 'expression', source: [0x31] };
+    const statementList = { category: 'statement_list', source: [] };
+    const bindingPattern = { category: 'binding_pattern', source: [0x78] };
+    const common = { editId: 'edit:catalog', preconditions: [] };
+    const samples: Readonly<Record<string, unknown>> = {
+      rename_symbol: { ...common, kind: 'rename_symbol', target: node, newName: 'next' },
+      replace_target: { ...common, kind: 'replace_target', target: node, replacement: expression },
+      insert_at_anchor: { ...common, kind: 'insert_at_anchor', anchor, fragment: statementList },
+      delete_target: {
+        ...common,
+        kind: 'delete_target',
+        target: node,
+        commentPolicy: 'preserve_owned_comments',
+      },
+      move_target: { ...common, kind: 'move_target', target: node, destination: anchor },
+      reorder_children: { ...common, kind: 'reorder_children', container: node, children: [other] },
+      wrap_statement_range: {
+        ...common,
+        kind: 'wrap_statement_range',
+        range: { container: node, first: other, last: other },
+        control: { kind: 'if', condition: expression, branch: 'true' },
+      },
+      move_statement_range: {
+        ...common,
+        kind: 'move_statement_range',
+        range: { container: node, first: other, last: other },
+        destination: anchor,
+      },
+      unwrap_control: { ...common, kind: 'unwrap_control', target: node, retainedContainer: other },
+      add_branch: { ...common, kind: 'add_branch', target: node, branch: { kind: 'else', body: statementList } },
+      remove_branch: {
+        ...common,
+        kind: 'remove_branch',
+        target: node,
+        commentPolicy: 'delete_owned_comments',
+      },
+      convert_control: {
+        ...common,
+        kind: 'convert_control',
+        target: node,
+        control: { kind: 'while', condition: expression },
+        retainedContainers: [{ from: other, role: 'body' }],
+      },
+      extract_local: {
+        ...common,
+        kind: 'extract_local',
+        target: node,
+        name: 'value',
+        declaration: anchor,
+        replaceTargets: [node],
+      },
+      inline_local: {
+        ...common,
+        kind: 'inline_local',
+        binding: node,
+        references: [other],
+        removeDeclaration: true,
+        commentPolicy: 'preserve_owned_comments',
+      },
+      extract_function: {
+        ...common,
+        kind: 'extract_function',
+        range: { container: node, first: other, last: other },
+        name: 'helper',
+        declaration: anchor,
+        parameters: [{ symbol: `symbol:${'d'.repeat(64)}`, name: 'input' }],
+        outputs: [],
+      },
+      inline_function_call: {
+        ...common,
+        kind: 'inline_function_call',
+        call: node,
+        function: other,
+        parameterArguments: [{ parameter: node, argument: other }],
+        removeDeclaration: false,
+        commentPolicy: 'preserve_owned_comments',
+      },
+      change_binding_pattern: { ...common, kind: 'change_binding_pattern', target: node, pattern: bindingPattern },
+      change_binding_mutability: { ...common, kind: 'change_binding_mutability', target: node, mutability: 'let' },
+      change_action_operation: {
+        ...common,
+        kind: 'change_action_operation',
+        target: node,
+        operation: 'operation:tasks.create',
+        fieldMappings: [{ from: ['title'], to: ['name'] }],
+        requiredInputs: [{ path: ['workspaceId'], value: expression }],
+      },
+      set_action_input_field: {
+        ...common,
+        kind: 'set_action_input_field',
+        target: node,
+        path: ['title'],
+        value: expression,
+      },
+      remove_action_input_field: { ...common, kind: 'remove_action_input_field', target: node, path: ['title'] },
+      bind_action_result: { ...common, kind: 'bind_action_result', target: node, pattern: bindingPattern },
+      add_action_result_branch: {
+        ...common,
+        kind: 'add_action_result_branch',
+        target: node,
+        variant: 'error',
+        body: statementList,
+      },
+      set_literal_value: { ...common, kind: 'set_literal_value', target: node, value: 'changed' },
+      change_operator: { ...common, kind: 'change_operator', target: node, operator: '===' },
+      change_member_name: { ...common, kind: 'change_member_name', target: node, name: 'title' },
+      toggle_optional_access: { ...common, kind: 'toggle_optional_access', target: node, optional: true },
+      change_call_callee: { ...common, kind: 'change_call_callee', target: node, callee: expression },
+      change_object_field_name: { ...common, kind: 'change_object_field_name', target: node, name: 'title' },
+      change_result_variant: { ...common, kind: 'change_result_variant', target: node, variant: 'ok' },
+    };
+    expect(Object.keys(samples)).toEqual([...SEMANTIC_EDIT_KINDS]);
+    for (const kind of SEMANTIC_EDIT_KINDS) {
+      expect(isSemanticEdit(samples[kind]), kind).toBe(true);
+      expect(isSemanticEdit({ ...(samples[kind] as object), unexpected: true }), `${kind} extras`).toBe(false);
+    }
+  });
+
+  it('validates schema-bound capability views and atomic edit request envelopes', () => {
+    const target = `semantic-node:${'e'.repeat(64)}`;
+    const capability = {
+      kind: 'semantic_edit_capabilities',
+      schema: SEMANTIC_EDIT_SCHEMA,
+      scope: { targets: [target] },
+      limits: STANDARD_SEMANTIC_EDIT_CAPABILITY_LIMITS,
+    };
+    expect(isSemanticEditCapabilityViewRequest(capability)).toBe(true);
+    expect(isSemanticEditCapabilityViewRequest({ ...capability, scope: { targets: [target, target] } })).toBe(false);
+    expect(isSemanticEditCapabilityViewRequest({ ...capability, schema: { major: 2, minor: 0 } })).toBe(false);
+
+    const edit = {
+      kind: 'rename_symbol',
+      editId: 'edit:rename',
+      target,
+      newName: 'renamed',
+      preconditions: [{ kind: 'old_name', value: 'before' }],
+    };
+    const request = {
+      registry: {},
+      slotId: 'slot:test',
+      source: { module: 'module:test', source: [] },
+      limits: STANDARD_COMPILE_LIMITS,
+      editSchema: SEMANTIC_EDIT_SCHEMA,
+      graphSchema: SEMANTIC_GRAPH_SCHEMA,
+      baseRevision: `semantic-revision:${'f'.repeat(64)}`,
+      edits: [edit],
+      editLimits: STANDARD_SEMANTIC_EDIT_LIMITS,
+      views: [capability],
+    };
+    expect(isApplySemanticEditsRequest(request)).toBe(true);
+    expect(isApplySemanticEditsRequest({ ...request, edits: [] })).toBe(false);
+    expect(isApplySemanticEditsRequest({ ...request, edits: [edit, edit] })).toBe(false);
+    expect(isApplySemanticEditsRequest({ ...request, editSchema: { major: 1, minor: 1 } })).toBe(false);
+    expect(isApplySemanticEditsRequest({ ...request, extra: true })).toBe(false);
+  });
+
+  it('fails closed on hostile records, enforces fragment categories, and counts repeated fragments by value', () => {
+    const target = `semantic-node:${'a'.repeat(64)}`;
+    const hostile = Object.defineProperty({}, 'kind', {
+      enumerable: true,
+      get: () => {
+        throw new Error('must not run');
+      },
+    });
+    expect(() => isSemanticEdit(hostile)).not.toThrow();
+    expect(isSemanticEdit(hostile)).toBe(false);
+    const hostileProxy = new Proxy(
+      {},
+      {
+        ownKeys: () => {
+          throw new Error('must not escape');
+        },
+      },
+    );
+    expect(() => isSemanticEdit(hostileProxy)).not.toThrow();
+    expect(isSemanticEdit(hostileProxy)).toBe(false);
+    expect(
+      isSemanticEdit({
+        kind: 'replace_target',
+        editId: 'edit:invalid-utf8',
+        target,
+        replacement: { category: 'expression', source: [0xff] },
+        preconditions: [],
+      }),
+    ).toBe(false);
+
+    expect(
+      isSemanticEdit({
+        kind: 'wrap_statement_range',
+        editId: 'edit:wrong-category',
+        range: { container: target, first: target, last: target },
+        control: { kind: 'if', condition: { category: 'statement', source: [] }, branch: 'true' },
+        preconditions: [],
+      }),
+    ).toBe(false);
+
+    const sharedExpression = { category: 'expression', source: [0x31] };
+    const request = {
+      registry: {},
+      slotId: 'slot:test',
+      source: { module: 'module:test', source: [] },
+      limits: STANDARD_COMPILE_LIMITS,
+      editSchema: SEMANTIC_EDIT_SCHEMA,
+      graphSchema: SEMANTIC_GRAPH_SCHEMA,
+      baseRevision: `semantic-revision:${'f'.repeat(64)}`,
+      edits: [
+        {
+          kind: 'change_action_operation',
+          editId: 'edit:shared-fragment',
+          target,
+          operation: 'operation:tasks.create',
+          fieldMappings: [],
+          requiredInputs: [
+            { path: ['first'], value: sharedExpression },
+            { path: ['second'], value: sharedExpression },
+          ],
+          preconditions: [],
+        },
+      ],
+      editLimits: { ...STANDARD_SEMANTIC_EDIT_LIMITS, fragmentBytes: 1 },
+    };
+    expect(isApplySemanticEditsRequest(request)).toBe(false);
+  });
+});
 
 describe('action outcome validation', () => {
   it('accepts only the current closed action outcome shape', () => {

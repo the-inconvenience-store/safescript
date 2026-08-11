@@ -17,6 +17,7 @@ message-kind =
   "session.hello" / "session.welcome" / "session.incompatible" /
   "bridge.check.request" / "bridge.check.result" /
   "bridge.inspect.request" / "bridge.inspect.result" /
+  "bridge.apply_semantic_edits.request" / "bridge.apply_semantic_edits.result" /
   "bridge.execute.request" / "bridge.execute.result" /
   "bridge.cancel.request" / "bridge.cancel.result" /
   "session.close.request" / "session.close.result" /
@@ -26,6 +27,7 @@ message-payload =
   session-hello / session-welcome / session-incompatible /
   bridge-check-request / bridge-check-result /
   bridge-inspect-request / bridge-inspect-result /
+  bridge-apply-semantic-edits-request / bridge-apply-semantic-edits-result /
   bridge-execute-request / bridge-execute-result /
   bridge-cancel-request / bridge-cancel-result /
   session-close-request / session-close-result /
@@ -86,6 +88,8 @@ bridge-check-request = check-request
 bridge-check-result = check-result
 bridge-inspect-request = inspect-request
 bridge-inspect-result = inspect-result
+bridge-apply-semantic-edits-request = apply-semantic-edits-request
+bridge-apply-semantic-edits-result = apply-semantic-edits-result
 bridge-execute-request = execute-request
 bridge-execute-result = execution-result
 bridge-cancel-request = cancel-request
@@ -151,8 +155,10 @@ inspect-request = {
   limits: compile-limits,
   ? include_artifact: bool,
   ? cached_artifact: canonical-bytes,
-  views: [? semantic-graph-view-request],
+  views: [* inspect-view-request],
 }
+
+inspect-view-request = semantic-graph-view-request / semantic-edit-capability-view-request
 
 semantic-graph-view-request = {
   kind: "semantic_graph",
@@ -160,12 +166,20 @@ semantic-graph-view-request = {
   limits: graph-limits,
 }
 semantic-graph-schema = { major: 1, minor: 0 }
+semantic-edit-schema = { major: 1, minor: 0 }
+
+semantic-edit-capability-view-request = {
+  kind: "semantic_edit_capabilities",
+  schema: semantic-edit-schema,
+  scope: "all" / { targets: [* identifier] },
+  limits: semantic-edit-capability-limits,
+}
 
 inspect-result =
   {
     status: "accepted",
     check: check-accepted,
-    views: [? semantic-graph-view-result],
+    views: [* inspect-view-result],
   } /
   { status: "rejected", diagnostics: [* diagnostic], usage: compile-usage } /
   { status: "bridge_error", error: bridge-error }
@@ -173,6 +187,255 @@ inspect-result =
 semantic-graph-view-result =
   { kind: "semantic_graph", status: "accepted", bytes: canonical-bytes } /
   { kind: "semantic_graph", status: "rejected", error: graph-error }
+
+semantic-edit-capability-view-result =
+  { kind: "semantic_edit_capabilities", status: "accepted", bytes: canonical-bytes } /
+  { kind: "semantic_edit_capabilities", status: "rejected", error: capability-error }
+
+inspect-view-result = semantic-graph-view-result / semantic-edit-capability-view-result
+
+; Semantic editing
+
+apply-semantic-edits-request = {
+  registry: contract-registry,
+  slot_id: identifier,
+  source: source-program,
+  limits: compile-limits,
+  ? include_artifact: bool,
+  ? cached_artifact: canonical-bytes,
+  edit_schema: semantic-edit-schema,
+  graph_schema: semantic-graph-schema,
+  base_revision: identifier,
+  edits: [* semantic-edit],
+  edit_limits: semantic-edit-limits,
+  ? views: [* inspect-view-request],
+}
+
+semantic-edit-common = (
+  edit_id: identifier,
+  preconditions: [* semantic-edit-precondition],
+)
+
+semantic-edit =
+  { semantic-edit-common, kind: "rename_symbol", target: identifier, new_name: bounded-text } /
+  { semantic-edit-common, kind: "replace_target", target: identifier, replacement: source-fragment } /
+  { semantic-edit-common, kind: "insert_at_anchor", anchor: semantic-graph-anchor, fragment: source-fragment } /
+  { semantic-edit-common, kind: "delete_target", target: identifier, comment_policy: comment-policy } /
+  { semantic-edit-common, kind: "move_target", target: identifier, destination: semantic-graph-anchor } /
+  { semantic-edit-common, kind: "reorder_children", container: identifier, children: [* identifier] } /
+  { semantic-edit-common, kind: "wrap_statement_range", range: statement-range, control: control-spec } /
+  { semantic-edit-common, kind: "move_statement_range", range: statement-range, destination: semantic-graph-anchor } /
+  { semantic-edit-common, kind: "unwrap_control", target: identifier, retained_container: identifier } /
+  { semantic-edit-common, kind: "add_branch", target: identifier, branch: branch-spec } /
+  { semantic-edit-common, kind: "remove_branch", target: identifier, comment_policy: comment-policy } /
+  {
+    semantic-edit-common,
+    kind: "convert_control",
+    target: identifier,
+    control: control-spec,
+    retained_containers: [* { from: identifier, role: bounded-text }],
+  } /
+  {
+    semantic-edit-common,
+    kind: "extract_local",
+    target: identifier,
+    name: bounded-text,
+    declaration: semantic-graph-anchor,
+    replace_targets: [* identifier],
+  } /
+  {
+    semantic-edit-common,
+    kind: "inline_local",
+    binding: identifier,
+    references: [* identifier],
+    remove_declaration: bool,
+    comment_policy: comment-policy,
+  } /
+  {
+    semantic-edit-common,
+    kind: "extract_function",
+    range: statement-range,
+    name: bounded-text,
+    declaration: semantic-graph-anchor,
+    parameters: [* { symbol: identifier, name: bounded-text }],
+    outputs: [* identifier],
+  } /
+  {
+    semantic-edit-common,
+    kind: "inline_function_call",
+    call: identifier,
+    function: identifier,
+    parameter_arguments: [* { parameter: identifier, argument: identifier }],
+    remove_declaration: bool,
+    comment_policy: comment-policy,
+  } /
+  { semantic-edit-common, kind: "change_binding_pattern", target: identifier, pattern: source-fragment } /
+  { semantic-edit-common, kind: "change_binding_mutability", target: identifier, mutability: "const" / "let" } /
+  {
+    semantic-edit-common,
+    kind: "change_action_operation",
+    target: identifier,
+    operation: identifier,
+    field_mappings: [* { from: schema-path, to: schema-path }],
+    required_inputs: [* { path: schema-path, value: source-fragment }],
+  } /
+  {
+    semantic-edit-common,
+    kind: "set_action_input_field",
+    target: identifier,
+    path: schema-path,
+    value: source-fragment,
+  } /
+  { semantic-edit-common, kind: "remove_action_input_field", target: identifier, path: schema-path } /
+  { semantic-edit-common, kind: "bind_action_result", target: identifier, pattern: source-fragment } /
+  {
+    semantic-edit-common,
+    kind: "add_action_result_branch",
+    target: identifier,
+    variant: "ok" / "error",
+    body: source-fragment,
+  } /
+  { semantic-edit-common, kind: "set_literal_value", target: identifier, value: semantic-literal } /
+  { semantic-edit-common, kind: "change_operator", target: identifier, operator: bounded-text } /
+  { semantic-edit-common, kind: "change_member_name", target: identifier, name: bounded-text } /
+  { semantic-edit-common, kind: "toggle_optional_access", target: identifier, optional: bool } /
+  { semantic-edit-common, kind: "change_call_callee", target: identifier, callee: source-fragment } /
+  { semantic-edit-common, kind: "change_object_field_name", target: identifier, name: bounded-text } /
+  { semantic-edit-common, kind: "change_result_variant", target: identifier, variant: "ok" / "error" }
+
+semantic-edit-precondition =
+  { kind: "target_kind", value: bounded-text } /
+  { kind: "target_semantic_kind", value: bounded-text } /
+  { kind: "old_name", value: bounded-text } /
+  { kind: "old_literal", value: semantic-literal } /
+  { kind: "old_operator", value: bounded-text } /
+  { kind: "old_operation", value: identifier } /
+  { kind: "expected_parent", value: identifier } /
+  { kind: "expected_anchor", value: semantic-graph-anchor } /
+  { kind: "expected_type", value: sha256 } /
+  { kind: "expected_bindings", value: [* identifier] } /
+  { kind: "expected_captures", value: [* identifier] } /
+  { kind: "owned_comments", value: bool }
+
+semantic-graph-anchor = {
+  container: identifier,
+  index: uint,
+  ? before: identifier,
+  ? after: identifier,
+}
+statement-range = { container: identifier, first: identifier, last: identifier }
+schema-path = [* bounded-text / uint]
+comment-policy = "delete_owned_comments" / "preserve_owned_comments"
+source-fragment = { category: source-fragment-category, source: canonical-bytes }
+source-fragment-category =
+  "expression" / "statement" / "statement_list" / "declaration" /
+  "declaration_list" / "type" / "binding_pattern" / "parameter" /
+  "argument" / "object_member" / "array_element" / "switch_case" /
+  "import_specifier"
+
+control-spec =
+  { kind: "if", condition: source-fragment, branch: "true" / "false" } /
+  { kind: "for_of", binding: source-fragment, iterable: source-fragment } /
+  { kind: "for_in", binding: source-fragment, value: source-fragment } /
+  { kind: "while", condition: source-fragment } /
+  { kind: "do", condition: source-fragment } /
+  {
+    kind: "for",
+    ? initializer: source-fragment,
+    ? condition: source-fragment,
+    ? increment: source-fragment,
+  } /
+  { kind: "switch", value: source-fragment }
+
+branch-spec =
+  { kind: "else", body: source-fragment } /
+  { kind: "switch_case", value: source-fragment, body: source-fragment }
+
+semantic-literal = null / bool / float64 / bounded-text
+
+semantic-edit-limits = {
+  operations: uint,
+  fragment_bytes: uint,
+  transformed_regions: uint,
+  work: uint,
+  provenance_entries: uint,
+  diff_bytes: uint,
+  source_bytes: uint,
+}
+
+semantic-edit-usage = semantic-edit-limits
+
+apply-semantic-edits-result =
+  {
+    status: "accepted",
+    source: source-program,
+    source_hash: sha256,
+    program_hash: sha256,
+    semantic_revision: identifier,
+    check: check-accepted,
+    outcomes: [* semantic-edit-outcome],
+    changed_regions: [* semantic-changed-region],
+    provenance: [* semantic-transformation-provenance],
+    diff: { entries: [* semantic-diff-entry] },
+    usage: semantic-edit-usage,
+    views: [* inspect-view-result],
+  } /
+  {
+    status: "rejected",
+    reason: semantic-edit-rejection-reason,
+    diagnostics: [* diagnostic],
+    edit_diagnostics: [* semantic-edit-diagnostic],
+    edit_ids: [* identifier],
+    targets: [* identifier],
+    usage: semantic-edit-usage,
+    ? limit: semantic-edit-limit-error,
+    ? compile_usage: compile-usage,
+  } /
+  { status: "bridge_error", error: bridge-error }
+
+semantic-edit-outcome = { edit_id: identifier, targets: [* identifier], changed_regions: [* uint] }
+semantic-changed-region = {
+  ? original: source-location,
+  ? updated: source-location,
+  edit_ids: [* identifier],
+}
+semantic-transformation-provenance = {
+  kind: "original" / "generated" / "copied" / "moved" / "removed",
+  ? original: source-location,
+  ? updated: source-location,
+  edit_ids: [* identifier],
+  targets: [* identifier],
+}
+semantic-diff-entry = {
+  kind: "preserved" / "updated" / "renamed" / "moved" / "added" / "removed" / "split" / "merged",
+  before: [* identifier],
+  after: [* identifier],
+  edit_ids: [* identifier],
+}
+semantic-edit-diagnostic-location =
+  { kind: "original_source", location: source-location } /
+  { kind: "fragment", edit_id: identifier, start: uint, end: uint } /
+  { kind: "generated", edit_id: identifier, target: identifier }
+semantic-edit-diagnostic = {
+  code: "SE_STALE_REVISION" / "SE_TARGET_NOT_FOUND" / "SE_TARGET_KIND_MISMATCH" /
+        "SE_PRECONDITION_FAILED" / "SE_CONFLICTING_EDITS" / "SE_FRAGMENT_REJECTED" /
+        "SE_TRANSFORMED_SOURCE_REJECTED" / "SE_EDIT_LIMIT_EXCEEDED",
+  message: bounded-text,
+  edit_ids: [* identifier],
+  targets: [* identifier],
+  ? location: semantic-edit-diagnostic-location,
+  related: [* semantic-edit-diagnostic-location],
+}
+semantic-edit-rejection-reason =
+  "source_rejected" / "stale_revision" / "target_not_found" /
+  "target_kind_mismatch" / "precondition_failed" / "conflicting_edits" /
+  "fragment_rejected" / "transformed_source_rejected" / "edit_limit_exceeded"
+semantic-edit-limit-error = {
+  limit: "operations" / "fragment_bytes" / "transformed_regions" / "work" /
+         "provenance_entries" / "diff_bytes" / "source_bytes",
+  maximum: uint,
+  actual: uint,
+}
 
 check-accepted = {
   status: "accepted",
@@ -308,12 +571,12 @@ diagnostic = {
 
 bridge-error = {
   code: bridge-error-code,
-  phase: "check" / "inspect" / "execute" / "cancel" / "close" / "action",
+  phase: "check" / "inspect" / "apply_semantic_edits" / "execute" / "cancel" / "close" / "action",
   ? detail: bounded-text,
 }
 bridge-error-code =
   "adapter_failure" / "artifact_verification_failed" / "bridge_closed" /
-  "invalid_request" / "unsupported_version" / "worker_start_failed" /
+  "capacity_exceeded" / "invalid_request" / "unsupported_version" / "worker_start_failed" /
   "worker_start_timeout" / "worker_lost" /
   "worker_close_timeout" / "worker_identity_mismatch"
 
@@ -329,6 +592,13 @@ graph-limits = { nodes: uint, edges: uint, bytes: uint }
 graph-error = {
   code: "graph_limit_exceeded",
   limit: "nodes" / "edges" / "bytes",
+  maximum: uint,
+  actual: uint,
+}
+semantic-edit-capability-limits = { targets: uint, capabilities: uint, bytes: uint }
+capability-error = {
+  code: "capability_limit_exceeded",
+  limit: "targets" / "capabilities" / "bytes",
   maximum: uint,
   actual: uint,
 }

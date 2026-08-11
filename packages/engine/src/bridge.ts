@@ -221,7 +221,7 @@ function exactRecord(value: unknown, keys: readonly string[]): value is Readonly
 }
 
 /** Validates the whole tagged view envelope before nested values are read. */
-function inspectViewValid(value: unknown): value is InspectViewRequest {
+function inspectViewValid(value: unknown): value is Extract<InspectViewRequest, { kind: 'semantic_graph' }> {
   if (!exactRecord(value, ['kind', 'schema', 'limits']) || value.kind !== 'semantic_graph') return false;
   if (
     !exactRecord(value.schema, ['major', 'minor']) ||
@@ -785,6 +785,7 @@ export class DirectRuntimeBridge implements RuntimeBridge {
     try {
       views = Object.freeze(
         request.views.map((view) => {
+          if (view.kind !== 'semantic_graph') throw new Error('unsupported inspection view');
           const graph = deriveSemanticGraph(
             request,
             result.compiled.slot,

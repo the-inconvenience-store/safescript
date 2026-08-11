@@ -1565,7 +1565,7 @@ export interface Diagnostic {
 /** Adapter or request-envelope failure outside source and execution semantics. */
 export interface BridgeError {
   readonly code: BridgeErrorCode;
-  readonly phase: 'check' | 'inspect' | 'execute' | 'cancel' | 'close' | 'action';
+  readonly phase: 'check' | 'inspect' | 'apply_semantic_edits' | 'execute' | 'cancel' | 'close' | 'action';
   readonly detail?: string;
 }
 
@@ -2034,16 +2034,19 @@ export interface SemanticGraphError {
 }
 
 /** Schema-bound request for one independently bounded compiler-derived inspection view. */
-export type InspectViewRequest = Readonly<{
-  kind: 'semantic_graph';
-  schema: Version;
-  limits: SemanticGraphLimits;
-}>;
+export type InspectViewRequest =
+  | Readonly<{
+      kind: 'semantic_graph';
+      schema: Version;
+      limits: SemanticGraphLimits;
+    }>
+  | import('./semantic-edit.js').SemanticEditCapabilityViewRequest;
 
 /** One correlated view result; a rejected view never contains partial trusted bytes. */
 export type InspectViewResult =
   | Readonly<{ kind: 'semantic_graph'; status: 'accepted'; bytes: CanonicalBytes }>
-  | Readonly<{ kind: 'semantic_graph'; status: 'rejected'; error: SemanticGraphError }>;
+  | Readonly<{ kind: 'semantic_graph'; status: 'rejected'; error: SemanticGraphError }>
+  | import('./semantic-edit.js').SemanticEditCapabilityViewResult;
 
 /** Check request plus schema-bound, independently bounded derived views. */
 export interface InspectRequest extends CheckRequest {
@@ -2554,3 +2557,4 @@ export type RuntimeBridgeFactory = () => RuntimeBridge;
 export * from './worker-protocol.js';
 export * from './worker-framing.js';
 export * from './worker-handshake.js';
+export * from './semantic-edit.js';

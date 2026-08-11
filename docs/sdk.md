@@ -58,6 +58,8 @@ Accepted checks omit artifact bytes by default. Set `includeArtifact: true` when
 
 `inspect` performs the same check and optionally derives read-only views. Request the current view with a tagged `{ kind: 'semantic_graph', schema: { major: 1, minor: 0 }, limits }` record. Accepted inspection results contain a correlated `views` array whose element is independently accepted with bytes or rejected with `graph_limit_exceeded`. Graph generation has independent node, edge, and byte limits; no partial graph is returned.
 
+The contracts package also publishes the schema-1.0 `semantic_edit_capabilities` view and `ApplySemanticEditsRequest`/`ApplySemanticEditsResult` records. They are the stable integration surface for semantic editing, but the current six-method facade and runtime bridges do not yet project capabilities or apply edits. Callers must not send those records through `inspect` or a worker session until the integration stage lands.
+
 See [artifacts and inspection](artifacts-and-inspection.md) before building an editor or analysis tool.
 
 ## Execute source or an artifact

@@ -12,6 +12,8 @@ import {
   type ExecutionResult,
   type InspectRequest,
   type InspectResult,
+  type ApplySemanticEditsRequest,
+  type ApplySemanticEditsResult,
   type WorkerProtocolCodecResult,
   type WorkerProtocolCodecLimits,
   type WorkerProtocolMessageKind,
@@ -27,7 +29,7 @@ const boolean = (): WorkerProtocolSchema => ({ kind: 'boolean' });
 const uint = (): WorkerProtocolSchema => ({ kind: 'uint' });
 const float64 = (): WorkerProtocolSchema => ({ kind: 'float64' });
 const text = (maxBytes = MAX_TEXT): WorkerProtocolSchema => ({ kind: 'text', maxBytes });
-const bytes = (): WorkerProtocolSchema => ({ kind: 'bytes', maxBytes: MAX_BYTES });
+const bytes = (maxBytes = MAX_BYTES): WorkerProtocolSchema => ({ kind: 'bytes', maxBytes });
 const literal = (value: null | boolean | bigint | string): WorkerProtocolSchema => ({ kind: 'literal', value });
 const array = (item: WorkerProtocolSchema, maxItems = MAX_ITEMS): WorkerProtocolSchema => ({
   kind: 'array',
@@ -209,19 +211,325 @@ const graphLimits = record([
   { name: 'edges', schema: uint() },
   { name: 'bytes', schema: uint() },
 ]);
+const semanticEditCapabilityLimits = record([
+  { name: 'targets', schema: uint() },
+  { name: 'capabilities', schema: uint() },
+  { name: 'bytes', schema: uint() },
+]);
+const semanticGraphViewRequest = record([
+  { name: 'kind', schema: literal('semantic_graph') },
+  { name: 'schema', schema: version },
+  { name: 'limits', schema: graphLimits },
+]);
+const semanticEditCapabilityViewRequest = record([
+  { name: 'kind', schema: literal('semantic_edit_capabilities') },
+  { name: 'schema', schema: version },
+  {
+    name: 'scope',
+    schema: oneOf(literal('all'), record([{ name: 'targets', schema: array(text(), 500_000) }])),
+  },
+  { name: 'limits', schema: semanticEditCapabilityLimits },
+]);
+const inspectViewRequest = oneOf(semanticGraphViewRequest, semanticEditCapabilityViewRequest);
 const inspectRequest = record([
   ...(checkRequest.kind === 'record' ? checkRequest.fields : []),
-  {
-    name: 'views',
-    schema: array(
-      record([
-        { name: 'kind', schema: literal('semantic_graph') },
-        { name: 'schema', schema: version },
-        { name: 'limits', schema: graphLimits },
-      ]),
-      1,
-    ),
-  },
+  { name: 'views', schema: array(inspectViewRequest, 2) },
+]);
+const semanticGraphAnchor = record([
+  { name: 'container', schema: text() },
+  { name: 'index', schema: uint() },
+  { name: 'before', schema: text(), optional: true },
+  { name: 'after', schema: text(), optional: true },
+]);
+const sourceFragmentCategory = oneOf(
+  ...[
+    'expression',
+    'statement',
+    'statement_list',
+    'declaration',
+    'declaration_list',
+    'type',
+    'binding_pattern',
+    'parameter',
+    'argument',
+    'object_member',
+    'array_element',
+    'switch_case',
+    'import_specifier',
+  ].map(literal),
+);
+const sourceFragment = record([
+  { name: 'category', schema: sourceFragmentCategory },
+  { name: 'source', schema: bytes(1024 * 1024) },
+]);
+const semanticLiteral = oneOf(literal(null), boolean(), float64(), text(1024 * 1024));
+const semanticEditPrecondition = oneOf(
+  record([
+    { name: 'kind', schema: literal('target_kind') },
+    { name: 'value', schema: text() },
+  ]),
+  record([
+    { name: 'kind', schema: literal('target_semantic_kind') },
+    { name: 'value', schema: text() },
+  ]),
+  record([
+    { name: 'kind', schema: literal('old_name') },
+    { name: 'value', schema: text() },
+  ]),
+  record([
+    { name: 'kind', schema: literal('old_literal') },
+    { name: 'value', schema: semanticLiteral },
+  ]),
+  record([
+    { name: 'kind', schema: literal('old_operator') },
+    { name: 'value', schema: text() },
+  ]),
+  record([
+    { name: 'kind', schema: literal('old_operation') },
+    { name: 'value', schema: text() },
+  ]),
+  record([
+    { name: 'kind', schema: literal('expected_parent') },
+    { name: 'value', schema: text() },
+  ]),
+  record([
+    { name: 'kind', schema: literal('expected_anchor') },
+    { name: 'value', schema: semanticGraphAnchor },
+  ]),
+  record([
+    { name: 'kind', schema: literal('expected_type') },
+    { name: 'value', schema: text(64) },
+  ]),
+  record([
+    { name: 'kind', schema: literal('expected_bindings') },
+    { name: 'value', schema: array(text(), 1_024) },
+  ]),
+  record([
+    { name: 'kind', schema: literal('expected_captures') },
+    { name: 'value', schema: array(text(), 1_024) },
+  ]),
+  record([
+    { name: 'kind', schema: literal('owned_comments') },
+    { name: 'value', schema: boolean() },
+  ]),
+);
+const statementRange = record([
+  { name: 'container', schema: text() },
+  { name: 'first', schema: text() },
+  { name: 'last', schema: text() },
+]);
+const schemaPath = array(oneOf(text(), uint()), 64);
+const commentPolicy = oneOf(literal('delete_owned_comments'), literal('preserve_owned_comments'));
+const controlSpec = oneOf(
+  record([
+    { name: 'kind', schema: literal('if') },
+    { name: 'condition', schema: sourceFragment },
+    { name: 'branch', schema: oneOf(literal('true'), literal('false')) },
+  ]),
+  record([
+    { name: 'kind', schema: literal('for_of') },
+    { name: 'binding', schema: sourceFragment },
+    { name: 'iterable', schema: sourceFragment },
+  ]),
+  record([
+    { name: 'kind', schema: literal('for_in') },
+    { name: 'binding', schema: sourceFragment },
+    { name: 'value', schema: sourceFragment },
+  ]),
+  record([
+    { name: 'kind', schema: literal('while') },
+    { name: 'condition', schema: sourceFragment },
+  ]),
+  record([
+    { name: 'kind', schema: literal('do') },
+    { name: 'condition', schema: sourceFragment },
+  ]),
+  record([
+    { name: 'kind', schema: literal('for') },
+    { name: 'initializer', schema: sourceFragment, optional: true },
+    { name: 'condition', schema: sourceFragment, optional: true },
+    { name: 'increment', schema: sourceFragment, optional: true },
+  ]),
+  record([
+    { name: 'kind', schema: literal('switch') },
+    { name: 'value', schema: sourceFragment },
+  ]),
+);
+const editRecord = (
+  kind: string,
+  fields: readonly Readonly<{ name: string; schema: WorkerProtocolSchema; optional?: boolean }>[],
+): WorkerProtocolSchema =>
+  record([
+    { name: 'kind', schema: literal(kind) },
+    { name: 'edit_id', schema: text() },
+    { name: 'preconditions', schema: array(semanticEditPrecondition, 64) },
+    ...fields,
+  ]);
+const target = { name: 'target', schema: text() } as const;
+const semanticEdit = oneOf(
+  editRecord('rename_symbol', [target, { name: 'new_name', schema: text() }]),
+  editRecord('replace_target', [target, { name: 'replacement', schema: sourceFragment }]),
+  editRecord('insert_at_anchor', [
+    { name: 'anchor', schema: semanticGraphAnchor },
+    { name: 'fragment', schema: sourceFragment },
+  ]),
+  editRecord('delete_target', [target, { name: 'comment_policy', schema: commentPolicy }]),
+  editRecord('move_target', [target, { name: 'destination', schema: semanticGraphAnchor }]),
+  editRecord('reorder_children', [
+    { name: 'container', schema: text() },
+    { name: 'children', schema: array(text(), 1_024) },
+  ]),
+  editRecord('wrap_statement_range', [
+    { name: 'range', schema: statementRange },
+    { name: 'control', schema: controlSpec },
+  ]),
+  editRecord('move_statement_range', [
+    { name: 'range', schema: statementRange },
+    { name: 'destination', schema: semanticGraphAnchor },
+  ]),
+  editRecord('unwrap_control', [target, { name: 'retained_container', schema: text() }]),
+  editRecord('add_branch', [
+    target,
+    {
+      name: 'branch',
+      schema: oneOf(
+        record([
+          { name: 'kind', schema: literal('else') },
+          { name: 'body', schema: sourceFragment },
+        ]),
+        record([
+          { name: 'kind', schema: literal('switch_case') },
+          { name: 'value', schema: sourceFragment },
+          { name: 'body', schema: sourceFragment },
+        ]),
+      ),
+    },
+  ]),
+  editRecord('remove_branch', [target, { name: 'comment_policy', schema: commentPolicy }]),
+  editRecord('convert_control', [
+    target,
+    { name: 'control', schema: controlSpec },
+    {
+      name: 'retained_containers',
+      schema: array(
+        record([
+          { name: 'from', schema: text() },
+          { name: 'role', schema: text() },
+        ]),
+        1_024,
+      ),
+    },
+  ]),
+  editRecord('extract_local', [
+    target,
+    { name: 'name', schema: text() },
+    { name: 'declaration', schema: semanticGraphAnchor },
+    { name: 'replace_targets', schema: array(text(), 1_024) },
+  ]),
+  editRecord('inline_local', [
+    { name: 'binding', schema: text() },
+    { name: 'references', schema: array(text(), 1_024) },
+    { name: 'remove_declaration', schema: boolean() },
+    { name: 'comment_policy', schema: commentPolicy },
+  ]),
+  editRecord('extract_function', [
+    { name: 'range', schema: statementRange },
+    { name: 'name', schema: text() },
+    { name: 'declaration', schema: semanticGraphAnchor },
+    {
+      name: 'parameters',
+      schema: array(
+        record([
+          { name: 'symbol', schema: text() },
+          { name: 'name', schema: text() },
+        ]),
+        1_024,
+      ),
+    },
+    { name: 'outputs', schema: array(text(), 1_024) },
+  ]),
+  editRecord('inline_function_call', [
+    { name: 'call', schema: text() },
+    { name: 'function', schema: text() },
+    {
+      name: 'parameter_arguments',
+      schema: array(
+        record([
+          { name: 'parameter', schema: text() },
+          { name: 'argument', schema: text() },
+        ]),
+        1_024,
+      ),
+    },
+    { name: 'remove_declaration', schema: boolean() },
+    { name: 'comment_policy', schema: commentPolicy },
+  ]),
+  editRecord('change_binding_pattern', [target, { name: 'pattern', schema: sourceFragment }]),
+  editRecord('change_binding_mutability', [
+    target,
+    { name: 'mutability', schema: oneOf(literal('const'), literal('let')) },
+  ]),
+  editRecord('change_action_operation', [
+    target,
+    { name: 'operation', schema: text() },
+    {
+      name: 'field_mappings',
+      schema: array(
+        record([
+          { name: 'from', schema: schemaPath },
+          { name: 'to', schema: schemaPath },
+        ]),
+        1_024,
+      ),
+    },
+    {
+      name: 'required_inputs',
+      schema: array(
+        record([
+          { name: 'path', schema: schemaPath },
+          { name: 'value', schema: sourceFragment },
+        ]),
+        1_024,
+      ),
+    },
+  ]),
+  editRecord('set_action_input_field', [
+    target,
+    { name: 'path', schema: schemaPath },
+    { name: 'value', schema: sourceFragment },
+  ]),
+  editRecord('remove_action_input_field', [target, { name: 'path', schema: schemaPath }]),
+  editRecord('bind_action_result', [target, { name: 'pattern', schema: sourceFragment }]),
+  editRecord('add_action_result_branch', [
+    target,
+    { name: 'variant', schema: oneOf(literal('ok'), literal('error')) },
+    { name: 'body', schema: sourceFragment },
+  ]),
+  editRecord('set_literal_value', [target, { name: 'value', schema: semanticLiteral }]),
+  editRecord('change_operator', [target, { name: 'operator', schema: text() }]),
+  editRecord('change_member_name', [target, { name: 'name', schema: text() }]),
+  editRecord('toggle_optional_access', [target, { name: 'optional', schema: boolean() }]),
+  editRecord('change_call_callee', [target, { name: 'callee', schema: sourceFragment }]),
+  editRecord('change_object_field_name', [target, { name: 'name', schema: text() }]),
+  editRecord('change_result_variant', [target, { name: 'variant', schema: oneOf(literal('ok'), literal('error')) }]),
+);
+const semanticEditLimits = record([
+  { name: 'operations', schema: uint() },
+  { name: 'fragment_bytes', schema: uint() },
+  { name: 'transformed_regions', schema: uint() },
+  { name: 'work', schema: uint() },
+  { name: 'provenance_entries', schema: uint() },
+  { name: 'diff_bytes', schema: uint() },
+  { name: 'source_bytes', schema: uint() },
+]);
+const applySemanticEditsRequest = record([
+  ...(checkRequest.kind === 'record' ? checkRequest.fields : []),
+  { name: 'edit_schema', schema: version },
+  { name: 'graph_schema', schema: version },
+  { name: 'base_revision', schema: text() },
+  { name: 'edits', schema: array(semanticEdit, 1_024) },
+  { name: 'edit_limits', schema: semanticEditLimits },
+  { name: 'views', schema: array(inspectViewRequest, 2), optional: true },
 ]);
 const executeRequest = record([
   { name: 'registry', schema: registry },
@@ -249,8 +557,34 @@ const executeRequest = record([
 const cancelRequest = record([{ name: 'invocation_id', schema: text() }]);
 
 const bridgeError = record([
-  { name: 'code', schema: text() },
-  { name: 'phase', schema: text() },
+  {
+    name: 'code',
+    schema: oneOf(
+      literal('adapter_failure'),
+      literal('artifact_verification_failed'),
+      literal('bridge_closed'),
+      literal('capacity_exceeded'),
+      literal('invalid_request'),
+      literal('unsupported_version'),
+      literal('worker_close_timeout'),
+      literal('worker_identity_mismatch'),
+      literal('worker_lost'),
+      literal('worker_start_failed'),
+      literal('worker_start_timeout'),
+    ),
+  },
+  {
+    name: 'phase',
+    schema: oneOf(
+      literal('check'),
+      literal('inspect'),
+      literal('apply_semantic_edits'),
+      literal('execute'),
+      literal('cancel'),
+      literal('close'),
+      literal('action'),
+    ),
+  },
   { name: 'detail', schema: text(), optional: true },
 ]);
 const compileUsage = record([
@@ -299,30 +633,188 @@ const graphError = record([
   { name: 'maximum', schema: uint() },
   { name: 'actual', schema: uint() },
 ]);
+const capabilityError = record([
+  { name: 'code', schema: literal('capability_limit_exceeded') },
+  { name: 'limit', schema: oneOf(literal('targets'), literal('capabilities'), literal('bytes')) },
+  { name: 'maximum', schema: uint() },
+  { name: 'actual', schema: uint() },
+]);
+const inspectViewResult = oneOf(
+  record([
+    { name: 'kind', schema: literal('semantic_graph') },
+    { name: 'status', schema: literal('accepted') },
+    { name: 'bytes', schema: bytes() },
+  ]),
+  record([
+    { name: 'kind', schema: literal('semantic_graph') },
+    { name: 'status', schema: literal('rejected') },
+    { name: 'error', schema: graphError },
+  ]),
+  record([
+    { name: 'kind', schema: literal('semantic_edit_capabilities') },
+    { name: 'status', schema: literal('accepted') },
+    { name: 'bytes', schema: bytes() },
+  ]),
+  record([
+    { name: 'kind', schema: literal('semantic_edit_capabilities') },
+    { name: 'status', schema: literal('rejected') },
+    { name: 'error', schema: capabilityError },
+  ]),
+);
 const inspectResult = oneOf(
   record([
     { name: 'status', schema: literal('accepted') },
     { name: 'check', schema: checkAccepted },
     {
       name: 'views',
-      schema: array(
-        oneOf(
-          record([
-            { name: 'kind', schema: literal('semantic_graph') },
-            { name: 'status', schema: literal('accepted') },
-            { name: 'bytes', schema: bytes() },
-          ]),
-          record([
-            { name: 'kind', schema: literal('semantic_graph') },
-            { name: 'status', schema: literal('rejected') },
-            { name: 'error', schema: graphError },
-          ]),
-        ),
-        1,
-      ),
+      schema: array(inspectViewResult, 2),
     },
   ]),
   ...(checkResult.kind === 'oneOf' ? checkResult.choices.slice(1) : []),
+);
+const semanticEditUsage = record([
+  { name: 'operations', schema: uint() },
+  { name: 'fragment_bytes', schema: uint() },
+  { name: 'transformed_regions', schema: uint() },
+  { name: 'work', schema: uint() },
+  { name: 'provenance_entries', schema: uint() },
+  { name: 'diff_bytes', schema: uint() },
+  { name: 'source_bytes', schema: uint() },
+]);
+const semanticEditLimitError = record([
+  {
+    name: 'limit',
+    schema: oneOf(
+      literal('operations'),
+      literal('fragment_bytes'),
+      literal('transformed_regions'),
+      literal('work'),
+      literal('provenance_entries'),
+      literal('diff_bytes'),
+      literal('source_bytes'),
+    ),
+  },
+  { name: 'maximum', schema: uint() },
+  { name: 'actual', schema: uint() },
+]);
+const semanticChangedRegion = record([
+  { name: 'original', schema: sourceLocation, optional: true },
+  { name: 'updated', schema: sourceLocation, optional: true },
+  { name: 'edit_ids', schema: array(text(), 1_024) },
+]);
+const semanticEditOutcome = record([
+  { name: 'edit_id', schema: text() },
+  { name: 'targets', schema: array(text(), 1_024) },
+  { name: 'changed_regions', schema: array(uint(), 4_096) },
+]);
+const semanticTransformationProvenance = record([
+  {
+    name: 'kind',
+    schema: oneOf(literal('original'), literal('generated'), literal('copied'), literal('moved'), literal('removed')),
+  },
+  { name: 'original', schema: sourceLocation, optional: true },
+  { name: 'updated', schema: sourceLocation, optional: true },
+  { name: 'edit_ids', schema: array(text(), 1_024) },
+  { name: 'targets', schema: array(text(), 1_024) },
+]);
+const semanticDiffEntry = record([
+  {
+    name: 'kind',
+    schema: oneOf(
+      literal('preserved'),
+      literal('updated'),
+      literal('renamed'),
+      literal('moved'),
+      literal('added'),
+      literal('removed'),
+      literal('split'),
+      literal('merged'),
+    ),
+  },
+  { name: 'before', schema: array(text(), 1_024) },
+  { name: 'after', schema: array(text(), 1_024) },
+  { name: 'edit_ids', schema: array(text(), 1_024) },
+]);
+const semanticEditDiagnosticLocation = oneOf(
+  record([
+    { name: 'kind', schema: literal('original_source') },
+    { name: 'location', schema: sourceLocation },
+  ]),
+  record([
+    { name: 'kind', schema: literal('fragment') },
+    { name: 'edit_id', schema: text() },
+    { name: 'start', schema: uint() },
+    { name: 'end', schema: uint() },
+  ]),
+  record([
+    { name: 'kind', schema: literal('generated') },
+    { name: 'edit_id', schema: text() },
+    { name: 'target', schema: text() },
+  ]),
+);
+const semanticEditDiagnostic = record([
+  {
+    name: 'code',
+    schema: oneOf(
+      literal('SE_STALE_REVISION'),
+      literal('SE_TARGET_NOT_FOUND'),
+      literal('SE_TARGET_KIND_MISMATCH'),
+      literal('SE_PRECONDITION_FAILED'),
+      literal('SE_CONFLICTING_EDITS'),
+      literal('SE_FRAGMENT_REJECTED'),
+      literal('SE_TRANSFORMED_SOURCE_REJECTED'),
+      literal('SE_EDIT_LIMIT_EXCEEDED'),
+    ),
+  },
+  { name: 'message', schema: text() },
+  { name: 'edit_ids', schema: array(text(), 1_024) },
+  { name: 'targets', schema: array(text(), 1_024) },
+  { name: 'location', schema: semanticEditDiagnosticLocation, optional: true },
+  { name: 'related', schema: array(semanticEditDiagnosticLocation, 64) },
+]);
+const applySemanticEditsResult = oneOf(
+  record([
+    { name: 'status', schema: literal('accepted') },
+    { name: 'source', schema: sourceProgram },
+    { name: 'source_hash', schema: text(64) },
+    { name: 'program_hash', schema: text(64) },
+    { name: 'semantic_revision', schema: text() },
+    { name: 'check', schema: checkAccepted },
+    { name: 'outcomes', schema: array(semanticEditOutcome, 1_024) },
+    { name: 'changed_regions', schema: array(semanticChangedRegion, 4_096) },
+    { name: 'provenance', schema: array(semanticTransformationProvenance, 500_000) },
+    { name: 'diff', schema: record([{ name: 'entries', schema: array(semanticDiffEntry, 500_000) }]) },
+    { name: 'usage', schema: semanticEditUsage },
+    { name: 'views', schema: array(inspectViewResult, 2) },
+  ]),
+  record([
+    { name: 'status', schema: literal('rejected') },
+    {
+      name: 'reason',
+      schema: oneOf(
+        literal('source_rejected'),
+        literal('stale_revision'),
+        literal('target_not_found'),
+        literal('target_kind_mismatch'),
+        literal('precondition_failed'),
+        literal('conflicting_edits'),
+        literal('fragment_rejected'),
+        literal('transformed_source_rejected'),
+        literal('edit_limit_exceeded'),
+      ),
+    },
+    { name: 'diagnostics', schema: array(diagnostic) },
+    { name: 'edit_diagnostics', schema: array(semanticEditDiagnostic, 1_024) },
+    { name: 'edit_ids', schema: array(text(), 1_024) },
+    { name: 'targets', schema: array(text(), 1_024) },
+    { name: 'usage', schema: semanticEditUsage },
+    { name: 'limit', schema: semanticEditLimitError, optional: true },
+    { name: 'compile_usage', schema: compileUsage, optional: true },
+  ]),
+  record([
+    { name: 'status', schema: literal('bridge_error') },
+    { name: 'error', schema: bridgeError },
+  ]),
 );
 
 const actionRequest = record([
@@ -508,6 +1000,8 @@ type WorkerPayloadTypes = {
   'bridge.check.result': CheckResult;
   'bridge.inspect.request': InspectRequest;
   'bridge.inspect.result': InspectResult;
+  'bridge.apply_semantic_edits.request': ApplySemanticEditsRequest;
+  'bridge.apply_semantic_edits.result': ApplySemanticEditsResult;
   'bridge.execute.request': ExecuteRequest;
   'bridge.execute.result': ExecutionResult;
   'bridge.cancel.request': CancelRequest;
@@ -524,6 +1018,8 @@ const payloads: Readonly<Record<keyof WorkerPayloadTypes, WorkerProtocolSchema>>
   'bridge.check.result': checkResult,
   'bridge.inspect.request': inspectRequest,
   'bridge.inspect.result': inspectResult,
+  'bridge.apply_semantic_edits.request': applySemanticEditsRequest,
+  'bridge.apply_semantic_edits.result': applySemanticEditsResult,
   'bridge.execute.request': executeRequest,
   'bridge.execute.result': executionResult,
   'bridge.cancel.request': cancelRequest,
@@ -570,12 +1066,20 @@ function toWire(schemaValue: WorkerProtocolSchema, value: unknown): unknown {
     return value instanceof Uint8Array ? value : Uint8Array.from(value as readonly number[]);
   if (selected.kind === 'array') return (value as readonly unknown[]).map((item) => toWire(selected.item, item));
   if (selected.kind === 'record') {
+    if (value === null || typeof value !== 'object' || Array.isArray(value))
+      throw new TypeError('wire record requires a plain data object');
     const source = value as Readonly<Record<string, unknown>>;
+    const descriptors = Object.getOwnPropertyDescriptors(source);
+    const expected = new Set(selected.fields.map((field) => domainName(field.name)));
+    if (
+      !Object.keys(source).every((key) => expected.has(key)) ||
+      Object.values(descriptors).some((descriptor) => !('value' in descriptor) || !descriptor.enumerable)
+    )
+      throw new TypeError('wire record contains an unknown or accessor field');
     const target: Record<string, unknown> = {};
     for (const field of selected.fields) {
       const key = domainName(field.name);
       if (Object.hasOwn(source, key)) target[field.name] = toWire(field.schema, source[key]);
-      else if (Object.hasOwn(source, field.name)) target[field.name] = toWire(field.schema, source[field.name]);
     }
     return target;
   }
@@ -619,7 +1123,18 @@ export function encodeWorkerBridgePayload<K extends keyof WorkerPayloadTypes>(
   value: WorkerPayloadTypes[K],
   limits?: WorkerProtocolCodecLimits,
 ): WorkerProtocolCodecResult<Uint8Array> {
-  return encodeWorkerProtocolPayload(contract(kind), toWire(payloads[kind], value), limits);
+  try {
+    return encodeWorkerProtocolPayload(contract(kind), toWire(payloads[kind], value), limits);
+  } catch {
+    return Object.freeze({
+      ok: false,
+      failure: Object.freeze({
+        code: 'payload_schema' as const,
+        path: Object.freeze([]),
+        detail: 'payload contains an unknown, accessor, or invalid record field',
+      }),
+    });
+  }
 }
 
 export function decodeWorkerBridgePayload<K extends keyof WorkerPayloadTypes>(

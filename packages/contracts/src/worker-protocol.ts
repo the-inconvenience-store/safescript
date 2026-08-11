@@ -7,6 +7,8 @@ export const WORKER_PROTOCOL_MESSAGE_KINDS = Object.freeze([
   'bridge.check.result',
   'bridge.inspect.request',
   'bridge.inspect.result',
+  'bridge.apply_semantic_edits.request',
+  'bridge.apply_semantic_edits.result',
   'bridge.execute.request',
   'bridge.execute.result',
   'bridge.cancel.request',
