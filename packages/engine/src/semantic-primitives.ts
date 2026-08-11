@@ -80,7 +80,7 @@ export type ApplyPrimitiveSemanticEditsResult =
       usage: SemanticEditUsage;
     }>;
 
-type PrimitiveRejectionReason = Extract<ApplyPrimitiveSemanticEditsResult, { status: 'rejected' }>['reason'];
+export type PrimitiveRejectionReason = Extract<ApplyPrimitiveSemanticEditsResult, { status: 'rejected' }>['reason'];
 
 interface ModelIndex {
   readonly nodes: ReadonlyMap<SemanticNodeId, SemanticGraphNode>;
@@ -121,7 +121,7 @@ function nodeRange(node: SemanticGraphNode | undefined): SourceByteRange | undef
   return node?.editable ? { start: node.editable.start, end: node.editable.end } : undefined;
 }
 
-function replacementCategories(node: SemanticGraphNode): readonly SourceFragmentCategory[] {
+export function replacementCategories(node: SemanticGraphNode): readonly SourceFragmentCategory[] {
   if (node.semanticKind === 'parameter') return ['parameter'];
   if (node.semanticKind === 'object-member' || node.semanticKind === 'type-member') return ['object_member'];
   if (node.semanticKind === 'array-element') return ['array_element'];
@@ -131,14 +131,14 @@ function replacementCategories(node: SemanticGraphNode): readonly SourceFragment
   if (node.semanticKind === 'binding-pattern' || node.semanticKind === 'symbol') return ['binding_pattern'];
   if (node.kind === 'module') return ['declaration_list'];
   if (node.kind === 'declaration') return ['declaration'];
-  if (node.kind === 'statement' || node.kind === 'branch') return ['statement'];
+  if (node.kind === 'statement' || node.kind === 'branch') return ['statement', 'statement_list'];
   if (node.kind === 'case') return ['switch_case'];
   if (node.kind === 'expression' || node.kind === 'constant' || node.kind === 'action') return ['expression'];
   if (node.kind === 'type' || node.kind === 'input' || node.kind === 'output') return ['type'];
   return [];
 }
 
-function insertionCategories(container: SemanticGraphNode | undefined): readonly SourceFragmentCategory[] {
+export function insertionCategories(container: SemanticGraphNode | undefined): readonly SourceFragmentCategory[] {
   switch (container?.semanticKind) {
     case 'module-container':
       return ['declaration', 'declaration_list'];
@@ -188,7 +188,7 @@ function editTarget(edit: PrimitiveEdit): SemanticNodeId | undefined {
 
 function rejected(
   reason: PrimitiveRejectionReason,
-  edit: PrimitiveEdit | undefined,
+  edit: Pick<SemanticEdit, 'editId'> | undefined,
   targets: readonly SemanticNodeId[],
   usage: SemanticEditUsage,
   message: string,
@@ -239,6 +239,17 @@ const emptyUsage = (sourceBytes = 0): SemanticEditUsage =>
     sourceBytes,
   });
 
+/** Produces the closed rejection envelope shared by primitive and high-level edits. @internal */
+export function rejectSemanticEdit(
+  reason: PrimitiveRejectionReason,
+  edit: Pick<SemanticEdit, 'editId'> | undefined,
+  targets: readonly SemanticNodeId[],
+  sourceBytes: number,
+  message: string,
+): ApplyPrimitiveSemanticEditsResult {
+  return rejected(reason, edit, targets, emptyUsage(sourceBytes), message);
+}
+
 function typeDigest(node: SemanticGraphNode): string | undefined {
   if (!node.type) return undefined;
   const canonical = (value: unknown): string => {
@@ -268,9 +279,9 @@ function descendantSymbols(index: ModelIndex, root: SemanticNodeId): readonly Sy
 function preconditionMatches(
   condition: SemanticEditPrecondition,
   node: SemanticGraphNode,
-  edit: PrimitiveEdit,
   index: ModelIndex,
   document: EditableSourceDocument,
+  anchors: readonly SemanticGraphAnchor[],
 ): boolean {
   switch (condition.kind) {
     case 'target_kind':
@@ -288,10 +299,7 @@ function preconditionMatches(
     case 'expected_parent':
       return index.parents.get(node.id) === condition.value;
     case 'expected_anchor':
-      return (
-        (edit.kind === 'insert_at_anchor' && anchorEqual(edit.anchor, condition.value)) ||
-        (edit.kind === 'move_target' && anchorEqual(edit.destination, condition.value))
-      );
+      return anchors.some((anchor) => anchorEqual(anchor, condition.value));
     case 'expected_type':
       return typeDigest(node) === condition.value;
     case 'expected_bindings':
@@ -306,6 +314,25 @@ function preconditionMatches(
     default:
       return false;
   }
+}
+
+export type SemanticEditPreconditionResult = 'matched' | 'target_not_found' | 'precondition_failed';
+
+/** Checks materialized capability preconditions against one exact graph target. @internal */
+export function checkSemanticEditPreconditions(
+  source: SourceProgram,
+  graph: SemanticGraph,
+  targetId: SemanticNodeId,
+  conditions: readonly SemanticEditPrecondition[],
+  anchors: readonly SemanticGraphAnchor[] = [],
+): SemanticEditPreconditionResult {
+  const index = indexGraph(graph);
+  const node = index.nodes.get(targetId);
+  if (!node) return 'target_not_found';
+  const document = new EditableSourceDocument(source);
+  return conditions.every((condition) => preconditionMatches(condition, node, index, document, anchors))
+    ? 'matched'
+    : 'precondition_failed';
 }
 
 function anchorPosition(
@@ -474,7 +501,9 @@ function primitivePlan(
           'semantic target was not found',
         ),
       };
-    if (edit.preconditions.some((condition) => !preconditionMatches(condition, target, edit, index, document)))
+    const anchors =
+      edit.kind === 'insert_at_anchor' ? [edit.anchor] : edit.kind === 'move_target' ? [edit.destination] : [];
+    if (edit.preconditions.some((condition) => !preconditionMatches(condition, target, index, document, anchors)))
       return {
         ok: false,
         result: rejected(

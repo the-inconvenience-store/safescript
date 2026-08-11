@@ -245,6 +245,16 @@ These operations carry structured values or finite choices, require expected-old
 
 High-level operations may touch multiple declared source regions but may not perform undeclared repairs. Missing imports, return repairs, identifier creation, type coercion, dead-code removal, or result handling require explicit companion operations unless they are defined parts of the selected gesture.
 
+The engine lowers every accepted gesture into the same atomic six-primitive transformation plan. Cross-container statement-range movement copies and removes the complete declared range in one plan. Function extraction validates the caller's capture and output symbols against graph reference edges, preserves an available declared capture type, renames captured references exactly as mapped, and materializes mapped outputs at the call site. Operation changes preserve only explicitly mapped input fields and caller-supplied required inputs.
+
+Gesture normalization is not a repair pass. If the selected node shape, range, retained container, mapping, schema path, or declaration anchor cannot realize the requested gesture, the request is rejected without source. The final transformed program is checked through the same candidate-validation seam as primitive edits.
+
+## Capability manifests
+
+Capability inspection is available for the complete graph or an explicit target set and has independent target, capability, and canonical-byte limits. Each target record advertises only operations applicable to its current structural shape. Each operation carries its mandatory target preconditions and only the inputs relevant to that operation: compatible anchors and fragment categories, finite operator/control/branch/result/mutability choices, allowed host operations, schema paths and expected schemas, materialized bindings, comment ownership, and collision-free suggested names.
+
+Capabilities are disposable facts for one exact semantic revision. The edit kernel evaluates every echoed precondition before gesture normalization; a stale old value, parent, type digest, binding set, operation, comment state, or chosen anchor rejects the whole request. A manifest grants neither compile permission nor runtime capability, and the compiler still rebuilds its private checked model before applying an edit.
+
 ## Preconditions and conflicts
 
 Every operation changing existing meaning or placement carries materialized semantic expectations. Depending on the operation these include target kind, old name or value, schema/type, operator, operation ID, input field, parent, siblings, anchor, branch kind, condition identity, binding set, capture set, and owned-comment state.
