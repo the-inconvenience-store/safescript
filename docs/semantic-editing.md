@@ -1,6 +1,6 @@
 # Semantic editing design
 
-This document specifies the compiler-owned semantic edit API. Schema 1.0 contracts, strict validators, capability-view records, worker wire records, and the private lossless transformation kernel are implemented; semantic operation resolution and bridge execution remain staged work. [Current scope](current-scope.md) remains authoritative until the complete coverage and conformance gate passes.
+This document specifies the compiler-owned semantic edit API. Schema 1.0 contracts, strict validators, capability-view records, worker wire records, the private lossless transformation kernel, and the six-operation primitive kernel are implemented; semantic gestures and bridge execution remain staged work. [Current scope](current-scope.md) remains authoritative until the complete coverage and conformance gate passes.
 
 ## Outcome
 
@@ -187,6 +187,18 @@ The foundational operations are:
 
 These six operations provide foundational coverage for every accepted construct.
 
+The primitive coverage audit groups accepted syntax by its actual editable grammar boundary:
+
+| Source family                                             | Replacement fragment                      | Structural insertion                                         | Other primitive coverage                  |
+| --------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------ | ----------------------------------------- |
+| modules and declarations                                  | `declaration` / `declaration_list`        | ordered module gaps                                          | delete, move, reorder                     |
+| statements, branches, and cases                           | `statement` / `switch_case`               | ordered body and case gaps                                   | delete, move, reorder                     |
+| expressions, constants, actions, and return values        | `expression`                              | argument, element, initializer, increment, and template gaps | delete, move, reorder                     |
+| types, parameters, and bindings                           | `type`, `parameter`, or `binding_pattern` | type-parameter and parameter gaps                            | rename, delete, move, reorder             |
+| imports, object members, array elements, and type members | their singular contextual category        | ordered contextual gaps                                      | rename where bound, delete, move, reorder |
+
+The audit runs both against a focused operation fixture and a compiler-produced graph containing source-only declarations, nested containers, actions, control flow, templates, arrays, and types. Inline reorder preserves the original separator and trivia slots; structural reorder and movement carry owned source slices.
+
 ### Control-flow gestures
 
 - `wrap_statement_range`
@@ -364,7 +376,7 @@ The bounded bridge-local compilation cache may retain these private checked stru
 
 Each stage keeps build, lint, typecheck, and tests green. The public feature is not declared complete until the final coverage audit.
 
-Stages 1 through 4 are implemented: every public location uses UTF-8 byte offsets; tagged semantic graph schema 1.0 is projected from the private checked semantic model; the complete closed edit/capability contract algebra, validators, limits, diagnostics, result unions, and worker message records are published; and the private rewriter now owns UTF-8 indexing, comment ownership, category-bound fragment printing, conflict planning, unchanged-byte preservation, transformation provenance, limit accounting, and final-source diagnostic mapping. No bridge currently resolves or applies semantic operations—the primitive/gesture layers and integration remain release work until the remaining stages and final audit are complete.
+Stages 1 through 5 are implemented: every public location uses UTF-8 byte offsets; tagged semantic graph schema 1.0 is projected from the private checked semantic model; the complete closed edit/capability contract algebra, validators, limits, diagnostics, result unions, and worker message records are published; the private rewriter owns UTF-8 indexing, comment ownership, category-bound fragment printing, conflict planning, unchanged-byte preservation, transformation provenance, limit accounting, and final-source diagnostic mapping; and the primitive resolver implements symbol rename, target replacement, anchored insertion, explicit-policy deletion, source-slice movement, and separator-preserving child reorder. No bridge currently exposes edit application—the gesture, integration, and final audit stages remain release work.
 
 1. Convert every public source location to UTF-8 bytes and add Unicode boundary tests.
 2. Build the private semantic model and replace the semantic graph contract with explicit schema `1.0`, complete source coverage, structural anchors, and tagged inspection.

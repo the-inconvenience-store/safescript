@@ -272,6 +272,25 @@ export class EditableSourceDocument {
     const indentation = this.text.slice(lineStart, codeUnit).match(/^[\t ]*/)?.[0] ?? '';
     return indentation;
   }
+
+  lineStart(byteOffset: number): number {
+    if (!this.isBoundary(byteOffset)) throw new RangeError('invalid source boundary');
+    const codeUnit = this.#codeUnitAtByte.get(byteOffset) as number;
+    const lineStart = this.text.lastIndexOf('\n', Math.max(0, codeUnit - 1)) + 1;
+    return this.#byteAtCodeUnit[lineStart] as number;
+  }
+
+  lineEnd(byteOffset: number): number {
+    if (!this.isBoundary(byteOffset)) throw new RangeError('invalid source boundary');
+    const codeUnit = this.#codeUnitAtByte.get(byteOffset) as number;
+    const newline = this.text.indexOf('\n', codeUnit);
+    return newline < 0 ? this.bytes.length : (this.#byteAtCodeUnit[newline + 1] as number);
+  }
+
+  lineRange(range: SourceByteRange): SourceByteRange {
+    if (!validRange(range, this.bytes.length)) throw new RangeError('invalid source range');
+    return Object.freeze({ start: this.lineStart(range.start), end: this.lineEnd(range.end) });
+  }
 }
 
 function normalize(
@@ -543,7 +562,10 @@ export function applySourceTransformations(
     );
   };
   for (const position of positions) {
-    if (position > cursor) appendOriginal(cursor, position);
+    if (position > cursor) {
+      appendOriginal(cursor, position);
+      cursor = position;
+    }
     for (const value of insertionsAt.get(position) ?? []) {
       const insertion = value.insertion as NonNullable<NormalizedTransformation['insertion']>;
       const updated = { start: output.length, end: output.length + insertion.bytes.length };
@@ -698,8 +720,7 @@ export function printSourceFragment(
     case 'declaration_list':
       file = parse(source);
       nodes = file.statements;
-      if (fragment.category === 'statement' && (nodes.length !== 1 || declarationStatement(nodes[0] as ts.Statement)))
-        nodes = [];
+      if (fragment.category === 'statement' && nodes.length !== 1) nodes = [];
       if (
         fragment.category === 'declaration' &&
         (nodes.length !== 1 || !declarationStatement(nodes[0] as ts.Statement))

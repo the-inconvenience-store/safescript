@@ -21,6 +21,7 @@ The repository currently implements:
 - tagged semantic graph 1.0 inspection with source-complete editable boundaries, stable semantic IDs, ordered anchors, explicit semantic relationships, and independent export limits;
 - semantic edit schema 1.0 contracts with a closed 30-operation algebra, capability-view records, preconditions, independent limits, atomic result/diff/diagnostic unions, strict hostile-input validators, and canonical worker payload records;
 - a private lossless semantic transformation kernel with UTF-8 source indexing, deterministic comment ownership and fragment printing, conflict planning, provenance mapping, final-source checking, and independent limit accounting;
+- a private six-operation semantic primitive kernel with revision, target, anchor, precondition, contextual-fragment, comment-policy, conflict, and syntax-coverage checks;
 - host contract declaration/codecs/fingerprint derivation;
 - the six-method TypeScript facade and deterministic scripted-action tests;
 - slot-scoped agent/editor authoring bundles with repair guidance;
@@ -54,7 +55,7 @@ The current repository does not yet provide:
 - Python, Go, Rust, Java, or C# host SDKs;
 - a WebAssembly execution backend;
 - a SafeScript-provided artifact storage backend, signing, or export product;
-- checked semantic source-edit transformations, capability projection, and callable bridge/SDK edit integration;
+- callable checked semantic source-edit transformations, capability projection, high-level gestures, and bridge/SDK edit integration;
 - a general visual editor product;
 - durable invocations, workflow coordination, approvals, retries, or audit persistence;
 - package ecosystems or arbitrary TypeScript/JavaScript compatibility.

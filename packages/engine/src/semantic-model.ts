@@ -622,7 +622,7 @@ class ModelBuilder {
       this.branch(value.statement, node, `${path}/body`, 'body', 0);
     } else if (ts.isReturnStatement(value) && value.expression) {
       const result = this.expression(value.expression, node, `${path}/value`, 'value');
-      const output = this.node(`${path}/output`, 'output', 'return-value', value, {
+      const output = this.node(`${path}/output`, 'output', 'return-value', value.expression, {
         type: { kind: 'ref', type: this.slot.output },
       });
       this.contain(node, output, 'output');

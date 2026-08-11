@@ -101,7 +101,9 @@ Inspection derives graph schema 1.0 from a private checked semantic model shared
 
 The private semantic-edit rewriter indexes canonical UTF-8 source boundaries, newline and indentation conventions, and scanner-derived comments. Normalized transformations use original byte coordinates, pass through a versioned non-overlap conflict matrix, preserve untouched byte slices exactly, reuse moved slices with their owned comments, and apply explicit destructive comment policy. Category-tagged fragments are parsed and printed locally with the pinned TypeScript syntax API; the complete candidate is still reparsed and checked by the ordinary SafeScript compiler.
 
-Every transformed, preserved, moved, generated, and removed region contributes deterministic provenance and resource accounting. Final-check diagnostics map back to original source, caller fragments, or generated edit targets. A rejection exposes the mapped diagnostics and measured limits but never the unaccepted candidate source. This kernel remains private until semantic target resolution, operation implementations, and the bridge integration are complete.
+Every transformed, preserved, moved, generated, and removed region contributes deterministic provenance and resource accounting. Final-check diagnostics map back to original source, caller fragments, or generated edit targets. A rejection exposes the mapped diagnostics and measured limits but never the unaccepted candidate source.
+
+The private primitive resolver now resolves graph identities and anchors against one semantic revision, evaluates materialized preconditions, and lowers the six foundational operations to the rewriter. Rename follows checked binding/reference edges; contextual fragments are parsed before replacement or insertion; delete and move honor comment ownership; reorder preserves separator and trivia slots. Compiler-produced graph coverage is tested directly. The callable bridge and high-level semantic gestures remain staged until their integration gates pass.
 
 ## Adapter conformance
 

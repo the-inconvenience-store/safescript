@@ -20,6 +20,7 @@ import {
   type InspectResult,
   type InspectViewRequest,
   type SemanticEditId,
+  type SemanticGraph,
   type SemanticNodeId,
   type Schema,
   type StringSchema,
@@ -29,6 +30,7 @@ import {
 import { artifactKey, createDirectRuntimeBridge } from './index.js';
 import { compileProgram } from './compiler.js';
 import { EditableSourceDocument, applySourceTransformations } from './source-transform.js';
+import { applyPrimitiveSemanticEdits, primitiveEditCoverage } from './semantic-primitives.js';
 
 const source = `import { Err, Ok, type Result } from "safescript:prelude"
 import {
@@ -1264,10 +1266,7 @@ export async function onDealUpdated(`,
     expect(first.status).toBe('accepted');
     expect(second).toEqual(first);
     if (first.status === 'accepted') {
-      const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(semanticGraphBytes(first)))) as {
-        readonly semanticRevision: string;
-        readonly nodes: readonly { readonly semanticKind: string }[];
-      };
+      const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(semanticGraphBytes(first)))) as SemanticGraph;
       expect(graph.semanticRevision).toMatch(/^semantic-revision:[0-9a-f]{64}$/);
       const kinds = new Set(graph.nodes.map((node) => node.semanticKind));
       for (const expected of [
@@ -1285,13 +1284,14 @@ export async function onDealUpdated(`,
         'array-element',
         'template-container',
         'assign',
-      ])
+      ] as const)
         expect(kinds.has(expected), expected).toBe(true);
       expect(
         graph.nodes.some(
           (node) => node.semanticKind === 'unary' && (node as { readonly operator?: string }).operator === '++',
         ),
       ).toBe(true);
+      expect(primitiveEditCoverage(graph)).toMatchObject({ uncoveredNodes: [], uncoveredAnchors: [] });
       expect(
         graph.nodes.some(
           (node) => node.semanticKind === 'array-element' && (node as { readonly label?: string }).label === 'spread',
@@ -1336,6 +1336,57 @@ export async function onDealUpdated(`,
           Array.from({ length: children.length + 1 }, (_value, index) => index),
         );
       }
+    }
+  });
+
+  it('applies a primitive edit against compiler-produced identities and rechecks the complete candidate', async () => {
+    const inspected = await createDirectRuntimeBridge().inspect({ ...checkRequest, views: [semanticGraphView()] });
+    expect(inspected.status).toBe('accepted');
+    if (inspected.status !== 'accepted') return;
+    const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(semanticGraphBytes(inspected)))) as SemanticGraph;
+    const binding = graph.nodes.find(
+      (node) => node.kind === 'binding' && node.semanticKind === 'symbol' && node.label === 'event',
+    );
+    if (!binding) throw new Error('expected compiler-produced event binding');
+    const selectedSlot = registry.slots[0];
+    if (!selectedSlot) throw new Error('test registry requires a slot');
+    const result = applyPrimitiveSemanticEdits(
+      checkRequest.source,
+      graph,
+      graph.semanticRevision,
+      [
+        {
+          kind: 'rename_symbol',
+          editId: 'edit:compiler-rename' as SemanticEditId,
+          target: binding.id,
+          newName: 'updatedEvent',
+          preconditions: [{ kind: 'old_name', value: 'event' }],
+        },
+      ],
+      STANDARD_SEMANTIC_EDIT_LIMITS,
+      (candidate) => {
+        const checked = compileProgram(
+          new TextDecoder().decode(Uint8Array.from(candidate.source)),
+          moduleId,
+          registry,
+          selectedSlot,
+        );
+        return checked.ok
+          ? { ok: true }
+          : {
+              ok: false,
+              diagnostics: [
+                { message: checked.failure.message, start: checked.failure.start, end: checked.failure.end },
+              ],
+            };
+      },
+    );
+    expect(result.status).toBe('accepted');
+    if (result.status === 'accepted') {
+      const updated = new TextDecoder().decode(Uint8Array.from(result.source.source));
+      expect(updated).toContain('updatedEvent: DealUpdated');
+      expect(updated).not.toContain('event.before');
+      expect(updated).toContain('updatedEvent.before');
     }
   });
 
