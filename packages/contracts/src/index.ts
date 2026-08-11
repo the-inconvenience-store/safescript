@@ -42,6 +42,8 @@ export type ProgramHash = Branded<string, 'ProgramHash'>;
 export type IrDigest = Branded<string, 'IrDigest'>;
 /** Reproducible identity of one fact in a derived semantic graph. */
 export type SemanticNodeId = Branded<string, 'SemanticNodeId'>;
+/** Exact compiler/source/contract/schema identity resolved by semantic authoring operations. */
+export type SemanticRevisionId = Branded<string, 'SemanticRevisionId'>;
 
 const HOST_NAME = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/;
 const MODULE_NAME = /^@?[a-z][a-z0-9-]*(?:[/.][a-z][a-z0-9-]*)*$/;
@@ -105,7 +107,16 @@ export const ids = Object.freeze({
 
 /** Domain separators supported by {@link hash}. */
 export type HashDomain =
-  'action-site' | 'artifact' | 'contract' | 'ir' | 'program' | 'semantic-node' | 'source' | 'symbol' | 'type';
+  | 'action-site'
+  | 'artifact'
+  | 'contract'
+  | 'ir'
+  | 'program'
+  | 'semantic-node'
+  | 'semantic-revision'
+  | 'source'
+  | 'symbol'
+  | 'type';
 
 /**
  * Computes a versioned, domain-separated SHA-256 digest.
@@ -130,6 +141,11 @@ export function derivedActionSiteId(bytes: Uint8Array): ActionSiteId {
 /** Derives a formatting-insensitive identity for one source-semantic graph fact. */
 export function derivedSemanticNodeId(bytes: Uint8Array): SemanticNodeId {
   return `semantic-node:${hash('semantic-node', bytes)}` as SemanticNodeId;
+}
+
+/** Derives the exact revision identity shared by graph and semantic-edit projections. */
+export function derivedSemanticRevisionId(bytes: Uint8Array): SemanticRevisionId {
+  return `semantic-revision:${hash('semantic-revision', bytes)}` as SemanticRevisionId;
 }
 
 /** Computes the canonical hash of one source byte sequence. */
@@ -1829,9 +1845,6 @@ export type CheckResult =
   | Readonly<{ status: 'rejected'; diagnostics: readonly Diagnostic[]; usage: CompileUsage }>
   | Readonly<{ status: 'bridge_error'; error: BridgeError }>;
 
-/** Read-only derived views available from an accepted compilation. */
-export type InspectView = 'semantic_graph';
-
 /** Independent ceilings for disposable semantic graph export. */
 export interface SemanticGraphLimits {
   readonly nodes: number;
@@ -1846,12 +1859,68 @@ export const STANDARD_SEMANTIC_GRAPH_LIMITS: SemanticGraphLimits = Object.freeze
   bytes: 4 * 1024 * 1024,
 });
 
+/** First public schema for the rebuilt, complete semantic graph projection. */
+export const SEMANTIC_GRAPH_SCHEMA: Version = Object.freeze({ major: 1, minor: 0 });
+
 /** Closed source-semantic fact kinds. Consumers must reject kinds they do not understand. */
-export type SemanticNodeKind = 'declaration' | 'expression' | 'control' | 'input' | 'output' | 'constant' | 'action';
+export type SemanticNodeKind =
+  | 'module'
+  | 'declaration'
+  | 'binding'
+  | 'statement'
+  | 'expression'
+  | 'type'
+  | 'container'
+  | 'branch'
+  | 'case'
+  | 'input'
+  | 'output'
+  | 'constant'
+  | 'action';
 
 /** Closed semantic sub-kinds emitted by graph schema 1.x. */
 export type SemanticNodeSemanticKind =
-  | 'program'
+  | 'module'
+  | 'import-declaration'
+  | 'import-specifier'
+  | 'interface'
+  | 'type-alias'
+  | 'type-parameter'
+  | 'type-member'
+  | 'type-reference'
+  | 'type-literal'
+  | 'type-union'
+  | 'type-intersection'
+  | 'type-tuple'
+  | 'type-array'
+  | 'type-function'
+  | 'type-operator'
+  | 'type-literal-value'
+  | 'parameter'
+  | 'symbol'
+  | 'return-type'
+  | 'module-container'
+  | 'import-container'
+  | 'type-parameter-container'
+  | 'type-member-container'
+  | 'parameter-container'
+  | 'statement-container'
+  | 'declaration-container'
+  | 'argument-container'
+  | 'element-container'
+  | 'member-container'
+  | 'case-container'
+  | 'initializer-container'
+  | 'increment-container'
+  | 'template-container'
+  | 'branch-case'
+  | 'switch-case'
+  | 'object-member'
+  | 'array-element'
+  | 'binding-pattern'
+  | 'await'
+  | 'satisfies'
+  | 'const-assertion'
   | 'handler'
   | 'function'
   | 'variable'
@@ -1867,17 +1936,8 @@ export type SemanticNodeSemanticKind =
   | 'return'
   | 'switch'
   | 'slot-input'
-  | 'control-parameter'
-  | 'constant'
-  | 'project-field'
-  | 'compare'
+  | 'slot-output'
   | 'binary'
-  | 'construct-record'
-  | 'construct-variant'
-  | 'build-template'
-  | 'jump'
-  | 'branch'
-  | 'action'
   | 'structured'
   | 'host-action'
   | 'return-value'
@@ -1894,7 +1954,7 @@ export type SemanticNodeSemanticKind =
   | 'result';
 
 /** Closed relationships between public semantic facts. */
-export type SemanticEdgeKind = 'contains' | 'control' | 'data' | 'input' | 'output';
+export type SemanticEdgeKind = 'contains' | 'binds' | 'references' | 'type' | 'control' | 'data' | 'input' | 'output';
 
 /** One typed, source-derived semantic fact. Source spans are navigation metadata, not identity. */
 export interface SemanticGraphNode {
@@ -1902,6 +1962,7 @@ export interface SemanticGraphNode {
   readonly kind: SemanticNodeKind;
   readonly semanticKind: SemanticNodeSemanticKind;
   readonly source?: SourceLocation;
+  readonly editable?: SourceLocation;
   readonly label?: string;
   readonly type?: Schema;
   readonly symbolId?: SymbolId;
@@ -1918,6 +1979,18 @@ export interface SemanticGraphEdge {
   readonly from: SemanticNodeId;
   readonly to: SemanticNodeId;
   readonly label?: string;
+  /** Zero-based child position for ordered structural relationships. */
+  readonly index?: number;
+  /** Stable semantic role of the relationship within its parent. */
+  readonly role?: string;
+}
+
+/** One deterministic insertion gap in an ordered structural container. */
+export interface SemanticGraphAnchor {
+  readonly container: SemanticNodeId;
+  readonly index: number;
+  readonly before?: SemanticNodeId;
+  readonly after?: SemanticNodeId;
 }
 
 /** Static resource facts derived from the accepted program, never runtime usage. */
@@ -1935,15 +2008,19 @@ export interface SemanticGraphResources {
 
 /** Complete, disposable source-semantic projection for one accepted program. */
 export interface SemanticGraph {
+  readonly schema: Version;
+  readonly semanticRevision: SemanticRevisionId;
   readonly sourceHash: SourceHash;
   readonly programHash: ProgramHash;
   readonly compiler: CompilerVersion;
+  readonly language: LanguageProfile;
   readonly contract: Readonly<{ id: ContractId; digest: Sha256Digest }>;
   readonly slotId: SlotId;
   readonly moduleId: ModuleId;
   readonly root: SemanticNodeId;
   readonly nodes: readonly SemanticGraphNode[];
   readonly edges: readonly SemanticGraphEdge[];
+  readonly anchors: readonly SemanticGraphAnchor[];
   readonly operations: readonly OperationId[];
   readonly resources: SemanticGraphResources;
 }
@@ -1956,18 +2033,28 @@ export interface SemanticGraphError {
   readonly actual: number;
 }
 
-/** Check request plus the bounded derived views requested by the caller. */
+/** Schema-bound request for one independently bounded compiler-derived inspection view. */
+export type InspectViewRequest = Readonly<{
+  kind: 'semantic_graph';
+  schema: Version;
+  limits: SemanticGraphLimits;
+}>;
+
+/** One correlated view result; a rejected view never contains partial trusted bytes. */
+export type InspectViewResult =
+  | Readonly<{ kind: 'semantic_graph'; status: 'accepted'; bytes: CanonicalBytes }>
+  | Readonly<{ kind: 'semantic_graph'; status: 'rejected'; error: SemanticGraphError }>;
+
+/** Check request plus schema-bound, independently bounded derived views. */
 export interface InspectRequest extends CheckRequest {
-  readonly views: readonly InspectView[];
-  readonly graphLimits?: SemanticGraphLimits;
+  readonly views: readonly InspectViewRequest[];
 }
 /** Inspection result; rejected source never returns a partial trusted view. */
 export type InspectResult =
   | Readonly<{
       status: 'accepted';
       check: Extract<CheckResult, { status: 'accepted' }>;
-      views: Readonly<Partial<Record<InspectView, CanonicalBytes>>>;
-      viewErrors: Readonly<Partial<Record<InspectView, SemanticGraphError>>>;
+      views: readonly InspectViewResult[];
     }>
   | Extract<CheckResult, { status: 'rejected' | 'bridge_error' }>;
 

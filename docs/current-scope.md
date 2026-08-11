@@ -18,7 +18,7 @@ The repository currently implements:
 - sequential directly awaited actions;
 - typed action requests/outcomes, optional validated `beforeAction` policy, and at-most-once handler dispatch per request;
 - deterministic fixed time, seeded randomness, checked JSON/bytes/math/string/object/collection intrinsics, and bounded traces;
-- semantic graph inspection with stable semantic IDs and independent export limits;
+- tagged semantic graph 1.0 inspection with source-complete editable boundaries, stable semantic IDs, ordered anchors, explicit semantic relationships, and independent export limits;
 - host contract declaration/codecs/fingerprint derivation;
 - the six-method TypeScript facade and deterministic scripted-action tests;
 - slot-scoped agent/editor authoring bundles with repair guidance;

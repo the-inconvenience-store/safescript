@@ -7,8 +7,10 @@ import {
   encodeWorkerProtocolEnvelope,
   encodeWorkerProtocolFrame,
   encodeWorkerProtocolPayload,
+  SEMANTIC_GRAPH_SCHEMA,
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
+  STANDARD_SEMANTIC_GRAPH_LIMITS,
   STANDARD_WORKER_OPERATIONAL_LIMITS,
   SAFESCRIPT_VERSION,
   WORKER_PROTOCOL_SESSION_HELLO_PAYLOAD,
@@ -71,7 +73,7 @@ class FakeBridge implements RuntimeBridge {
   }
 
   async inspect(request: Parameters<RuntimeBridge['inspect']>[0]) {
-    this.calls.push(`inspect:${request.views.join(',')}`);
+    this.calls.push(`inspect:${request.views.map((view) => view.kind).join(',')}`);
     return { status: 'bridge_error' as const, error: { code: 'adapter_failure' as const, phase: 'inspect' as const } };
   }
 
@@ -200,7 +202,13 @@ describe('standalone runtime worker server', () => {
     const checkPayload = encodeWorkerBridgePayload('bridge.check.request', checkRequest);
     const inspectPayload = encodeWorkerBridgePayload('bridge.inspect.request', {
       ...checkRequest,
-      views: ['semantic_graph'],
+      views: [
+        {
+          kind: 'semantic_graph',
+          schema: SEMANTIC_GRAPH_SCHEMA,
+          limits: STANDARD_SEMANTIC_GRAPH_LIMITS,
+        },
+      ],
     });
     const executePayload = encodeWorkerBridgePayload('bridge.execute.request', {
       registry: checkRequest.registry,

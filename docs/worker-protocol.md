@@ -67,6 +67,8 @@ Canonical SafeScript domain values remain opaque schema-directed CBOR byte strin
 
 The [CDDL](worker-protocol.cddl) defines every protocol payload. Its `bridge-*` records are the canonical wire projection of the public transport-neutral `RuntimeBridge`; they do not change bridge semantics or grant authority.
 
+Inspection views are tagged, schema-bound records carrying their own limits. Accepted inspection responses preserve request order in a correlated tagged result array; a rejected view contains no partial bytes. Unknown schemas, duplicate view kinds, missing limits, and extra fields fail closed at the bridge boundary.
+
 An action outcome is either a completed canonical operation `Result` or a host failure with explicit effect state; there is no protocol-level policy rejection. SDK policy callbacks, credentials, host objects, invocation context, and policy state are deliberately absent from the wire schema.
 
 ## Schema evolution

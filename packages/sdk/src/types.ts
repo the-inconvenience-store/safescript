@@ -14,14 +14,13 @@ import {
   type ExecutionResult as BridgeExecutionResult,
   type HostFailure,
   type InspectResult,
-  type InspectView,
+  type InspectViewRequest,
   type InstantValue,
   type InvocationId,
   type ModuleId,
   type OperationId,
   type Result,
   type RuntimeBridge,
-  type SemanticGraphLimits,
   type Sha256Digest,
 } from '@safescript/contracts';
 import type { EngineOptions } from '@safescript/engine';
@@ -108,8 +107,7 @@ export interface CheckRequest<K extends PropertyKey> {
 }
 /** Source check plus explicitly requested read-only derived views. */
 export interface InspectRequest<K extends PropertyKey> extends CheckRequest<K> {
-  readonly views: readonly InspectView[];
-  readonly graphLimits?: SemanticGraphLimits;
+  readonly views: readonly InspectViewRequest[];
 }
 /** Typed execution request including host-local context and deterministic invocation inputs. */
 export interface ExecuteRequest<K extends PropertyKey, I, C> {

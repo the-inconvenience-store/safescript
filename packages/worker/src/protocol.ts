@@ -52,6 +52,10 @@ const sourceLocation = record([
   { name: 'end', schema: uint() },
 ]);
 const compilerVersion = record([{ name: 'build', schema: text() }]);
+const version = record([
+  { name: 'major', schema: uint() },
+  { name: 'minor', schema: uint() },
+]);
 const compileLimits = record(
   ['source_bytes', 'imports', 'declarations', 'syntax_nodes', 'syntax_depth', 'type_depth', 'derived_template_bytes']
     .map((name) => ({ name, schema: uint() }))
@@ -207,8 +211,17 @@ const graphLimits = record([
 ]);
 const inspectRequest = record([
   ...(checkRequest.kind === 'record' ? checkRequest.fields : []),
-  { name: 'views', schema: array(literal('semantic_graph'), 1) },
-  { name: 'graph_limits', schema: graphLimits, optional: true },
+  {
+    name: 'views',
+    schema: array(
+      record([
+        { name: 'kind', schema: literal('semantic_graph') },
+        { name: 'schema', schema: version },
+        { name: 'limits', schema: graphLimits },
+      ]),
+      1,
+    ),
+  },
 ]);
 const executeRequest = record([
   { name: 'registry', schema: registry },
@@ -290,8 +303,24 @@ const inspectResult = oneOf(
   record([
     { name: 'status', schema: literal('accepted') },
     { name: 'check', schema: checkAccepted },
-    { name: 'views', schema: record([{ name: 'semantic_graph', schema: bytes(), optional: true }]) },
-    { name: 'view_errors', schema: record([{ name: 'semantic_graph', schema: graphError, optional: true }]) },
+    {
+      name: 'views',
+      schema: array(
+        oneOf(
+          record([
+            { name: 'kind', schema: literal('semantic_graph') },
+            { name: 'status', schema: literal('accepted') },
+            { name: 'bytes', schema: bytes() },
+          ]),
+          record([
+            { name: 'kind', schema: literal('semantic_graph') },
+            { name: 'status', schema: literal('rejected') },
+            { name: 'error', schema: graphError },
+          ]),
+        ),
+        1,
+      ),
+    },
   ]),
   ...(checkResult.kind === 'oneOf' ? checkResult.choices.slice(1) : []),
 );

@@ -90,19 +90,28 @@ The host chooses exactly what `http.fetch` and `profiles.enrich` mean, which des
 A visual editor can derive its canvas from the public semantic graph:
 
 ```ts
+import { SEMANTIC_GRAPH_SCHEMA, STANDARD_SEMANTIC_GRAPH_LIMITS } from '@safescript/contracts';
+
 const inspected = await safe.inspect({
   slot: 'automation',
   source,
-  views: ['semantic_graph'],
+  views: [
+    {
+      kind: 'semantic_graph',
+      schema: SEMANTIC_GRAPH_SCHEMA,
+      limits: STANDARD_SEMANTIC_GRAPH_LIMITS,
+    },
+  ],
 });
 
-if (inspected.status === 'accepted' && inspected.views.semantic_graph) {
-  const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(inspected.views.semantic_graph)));
+const view = inspected.status === 'accepted' ? inspected.views[0] : undefined;
+if (view?.status === 'accepted') {
+  const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(view.bytes)));
   renderCanvas(graph);
 }
 ```
 
-The graph contains declarations, control flow, data flow, action sites, reachable operations, types, and stable semantic IDs. It is a read-only projection, not an executable node format. The editor owns how a user's visual change becomes TypeScript, then submits the new source to `safe.check` before execution.
+Graph schema 1.0 contains the complete accepted source structure, ordered insertion anchors, bindings and references, control and data flow, action sites, reachable operations, types, and stable semantic IDs. It is a read-only projection, not an executable node format. The editor owns how a user's visual change becomes TypeScript, then submits the new source to `safe.check` before execution.
 
 The [CRM example](examples/crm/README.md) demonstrates this projection model.
 

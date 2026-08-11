@@ -51,6 +51,8 @@ export type {
   CompileLimits,
   ExecutionLimits,
   InstantValue,
+  InspectViewRequest,
+  InspectViewResult,
   InvocationId,
   ModuleId,
   Result,

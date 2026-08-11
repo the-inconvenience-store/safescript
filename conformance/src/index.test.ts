@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 
 import {
+  SEMANTIC_GRAPH_SCHEMA,
+  STANDARD_SEMANTIC_GRAPH_LIMITS,
   STANDARD_EXECUTION_LIMITS,
   decodeCanonical,
   encodeCanonical,
@@ -8,6 +10,7 @@ import {
   resultSchema,
   type ActionOutcome,
   type CheckRequest,
+  type InspectResult,
   type RuntimeBridgeFactory,
   type Schema,
 } from '@safescript/contracts';
@@ -53,6 +56,16 @@ const references: ReferenceIntegration[] = [
   deviceRuleReference,
 ];
 const ref = (type: typeof referenceTypes.event): Schema => ({ kind: 'ref', type });
+const semanticGraphView = (limits = STANDARD_SEMANTIC_GRAPH_LIMITS) => ({
+  kind: 'semantic_graph' as const,
+  schema: SEMANTIC_GRAPH_SCHEMA,
+  limits,
+});
+function semanticGraphBytes(result: Extract<InspectResult, { status: 'accepted' }>): readonly number[] {
+  const view = result.views[0];
+  if (!view || view.status !== 'accepted') throw new Error('semantic graph view was not accepted');
+  return view.bytes;
+}
 
 function hostileReference(body: string, helpers = ''): ReferenceIntegration {
   const moduleId = ids.module(`module:references/hostile-${Math.abs(body.length + helpers.length)}`);
@@ -144,12 +157,12 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
     const request = referenceCheckRequest(reference);
     const checked = await bridge.check(request);
     expect(checked.status, JSON.stringify(checked)).toBe('accepted');
-    const first = await bridge.inspect({ ...request, views: ['semantic_graph'] });
-    const second = await bridge.inspect({ ...request, views: ['semantic_graph'] });
+    const first = await bridge.inspect({ ...request, views: [semanticGraphView()] });
+    const second = await bridge.inspect({ ...request, views: [semanticGraphView()] });
     expect(first.status).toBe('accepted');
     expect(second).toEqual(first);
     if (first.status === 'accepted') {
-      const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(first.views.semantic_graph ?? [])));
+      const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(semanticGraphBytes(first))));
       expect(graph.nodes.length).toBeGreaterThan(0);
       expect(
         new Set(
@@ -309,10 +322,10 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
     const request = referenceCheckRequest(walkingSkeletonReference);
     const firstBridge = factory();
     const firstCheck = await firstBridge.check(request);
-    const firstInspect = await firstBridge.inspect({ ...request, views: ['semantic_graph'] });
+    const firstInspect = await firstBridge.inspect({ ...request, views: [semanticGraphView()] });
     await firstBridge.close();
     const regeneratedCheck = await factory().check(request);
-    const regeneratedInspect = await factory().inspect({ ...request, views: ['semantic_graph'] });
+    const regeneratedInspect = await factory().inspect({ ...request, views: [semanticGraphView()] });
     expect(regeneratedCheck).toEqual(firstCheck);
     expect(regeneratedInspect).toEqual(firstInspect);
   });
@@ -356,11 +369,15 @@ describe.each(adapters)('$name runtime bridge conformance corpus', ({ factory: a
     const request = referenceCheckRequest(applicationExtensionReference);
     const result = await factory().inspect({
       ...request,
-      views: ['semantic_graph'],
-      graphLimits: { nodes: 1, edges: 1, bytes: 16 },
+      views: [semanticGraphView({ nodes: 1, edges: 1, bytes: 16 })],
     });
     expect(result.status).toBe('accepted');
-    if (result.status === 'accepted') expect(result.viewErrors.semantic_graph?.code).toBe('graph_limit_exceeded');
+    if (result.status === 'accepted')
+      expect(result.views[0]).toMatchObject({
+        kind: 'semantic_graph',
+        status: 'rejected',
+        error: { code: 'graph_limit_exceeded' },
+      });
   });
 
   it('fails resource exhaustion before dispatch and never replays an action', async () => {

@@ -2,8 +2,10 @@ import { describe, expect, it } from 'bun:test';
 
 import {
   MAX_DIAGNOSTIC_MESSAGE_LENGTH,
+  SEMANTIC_GRAPH_SCHEMA,
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
+  STANDARD_SEMANTIC_GRAPH_LIMITS,
   decodeCanonical,
   defineSchemaRegistry,
   encodeCanonical,
@@ -14,6 +16,8 @@ import {
   type ActionRequest,
   type ContractRegistry,
   type ExecuteRequest,
+  type InspectResult,
+  type InspectViewRequest,
   type Schema,
   type StringSchema,
   type TypeDefinition,
@@ -182,6 +186,20 @@ const checkRequest = {
   source: { module: moduleId, source: [...new TextEncoder().encode(source)] },
   limits: STANDARD_COMPILE_LIMITS,
 } as const;
+
+const semanticGraphView = (
+  limits = STANDARD_SEMANTIC_GRAPH_LIMITS,
+): Extract<InspectViewRequest, { kind: 'semantic_graph' }> => ({
+  kind: 'semantic_graph',
+  schema: SEMANTIC_GRAPH_SCHEMA,
+  limits,
+});
+
+function semanticGraphBytes(result: Extract<InspectResult, { status: 'accepted' }>): readonly number[] {
+  const view = result.views.find((candidate) => candidate.kind === 'semantic_graph');
+  if (!view || view.status !== 'accepted') throw new Error('semantic graph view was not accepted');
+  return view.bytes;
+}
 
 function encoded(schema: Schema, value: unknown): readonly number[] {
   const result = encodeCanonical(schema, value, { registry: registry.schemas });
@@ -541,10 +559,10 @@ describe('compiler validation through the RuntimeBridge interface', () => {
 
     const checked = await bridge.check(language11Request);
     expect(checked.status).toBe('accepted');
-    const inspected = await bridge.inspect({ ...language11Request, views: ['semantic_graph'] });
+    const inspected = await bridge.inspect({ ...language11Request, views: [semanticGraphView()] });
     expect(inspected.status).toBe('accepted');
     if (inspected.status === 'accepted') {
-      const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(inspected.views.semantic_graph ?? [])));
+      const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(semanticGraphBytes(inspected))));
       expect(graph.nodes.some((node: { semanticKind: string }) => node.semanticKind === 'variable')).toBe(true);
       expect(graph.nodes.some((node: { semanticKind: string }) => node.semanticKind === 'host-action')).toBe(true);
       expect(graph.resources.actionNodes).toHaveLength(1);
@@ -1144,23 +1162,148 @@ export async function onDealUpdated(`,
 });
 
 describe('inspection and bridge lifecycle', () => {
+  it('inspects semantic graph schema 1.0 through correlated tagged view records', async () => {
+    const result = await createDirectRuntimeBridge().inspect({
+      ...checkRequest,
+      views: [semanticGraphView()],
+    });
+
+    expect(result.status).toBe('accepted');
+    if (result.status === 'accepted') {
+      expect(result.views).toHaveLength(1);
+      expect(result.views[0]?.kind).toBe('semantic_graph');
+      expect(result.views[0]?.status).toBe('accepted');
+      const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(semanticGraphBytes(result))));
+      expect(graph.schema).toEqual(SEMANTIC_GRAPH_SCHEMA);
+    }
+  });
+
+  it('covers source-only declarations and structural insertion sites in one semantic revision', async () => {
+    const modelSource = source.replace(
+      'export async function onDealUpdated(',
+      `interface Box<T> { readonly value: T }
+type Pair<T> = readonly [T, T]
+
+function first<const T>(values: Pair<T>): T {
+  return values[0]
+}
+
+function count(values: readonly number[]): number {
+  let total = 0
+  for (const value of values) {
+    total++
+  }
+  return total
+}
+
+export async function onDealUpdated(`,
+    );
+    const completeModelSource = modelSource.replace(
+      '  const result = await ctx.tasks.create({',
+      `  const copied = [...[1, 2]]
+  const label = \`safe\`
+  count(copied)
+  label
+
+  const result = await ctx.tasks.create({`,
+    );
+    const request = checkWithSource(completeModelSource);
+    const first = await createDirectRuntimeBridge().inspect({ ...request, views: [semanticGraphView()] });
+    const second = await createDirectRuntimeBridge().inspect({ ...request, views: [semanticGraphView()] });
+
+    expect(first.status).toBe('accepted');
+    expect(second).toEqual(first);
+    if (first.status === 'accepted') {
+      const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(semanticGraphBytes(first)))) as {
+        readonly semanticRevision: string;
+        readonly nodes: readonly { readonly semanticKind: string }[];
+      };
+      expect(graph.semanticRevision).toMatch(/^semantic-revision:[0-9a-f]{64}$/);
+      const kinds = new Set(graph.nodes.map((node) => node.semanticKind));
+      for (const expected of [
+        'module',
+        'import-declaration',
+        'import-specifier',
+        'interface',
+        'type-alias',
+        'type-parameter',
+        'parameter',
+        'return-type',
+        'statement-container',
+        'parameter-container',
+        'argument-container',
+        'array-element',
+        'template-container',
+        'assign',
+      ])
+        expect(kinds.has(expected), expected).toBe(true);
+      expect(
+        graph.nodes.some(
+          (node) => node.semanticKind === 'unary' && (node as { readonly operator?: string }).operator === '++',
+        ),
+      ).toBe(true);
+      expect(
+        graph.nodes.some(
+          (node) => node.semanticKind === 'array-element' && (node as { readonly label?: string }).label === 'spread',
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it('publishes complete ordered anchors and explicit binding relationships', async () => {
+    const result = await createDirectRuntimeBridge().inspect({ ...checkRequest, views: [semanticGraphView()] });
+    expect(result.status).toBe('accepted');
+    if (result.status === 'accepted') {
+      const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(semanticGraphBytes(result)))) as {
+        readonly nodes: readonly {
+          readonly id: string;
+          readonly kind: string;
+          readonly source?: unknown;
+          readonly editable?: unknown;
+        }[];
+        readonly edges: readonly {
+          readonly kind: string;
+          readonly from: string;
+          readonly to: string;
+          readonly index?: number;
+        }[];
+        readonly anchors: readonly {
+          readonly container: string;
+          readonly index: number;
+          readonly before?: string;
+          readonly after?: string;
+        }[];
+      };
+      expect(graph.nodes.every((node) => node.source === undefined || node.editable !== undefined)).toBe(true);
+      expect(graph.edges.some((edge) => edge.kind === 'binds')).toBe(true);
+      expect(graph.edges.some((edge) => edge.kind === 'references')).toBe(true);
+      expect(graph.edges.some((edge) => edge.kind === 'type')).toBe(true);
+      for (const container of graph.nodes.filter((node) => node.kind === 'container')) {
+        const children = graph.edges.filter((edge) => edge.kind === 'contains' && edge.from === container.id);
+        const anchors = graph.anchors.filter((anchor) => anchor.container === container.id);
+        expect(children.map((edge) => edge.index)).toEqual(children.map((_edge, index) => index));
+        expect(anchors.map((anchor) => anchor.index)).toEqual(
+          Array.from({ length: children.length + 1 }, (_value, index) => index),
+        );
+      }
+    }
+  });
+
   it('returns a semantic graph only when requested', async () => {
     const bridge = createDirectRuntimeBridge();
-    const inspected = await bridge.inspect({ ...checkRequest, views: ['semantic_graph'] });
+    const inspected = await bridge.inspect({ ...checkRequest, views: [semanticGraphView()] });
     expect(inspected.status).toBe('accepted');
     if (inspected.status === 'accepted') {
       expect(inspected.check.status).toBe('accepted');
-      const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(inspected.views.semantic_graph ?? [])));
+      const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(semanticGraphBytes(inspected))));
       expect(graph.nodes.filter((node: { kind: string }) => node.kind === 'action')).toHaveLength(1);
       expect(graph.nodes.some((node: { kind: string }) => node.kind === 'constant')).toBe(true);
       expect(graph.edges.some((edge: { kind: string }) => edge.kind === 'data')).toBe(true);
       expect(graph.contract.id).toBe(registry.id);
-      expect(inspected.viewErrors).toEqual({});
     }
     const omitted = await bridge.inspect({ ...checkRequest, views: [] });
     if (omitted.status === 'accepted') {
-      expect(omitted.views).toEqual({});
-      expect(omitted.viewErrors).toEqual({});
+      expect(omitted.views).toEqual([]);
     }
   });
 
@@ -1170,12 +1313,12 @@ describe('inspection and bridge lifecycle', () => {
     const callEnd = unicodeSource.indexOf('\n\n', callStart);
     const inspected = await createDirectRuntimeBridge().inspect({
       ...checkWithSource(unicodeSource),
-      views: ['semantic_graph'],
+      views: [semanticGraphView()],
     });
 
     expect(inspected.status).toBe('accepted');
     if (inspected.status === 'accepted') {
-      const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(inspected.views.semantic_graph ?? []))) as {
+      const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(semanticGraphBytes(inspected)))) as {
         readonly nodes: readonly { readonly kind: string; readonly source?: unknown }[];
       };
       const bytes = new TextEncoder();
@@ -1189,36 +1332,73 @@ describe('inspection and bridge lifecycle', () => {
 
   it('keeps formatting-insensitive graph IDs and fails graph export atomically at independent limits', async () => {
     const bridge = createDirectRuntimeBridge();
-    const first = await bridge.inspect({ ...checkRequest, views: ['semantic_graph'] });
+    const first = await bridge.inspect({ ...checkRequest, views: [semanticGraphView()] });
     const formatted = await bridge.inspect({
       ...checkWithSource(`\n\n${source.replaceAll('  ', '    ')}\n// formatting-only comment\n`),
-      views: ['semantic_graph'],
+      views: [semanticGraphView()],
     });
     expect(first.status).toBe('accepted');
     expect(formatted.status).toBe('accepted');
     if (first.status === 'accepted' && formatted.status === 'accepted') {
       const decode = (bytes: readonly number[]) => JSON.parse(new TextDecoder().decode(Uint8Array.from(bytes)));
-      const firstGraph = decode(first.views.semantic_graph ?? []);
-      const formattedGraph = decode(formatted.views.semantic_graph ?? []);
+      const firstGraph = decode(semanticGraphBytes(first));
+      const formattedGraph = decode(semanticGraphBytes(formatted));
       expect(firstGraph.nodes.map((node: { id: string }) => node.id)).toEqual(
         formattedGraph.nodes.map((node: { id: string }) => node.id),
       );
     }
     const bounded = await bridge.inspect({
       ...checkRequest,
-      views: ['semantic_graph'],
-      graphLimits: { nodes: 1, edges: 250_000, bytes: 4 * 1024 * 1024 },
+      views: [semanticGraphView({ nodes: 1, edges: 250_000, bytes: 4 * 1024 * 1024 })],
     });
     expect(bounded.status).toBe('accepted');
     if (bounded.status === 'accepted') {
       expect(bounded.check.status).toBe('accepted');
-      expect(bounded.views).toEqual({});
-      expect(bounded.viewErrors.semantic_graph).toEqual({
-        code: 'graph_limit_exceeded',
-        limit: 'nodes',
-        maximum: 1,
-        actual: expect.any(Number),
-      });
+      expect(bounded.views).toEqual([
+        {
+          kind: 'semantic_graph',
+          status: 'rejected',
+          error: {
+            code: 'graph_limit_exceeded',
+            limit: 'nodes',
+            maximum: 1,
+            actual: 2,
+          },
+        },
+      ]);
+    }
+    const byteBounded = await bridge.inspect({
+      ...checkRequest,
+      views: [semanticGraphView({ nodes: 100_000, edges: 250_000, bytes: 1 })],
+    });
+    expect(byteBounded.status).toBe('accepted');
+    if (byteBounded.status === 'accepted') {
+      expect(byteBounded.views).toEqual([
+        {
+          kind: 'semantic_graph',
+          status: 'rejected',
+          error: {
+            code: 'graph_limit_exceeded',
+            limit: 'bytes',
+            maximum: 1,
+            actual: 2,
+          },
+        },
+      ]);
+    }
+  });
+
+  it('rejects malformed, duplicate, unsupported, and excessive tagged view requests without throwing', async () => {
+    const bridge = createDirectRuntimeBridge();
+    const malformed = [
+      [{ ...semanticGraphView(), schema: { major: 2, minor: 0 } }],
+      [semanticGraphView(), semanticGraphView()],
+      [{ kind: 'semantic_graph', schema: SEMANTIC_GRAPH_SCHEMA }],
+      [semanticGraphView({ ...STANDARD_SEMANTIC_GRAPH_LIMITS, nodes: STANDARD_SEMANTIC_GRAPH_LIMITS.nodes + 1 })],
+    ];
+    for (const views of malformed) {
+      const result = await bridge.inspect({ ...checkRequest, views } as never);
+      expect(result).toMatchObject({ status: 'bridge_error', error: { code: 'invalid_request', phase: 'inspect' } });
     }
   });
 

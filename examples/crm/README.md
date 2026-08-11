@@ -35,7 +35,7 @@ The code is arranged in the order data travels through the application:
 9. [`tests/integration.test.ts`](tests/integration.test.ts) verifies the complete public-SDK path.
 
 The website never interprets its graph. Canonical TypeScript is compiled and executed by SafeScript; the canvas is a
-host-owned, read-only projection of `safe.inspect(..., views: ['semantic_graph'])`. Its nodes include branch conditions,
+host-owned, read-only projection of a tagged graph 1.0 `safe.inspect` view request. Its nodes include branch conditions,
 action inputs, and return values, and its edges preserve the visible control flow. Nothing reaches into compiler or
 interpreter internals. The dark interface uses the typography, neutral surfaces, hairline borders, compact radii, and
 reduced-motion behavior established by the referenced Twenty design guide.

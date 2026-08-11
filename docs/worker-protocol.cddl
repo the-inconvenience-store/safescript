@@ -151,19 +151,28 @@ inspect-request = {
   limits: compile-limits,
   ? include_artifact: bool,
   ? cached_artifact: canonical-bytes,
-  views: [* "semantic_graph"],
-  ? graph_limits: graph-limits,
+  views: [? semantic-graph-view-request],
 }
+
+semantic-graph-view-request = {
+  kind: "semantic_graph",
+  schema: semantic-graph-schema,
+  limits: graph-limits,
+}
+semantic-graph-schema = { major: 1, minor: 0 }
 
 inspect-result =
   {
     status: "accepted",
     check: check-accepted,
-    views: { ? semantic_graph: canonical-bytes },
-    view_errors: { ? semantic_graph: graph-error },
+    views: [? semantic-graph-view-result],
   } /
   { status: "rejected", diagnostics: [* diagnostic], usage: compile-usage } /
   { status: "bridge_error", error: bridge-error }
+
+semantic-graph-view-result =
+  { kind: "semantic_graph", status: "accepted", bytes: canonical-bytes } /
+  { kind: "semantic_graph", status: "rejected", error: graph-error }
 
 check-accepted = {
   status: "accepted",

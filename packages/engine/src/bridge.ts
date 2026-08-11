@@ -34,6 +34,7 @@ import {
   type ExecutionUsage,
   type InspectRequest,
   type InspectResult,
+  type InspectViewRequest,
   type OperationDefinition,
   type RuntimeBridge,
   type RuntimeBridgeHost,
@@ -44,6 +45,7 @@ import {
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
   STANDARD_SEMANTIC_GRAPH_LIMITS,
+  SEMANTIC_GRAPH_SCHEMA,
   MAX_DIAGNOSTIC_MESSAGE_LENGTH,
   MAX_FAILURE_DETAIL_LENGTH,
   LANGUAGE_PROFILE,
@@ -205,6 +207,40 @@ function compileLimitsValid(limits: CompileLimits, ceiling: CompileLimits): bool
         limits[key] <= ceiling[key] &&
         limits[key] <= STANDARD_COMPILE_LIMITS[key],
     )
+  );
+}
+
+function exactRecord(value: unknown, keys: readonly string[]): value is Readonly<Record<string, unknown>> {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === keys.length &&
+    keys.every((key) => Object.hasOwn(value, key))
+  );
+}
+
+/** Validates the whole tagged view envelope before nested values are read. */
+function inspectViewValid(value: unknown): value is InspectViewRequest {
+  if (!exactRecord(value, ['kind', 'schema', 'limits']) || value.kind !== 'semantic_graph') return false;
+  if (
+    !exactRecord(value.schema, ['major', 'minor']) ||
+    value.schema.major !== SEMANTIC_GRAPH_SCHEMA.major ||
+    value.schema.minor !== SEMANTIC_GRAPH_SCHEMA.minor
+  )
+    return false;
+  const limits = value.limits;
+  if (!exactRecord(limits, ['nodes', 'edges', 'bytes'])) return false;
+  return (Object.keys(STANDARD_SEMANTIC_GRAPH_LIMITS) as (keyof typeof STANDARD_SEMANTIC_GRAPH_LIMITS)[]).every(
+    (key) => {
+      const selected = limits[key];
+      return (
+        typeof selected === 'number' &&
+        Number.isSafeInteger(selected) &&
+        selected >= 0 &&
+        selected <= STANDARD_SEMANTIC_GRAPH_LIMITS[key]
+      );
+    },
   );
 }
 
@@ -737,38 +773,41 @@ export class DirectRuntimeBridge implements RuntimeBridge {
     if (this.closed) return { status: 'bridge_error', error: bridgeError('inspect', 'bridge_closed') };
     if (
       !Array.isArray(request.views) ||
-      request.views.some((view) => view !== 'semantic_graph') ||
-      new Set(request.views).size !== request.views.length
+      !request.views.every(inspectViewValid) ||
+      new Set(request.views.map((view) => view.kind)).size !== request.views.length
     )
       return { status: 'bridge_error', error: bridgeError('inspect', 'invalid_request', 'invalid view selection') };
-    const graphLimits = request.graphLimits ?? STANDARD_SEMANTIC_GRAPH_LIMITS;
-    if (
-      Object.keys(graphLimits).length !== 3 ||
-      (Object.keys(STANDARD_SEMANTIC_GRAPH_LIMITS) as (keyof typeof STANDARD_SEMANTIC_GRAPH_LIMITS)[]).some(
-        (key) =>
-          !Number.isSafeInteger(graphLimits[key]) ||
-          graphLimits[key] < 0 ||
-          graphLimits[key] > STANDARD_SEMANTIC_GRAPH_LIMITS[key],
-      )
-    )
-      return { status: 'bridge_error', error: bridgeError('inspect', 'invalid_request', 'invalid graph limits') };
     const result = await checkCompile(request, this.compilationCache);
     if (result.status !== 'accepted') return result;
     const check = projectAcceptedCheck(request, result.compiled);
     if (check.status !== 'accepted') return check;
-    let graph: ReturnType<typeof deriveSemanticGraph> | undefined;
+    let views: Extract<InspectResult, { status: 'accepted' }>['views'];
     try {
-      graph = request.views.includes('semantic_graph')
-        ? deriveSemanticGraph(request, result.compiled.slot, result.compiled.compilation, COMPILER, graphLimits)
-        : undefined;
+      views = Object.freeze(
+        request.views.map((view) => {
+          const graph = deriveSemanticGraph(
+            request,
+            result.compiled.slot,
+            result.compiled.compilation,
+            COMPILER,
+            view.limits,
+          );
+          return 'bytes' in graph
+            ? Object.freeze({ kind: 'semantic_graph' as const, status: 'accepted' as const, bytes: graph.bytes })
+            : Object.freeze({
+                kind: 'semantic_graph' as const,
+                status: 'rejected' as const,
+                error: Object.freeze(graph),
+              });
+        }),
+      );
     } catch {
       return { status: 'bridge_error', error: bridgeError('inspect', 'adapter_failure') };
     }
     return Object.freeze({
       status: 'accepted',
       check,
-      views: Object.freeze(graph !== undefined && 'bytes' in graph ? { semantic_graph: graph.bytes } : {}),
-      viewErrors: Object.freeze(graph !== undefined && 'code' in graph ? { semantic_graph: Object.freeze(graph) } : {}),
+      views,
     });
   }
 

@@ -12,8 +12,10 @@ import {
   ids,
   negotiateWorkerProtocolHandshake,
   resultSchema,
+  SEMANTIC_GRAPH_SCHEMA,
   STANDARD_COMPILE_LIMITS,
   STANDARD_EXECUTION_LIMITS,
+  STANDARD_SEMANTIC_GRAPH_LIMITS,
   WORKER_PROTOCOL_SESSION_WELCOME_PAYLOAD,
   type ActionRequest,
   type CheckRequest,
@@ -109,6 +111,11 @@ const checkRequest = {
   },
   limits: STANDARD_COMPILE_LIMITS,
 } as unknown as CheckRequest;
+const semanticGraphView = {
+  kind: 'semantic_graph',
+  schema: SEMANTIC_GRAPH_SCHEMA,
+  limits: STANDARD_SEMANTIC_GRAPH_LIMITS,
+} as const;
 
 const actionRequest = {
   contractId: 'contract:test.process-bridge',
@@ -161,7 +168,7 @@ class FakeBridge implements RuntimeBridge {
   }
 
   async inspect(request: Parameters<RuntimeBridge['inspect']>[0]) {
-    this.calls.push(`inspect:${request.views.join(',')}`);
+    this.calls.push(`inspect:${request.views.map((view) => view.kind).join(',')}`);
     return { status: 'bridge_error' as const, error: { code: 'adapter_failure' as const, phase: 'inspect' as const } };
   }
 
@@ -305,7 +312,7 @@ describe('process RuntimeBridge state machine', () => {
       status: 'bridge_error',
       error: { code: 'worker_identity_mismatch', phase: 'check' },
     });
-    expect(await bridge.inspect({ ...checkRequest, views: ['semantic_graph'] })).toEqual({
+    expect(await bridge.inspect({ ...checkRequest, views: [semanticGraphView] })).toEqual({
       status: 'bridge_error',
       error: { code: 'worker_identity_mismatch', phase: 'inspect' },
     });
@@ -362,7 +369,7 @@ describe('process RuntimeBridge state machine', () => {
 
     const pending = bridge.check(checkRequest);
     await transport.request('bridge.check.request');
-    expect(await bridge.inspect({ ...checkRequest, views: ['semantic_graph'] })).toEqual({
+    expect(await bridge.inspect({ ...checkRequest, views: [semanticGraphView] })).toEqual({
       status: 'bridge_error',
       error: { code: 'capacity_exceeded', phase: 'inspect' },
     });
@@ -414,7 +421,7 @@ describe('process RuntimeBridge state machine', () => {
     });
     expect(transports[0].sent.filter(({ kind }) => kind === 'bridge.check.request')).toEqual([firstRequest]);
 
-    expect(await bridge.inspect({ ...checkRequest, views: ['semantic_graph'] })).toEqual({
+    expect(await bridge.inspect({ ...checkRequest, views: [semanticGraphView] })).toEqual({
       status: 'bridge_error',
       error: { code: 'worker_lost', phase: 'inspect' },
     });
@@ -471,7 +478,7 @@ describe('process RuntimeBridge state machine', () => {
       status: 'bridge_error',
       error: { code: 'worker_start_failed', phase: 'check' },
     });
-    expect(await bridge.inspect({ ...checkRequest, views: ['semantic_graph'] })).toEqual({
+    expect(await bridge.inspect({ ...checkRequest, views: [semanticGraphView] })).toEqual({
       status: 'bridge_error',
       error: { code: 'worker_start_failed', phase: 'inspect' },
     });
@@ -497,7 +504,7 @@ describe('process RuntimeBridge state machine', () => {
 
     const [check, inspect] = await Promise.all([
       bridge.check(checkRequest),
-      bridge.inspect({ ...checkRequest, views: ['semantic_graph'] }),
+      bridge.inspect({ ...checkRequest, views: [semanticGraphView] }),
     ]);
     expect(check).toEqual({
       status: 'bridge_error',
@@ -655,7 +662,7 @@ describe('process RuntimeBridge state machine', () => {
     });
 
     const check = bridge.check(checkRequest);
-    const inspect = bridge.inspect({ ...checkRequest, views: ['semantic_graph'] });
+    const inspect = bridge.inspect({ ...checkRequest, views: [semanticGraphView] });
     await transport.request('bridge.check.request');
     await transport.request('bridge.inspect.request');
     expect(starts).toBe(1);
@@ -824,7 +831,7 @@ describe('process RuntimeBridge state machine', () => {
     const { process } = connectedPair(fake);
     expect(await process.ready()).toBe(true);
     expect(await process.check(checkRequest)).toMatchObject({ status: 'bridge_error' });
-    expect(await process.inspect({ ...checkRequest, views: ['semantic_graph'] })).toMatchObject({
+    expect(await process.inspect({ ...checkRequest, views: [semanticGraphView] })).toMatchObject({
       status: 'bridge_error',
     });
     const hostCalls: string[] = [];
@@ -868,7 +875,7 @@ describe('process RuntimeBridge state machine', () => {
     const bridge = new ProcessRuntimeBridge({ transport });
     expect(await bridge.ready()).toBe(true);
     const pendingCheck = bridge.check(checkRequest);
-    const pendingInspect = bridge.inspect({ ...checkRequest, views: ['semantic_graph'] });
+    const pendingInspect = bridge.inspect({ ...checkRequest, views: [semanticGraphView] });
     await transport.request('bridge.check.request');
     await transport.request('bridge.inspect.request');
     const payload = encodeWorkerBridgePayload('bridge.check.result', {

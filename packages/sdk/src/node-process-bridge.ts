@@ -17,7 +17,7 @@ import {
 const SHA256 = /^[0-9a-f]{64}$/;
 const ZERO_DIGEST = '0'.repeat(64);
 const BUNDLED_PACKAGE_VERSION = '0.7.0';
-const BUNDLED_WORKER_BUILD_DIGEST = '246caacf366f4fc07475fd466a3c3140dec5d0a684f7e2a252ac8c96216137a2';
+const BUNDLED_WORKER_BUILD_DIGEST = '56c430cb86aa1eb50c6f735c4f0a6a8d4ec1dbfb55d10151979bc24195354a0d';
 
 interface WorkerBuildManifest {
   readonly schema: 1;

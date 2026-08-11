@@ -1,4 +1,11 @@
-import { ids, type ExecutionLimits, type OperationId, type SemanticGraph } from '@safescript/contracts';
+import {
+  ids,
+  SEMANTIC_GRAPH_SCHEMA,
+  STANDARD_SEMANTIC_GRAPH_LIMITS,
+  type ExecutionLimits,
+  type OperationId,
+  type SemanticGraph,
+} from '@safescript/contracts';
 import { createSafeScript } from '@safescript/sdk';
 
 import type { CrmActionInput } from './actions.js';
@@ -96,11 +103,22 @@ export function createCrm(store = new CrmStore(), options: CrmOptions = {}) {
     safe,
     context,
     async inspect(automation: AutomationExample): Promise<SemanticGraph> {
-      const result = await safe.inspect({ slot: 'automation', source: automation.source, views: ['semantic_graph'] });
-      if (result.status !== 'accepted' || !result.views.semantic_graph) {
+      const result = await safe.inspect({
+        slot: 'automation',
+        source: automation.source,
+        views: [
+          {
+            kind: 'semantic_graph',
+            schema: SEMANTIC_GRAPH_SCHEMA,
+            limits: STANDARD_SEMANTIC_GRAPH_LIMITS,
+          },
+        ],
+      });
+      const view = result.status === 'accepted' ? result.views[0] : undefined;
+      if (!view || view.status !== 'accepted') {
         throw new Error(`automation ${automation.id} did not produce a semantic graph: ${result.status}`);
       }
-      return decodeGraph(result.views.semantic_graph);
+      return decodeGraph(view.bytes);
     },
     async run(
       automation: AutomationExample,

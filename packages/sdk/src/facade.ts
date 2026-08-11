@@ -394,7 +394,6 @@ class FacadeCoordinator<C, O extends Operations, S extends Slots> {
         const assembled = {
           ...this.requests.check(slot, request.source, request.limits, request.includeArtifact ?? false),
           views: request.views,
-          ...(request.graphLimits === undefined ? {} : { graphLimits: request.graphLimits }),
         };
         const result = await this.bridge.inspect(assembled);
         if (result.status === 'bridge_error') this.knownArtifactKeys.clear();

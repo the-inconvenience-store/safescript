@@ -27,13 +27,13 @@ interface GraphFacts {
 
 const visibleNode = (node: SemanticGraphNode): boolean =>
   node.semanticKind === 'handler' ||
-  (node.kind === 'control' && node.semanticKind !== 'return') ||
+  (node.kind === 'statement' && ['if', 'for-of', 'for-in', 'loop', 'switch'].includes(node.semanticKind)) ||
   node.kind === 'action' ||
   node.semanticKind === 'return-value';
 
 function editorKind(node: SemanticGraphNode): EditorNode['kind'] {
   if (node.kind === 'action') return 'action';
-  if (node.kind === 'control') return 'control';
+  if (node.kind === 'statement') return 'control';
   if (node.semanticKind === 'return-value') return 'return';
   return 'handler';
 }
@@ -89,14 +89,13 @@ function expressionSummary(id: string, facts: GraphFacts, visited: ReadonlySet<s
   const nextVisited = new Set(visited).add(id);
   const inputs = (facts.incoming.get(id) ?? []).filter((edge) => edge.kind === 'data' || edge.kind === 'input');
   const child = (label: string): string => {
-    const edge = inputs.find((candidate) => candidate.label === label);
+    const edge = inputs.find((candidate) => (candidate.role ?? candidate.label) === label);
     return edge ? expressionSummary(edge.from, facts, nextVisited) : 'value';
   };
   const children = (): string[] => inputs.map((edge) => expressionSummary(edge.from, facts, nextVisited));
 
   switch (node.semanticKind) {
     case 'literal':
-    case 'constant':
       if (node.constant === null) return '';
       if (node.type?.kind === 'int64') return String(node.constant).replace(/\B(?=(\d{3})+(?!\d))/g, '_');
       return JSON.stringify(node.constant);
@@ -109,20 +108,20 @@ function expressionSummary(id: string, facts: GraphFacts, visited: ReadonlySet<s
     case 'unary':
       return `${operatorSymbols[node.operator ?? ''] ?? node.operator ?? ''}${child('value')}`;
     case 'object':
-      return `{ ${inputs.map((edge) => `${edge.label ?? 'value'}: ${expressionSummary(edge.from, facts, nextVisited)}`).join(', ')} }`;
+      return `{ ${inputs.map((edge) => `${edge.role ?? edge.label ?? 'value'}: ${expressionSummary(edge.from, facts, nextVisited)}`).join(', ')} }`;
     case 'array':
       return `[${children().join(', ')}]`;
     case 'template': {
       let value = node.label ?? '';
       for (const edge of inputs) {
         const expression = expressionSummary(edge.from, facts, nextVisited);
-        value = value.replace(`\${${edge.label ?? ''}}`, `\${${expression}}`);
+        value = value.replace(`\${${edge.role ?? edge.label ?? ''}}`, `\${${expression}}`);
       }
       return `\`${value}\``;
     }
     case 'result': {
-      const value = child('value');
-      return `${node.label === 'error' ? 'Err' : 'Ok'}(${value})`;
+      const value = inputs.find((edge) => (edge.role ?? edge.label) === 'value');
+      return `${node.label === 'error' ? 'Err' : 'Ok'}(${value ? expressionSummary(value.from, facts, nextVisited) : ''})`;
     }
     case 'index':
       return `${child('value')}[${child('index')}]`;
@@ -134,6 +133,8 @@ function expressionSummary(id: string, facts: GraphFacts, visited: ReadonlySet<s
         .map((edge) => expressionSummary(edge.from, facts, nextVisited));
       return `${child('callee')}(${args.join(', ')})`;
     }
+    case 'object-member':
+      return child('value');
     default:
       return node.label ?? node.operator ?? node.semanticKind;
   }
@@ -143,7 +144,7 @@ function nodeDetail(node: SemanticGraphNode, facts: GraphFacts): string {
   if (node.semanticKind === 'handler') return 'Automation entry point';
   if (node.semanticKind === 'if') {
     const condition = (facts.incoming.get(node.id) ?? []).find(
-      (edge) => edge.kind === 'data' && edge.label === 'condition',
+      (edge) => edge.kind === 'data' && (edge.role ?? edge.label) === 'condition',
     );
     return condition ? expressionSummary(condition.from, facts).replaceAll('event.', '') : 'condition';
   }

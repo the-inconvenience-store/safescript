@@ -50,19 +50,26 @@ Accepted checks report the statically reachable operation IDs. A summary helps r
 
 ## Semantic graph
 
-`safe.inspect({ views: ["semantic_graph"] })` returns a canonical JSON byte representation of compiler-owned source facts. The graph includes:
+Request graph schema 1.0 with a tagged, independently bounded view record:
 
-- stable schema/compiler/language/contract/slot/source identities;
-- declaration, expression, control, input, output, constant, and action nodes;
-- contains, control, data, input, and output edges;
-- source locations, types, symbols, action sites, operations, constants, and operators where relevant;
+```ts
+views: [{ kind: 'semantic_graph', schema: { major: 1, minor: 0 }, limits: { nodes, edges, bytes } }];
+```
+
+An accepted correlated view result contains canonical JSON bytes. The graph includes:
+
+- explicit schema, semantic-revision, compiler, language, contract, slot, module, source, and program identities;
+- source-complete declarations, bindings, statements, expressions, types, containers, branches, cases, inputs, outputs, constants, and actions;
+- ordered structural containers with one insertion anchor at every gap, including empty containers;
+- contains, binds, references, type, control, data, input, and output relationships with stable roles and indices;
+- UTF-8 source and editable boundaries, types, symbols, action sites, operations, constants, and operators where relevant;
 - reachable operations and static resource counts.
 
-Graph node IDs are derived from semantic meaning and remain stable across formatting-only changes. Source spans are navigation metadata, not identity.
+Graph node IDs are derived from structural semantic paths and remain stable across formatting-only changes. Source spans are navigation metadata, not identity. The semantic revision binds the complete checked source and graph-producing context; editors must not substitute it for runtime authorisation.
 
 The graph is disposable and read-only. It is not public IR, an executable node program, or an alternate source format. A visual editor may project, group, and label it, but must execute canonical TypeScript through SafeScript. The [CRM example](../examples/crm/README.md) demonstrates this pattern.
 
-Graph export has independent node, edge, and byte limits. Accepted source can return a `viewErrors.semantic_graph` result without graph bytes. Export is atomic: consumers never receive a partial trusted graph.
+Graph export has independent node, edge, and byte limits. Source checking can succeed while the correlated view result is `{ kind: 'semantic_graph', status: 'rejected', error }`. Export is atomic: consumers never receive partial trusted graph bytes.
 
 ## Authoring bundles
 

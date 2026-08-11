@@ -95,7 +95,7 @@ Set `trace` to `true` to collect trace records or `false` to disable collection.
 
 ## Semantic inspection
 
-Inspection derives a public semantic program graph from accepted source and verified compiler facts. It is never executable input and never controls lowering. See [artifacts and inspection](artifacts-and-inspection.md) for graph identity, limits, and editor guidance.
+Inspection derives graph schema 1.0 from a private checked semantic model shared by later editing facilities. The model joins syntax and symbols from the no-ambient TypeScript program with SafeScript types, lowering facts, contract facts, ordered containers, and UTF-8 locations. Only closed language-neutral records cross the public boundary; TypeScript compiler objects remain private. The graph is never executable input and never controls lowering. See [artifacts and inspection](artifacts-and-inspection.md) for graph identity, limits, and editor guidance.
 
 ## Adapter conformance
 

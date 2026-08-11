@@ -56,7 +56,7 @@ Accepted checks omit artifact bytes by default. Set `includeArtifact: true` when
 
 ## Inspect source
 
-`inspect` performs the same check and optionally derives read-only views. The current view is `semantic_graph`. Graph generation has independent node, edge, and byte limits; source can be accepted while a requested graph reports `graph_limit_exceeded`. No partial graph is returned.
+`inspect` performs the same check and optionally derives read-only views. Request the current view with a tagged `{ kind: 'semantic_graph', schema: { major: 1, minor: 0 }, limits }` record. Accepted inspection results contain a correlated `views` array whose element is independently accepted with bytes or rejected with `graph_limit_exceeded`. Graph generation has independent node, edge, and byte limits; no partial graph is returned.
 
 See [artifacts and inspection](artifacts-and-inspection.md) before building an editor or analysis tool.
 

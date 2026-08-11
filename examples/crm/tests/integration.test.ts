@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 
-import { ids } from '@safescript/contracts';
+import { ids, SEMANTIC_GRAPH_SCHEMA } from '@safescript/contracts';
 
 import { AUTOMATIONS } from '../src/automations.js';
 import { projectNodeEditor } from '../src/graph/project.js';
@@ -225,12 +225,20 @@ describe('CRM example integration', () => {
     const bounded = await crm.safe.inspect({
       slot: 'automation',
       source: automation.source,
-      views: ['semantic_graph'],
-      graphLimits: { nodes: 1, edges: 1, bytes: 32 },
+      views: [
+        {
+          kind: 'semantic_graph',
+          schema: SEMANTIC_GRAPH_SCHEMA,
+          limits: { nodes: 1, edges: 1, bytes: 32 },
+        },
+      ],
     });
     expect(bounded.status).toBe('accepted');
-    expect(bounded.status === 'accepted' && bounded.views.semantic_graph).toBeUndefined();
-    expect(bounded.status === 'accepted' && bounded.viewErrors.semantic_graph?.code).toBe('graph_limit_exceeded');
+    expect(bounded.status === 'accepted' && bounded.views[0]).toMatchObject({
+      kind: 'semantic_graph',
+      status: 'rejected',
+      error: { code: 'graph_limit_exceeded' },
+    });
 
     const malformed = createCrm(undefined, {
       mapHandlerResult: (operation, result) => (operation === 'createTask' ? { surprise: result } : result),

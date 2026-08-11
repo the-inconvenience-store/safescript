@@ -17,6 +17,7 @@ import type {
   StructuredProgram,
   StructuredStatement,
 } from './structured-ir.js';
+import { createCheckedSource } from './checked-source.js';
 import { Utf8SourceIndex } from './source-offsets.js';
 
 export interface StructuredCompileFailure {
@@ -29,35 +30,6 @@ class Failure extends Error {
   constructor(readonly failure: StructuredCompileFailure) {
     super(failure.message);
   }
-}
-
-function checkedSource(sourceFile: ts.SourceFile): ts.SourceFile {
-  const fileName = '/safescript-entry.ts';
-  const host: ts.CompilerHost = {
-    fileExists: (candidate) => candidate === fileName,
-    readFile: (candidate) => (candidate === fileName ? sourceFile.text : undefined),
-    getSourceFile: (candidate) =>
-      candidate === fileName
-        ? ts.createSourceFile(candidate, sourceFile.text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS)
-        : undefined,
-    getDefaultLibFileName: () => 'safescript:no-ambient-lib',
-    writeFile: () => undefined,
-    getCurrentDirectory: () => '',
-    getDirectories: () => [],
-    getCanonicalFileName: (candidate) => candidate,
-    useCaseSensitiveFileNames: () => true,
-    getNewLine: () => '\n',
-  };
-  const program = ts.createProgram([fileName], { noLib: true, noResolve: true, strict: true, noEmit: true }, host);
-  const checked = program.getSourceFile(fileName);
-  if (!checked) throw new Error('SafeScript checker did not retain its in-memory entry source');
-  const checker = program.getTypeChecker();
-  const visit = (node: ts.Node): void => {
-    if (ts.isExpression(node) || ts.isTypeNode(node)) checker.getTypeAtLocation(node);
-    ts.forEachChild(node, visit);
-  };
-  visit(checked);
-  return checked;
 }
 
 const binaryOperators = new Map<ts.SyntaxKind, Extract<StructuredExpression, { tag: 'binary' }>['operator']>([
@@ -568,7 +540,7 @@ export function compileStructuredProgram(
   offsets: Utf8SourceIndex,
 ): { ok: true; program: StructuredProgram; handler: string } | { ok: false; failure: StructuredCompileFailure } {
   try {
-    sourceFile = checkedSource(sourceFile);
+    sourceFile = createCheckedSource(sourceFile.text).file;
     const unsafe = safetyFailure(sourceFile, offsets);
     if (unsafe) throw new Failure(unsafe);
     const declarations = sourceFile.statements.filter(ts.isFunctionDeclaration);
