@@ -17,6 +17,7 @@ Go deeper:
 - [Contracts and values](contracts-and-values.md) explains schemas, stable identities, generated declarations, and canonical encoding.
 - [Security model](security.md) defines the trust boundary, validated action gateway, host authority responsibilities, failure behavior, and non-goals.
 - [Artifacts and inspection](artifacts-and-inspection.md) covers checked artifacts, program summaries, semantic graphs, and authoring bundles.
+- [Semantic editing design](semantic-editing.md) specifies the planned compiler-owned graph-addressed source transformation API.
 - [Limits, diagnostics, and execution facts](limits-and-diagnostics.md) explains bounded work and stable failure reporting.
 - [Testing and conformance](testing.md) covers deterministic extension tests and adapter-neutral compatibility evidence.
 - [CLI](cli.md) documents the offline JSON adapter.
