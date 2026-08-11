@@ -1,0 +1,3 @@
+# Accepted edits return checked revisions and provenance
+
+An accepted edit returns complete updated source, new hashes and semantic revision, ordinary accepted check facts, per-operation outcomes, exact changed UTF-8 byte ranges, and a compiler-provenance semantic diff covering preserved, updated, moved, added, and removed identities, with optional artifacts and independently fallible fresh views. Closed atomic rejections distinguish source, revision, target, precondition, conflict, fragment, final-check, and limit failures; diagnostics map to original source, caller fragments, or generated regions without leaking synthetic offsets, and diffs are neither executable graph patches nor undo programs.

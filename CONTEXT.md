@@ -40,6 +40,66 @@ _Avoid_: Generated JavaScript, bytecode plugin
 A complete, deterministic set of source-level compiler facts derived from an accepted program and its host contract. It is disposable, non-executable, and never an input to checking, lowering, or execution.
 _Avoid_: Editable program model, public IR
 
+**Semantic edit**:
+A compiler-owned, preconditioned transformation of canonical SafeScript source addressed through stable semantic identity and followed by complete checking.
+_Avoid_: Graph mutation, IR edit, text patch
+
+**Semantic edit identifier**:
+A bounded caller-chosen identity used only to correlate one operation within a semantic edit batch.
+_Avoid_: Semantic target, document identifier
+
+**Semantic target**:
+A source-level program fact that a semantic edit addresses through its source-derived identifier.
+_Avoid_: Source offset, edit handle
+
+**Structural anchor**:
+A semantic target that identifies a container or an ordered position where source constructs may be inserted, moved, or reordered.
+_Avoid_: Character offset, cursor position
+
+**Statement range**:
+An ordered contiguous sequence of sibling statements within one structural container.
+_Avoid_: Graph selection, arbitrary subgraph
+
+**Source fragment**:
+Category-tagged, incomplete SafeScript source intended to be parsed and checked in the lexical and type context of a semantic target.
+_Avoid_: Text patch, public AST
+
+**Semantic edit batch**:
+An ordered, atomic group of semantic edits whose targets all belong to one accepted source revision.
+_Avoid_: Patch series, edit transaction log
+
+**Semantic revision**:
+The reproducible identity of accepted source under its exact module, slot, contract, compiler, language, graph-schema, and edit-schema context.
+_Avoid_: Document version, session revision
+
+**Semantic precondition**:
+An explicit expectation about a semantic target or its structural relationships that must remain true before an edit can be applied.
+_Avoid_: Best-effort guard, merge hint
+
+**Semantic edit coverage**:
+The guarantee that every construct accepted by a SafeScript release participates in the foundational semantic-edit model.
+_Avoid_: Editor support, whole-file replacement
+
+**Edit capability manifest**:
+A disposable compiler-derived description of the semantic edits applicable to targets and insertion sites in one accepted source revision.
+_Avoid_: Editor configuration, permission manifest
+
+**Semantic diff**:
+A transformation-provenance account of which semantic identities were preserved, changed, removed, or added by an accepted semantic edit batch.
+_Avoid_: Text diff, graph patch
+
+**Lossless source transformation**:
+A source change that preserves every byte outside its minimal transformed syntactic regions and deterministically prints only new or replaced content.
+_Avoid_: Reformat, source regeneration
+
+**Source location**:
+A half-open range measured in UTF-8 bytes within one explicitly identified source module.
+_Avoid_: UTF-16 range, line and column pair
+
+**Owned comment**:
+A contiguous leading or same-line trailing source comment whose movement or removal follows the construct it describes.
+_Avoid_: Semantic node, free-floating trivia
+
 **Visual projection**:
 A host-defined, read-only selection and grouping of semantic program graph facts for human inspection. It carries no program meaning or authority beyond the graph and canonical TypeScript source from which it was derived.
 _Avoid_: Node program, visual source

@@ -1,0 +1,3 @@
+# Semantic edits use a compiler-owned lossless source rewriter
+
+General replacement and insertion content uses explicit category-tagged SafeScript source fragments rather than a public AST. A compiler-owned source index over the pinned TypeScript scanner, AST, checker, original UTF-8 bytes, tokens, comments, and trivia preserves bytes outside minimal changed regions, moves original slices, prints only synthesized regions deterministically, maps diagnostics through transformation provenance, and completely reparses and checks the result; SafeScript does not introduce a second CST implementation.

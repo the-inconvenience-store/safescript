@@ -6,8 +6,6 @@ SafeScript is an embeddable restricted TypeScript compiler and runtime for platf
 
 Source is parsed and checked, lowered to typed SafeScript IR, and run by a bounded interpreter. Host effects cross a typed action-request boundary where the host reauthorises each operation. TypeScript source is canonical; IR, semantic graphs, visual projections, and a later Wasm backend are derived and optional.
 
-Read the [full project design](docs/SafeScript.md) only when a task needs deeper language, runtime, integration, roadmap, or security context.
-
 ## Conventions & Patterns
 
 - SafeScript 0.7.0 is the TypeScript host SDK, transport-neutral runtime bridge, compiler, bounded IR interpreter, deterministic test API, and conformance suite.

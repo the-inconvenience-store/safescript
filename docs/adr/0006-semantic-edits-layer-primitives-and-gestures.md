@@ -1,0 +1,3 @@
+# Semantic edits layer a primitive kernel and semantic gestures
+
+The complete primitive kernel is symbol rename, target replacement, anchored insertion, target deletion, target movement, and child reordering. Typed high-level families cover contiguous-range control flow, bindings and extraction with explicit mappings, host actions and result handling, and expression properties; they exist only where preserving structural intent would otherwise require fragile choreography, perform no undeclared repair or identifier invention, and promise checked documented transformation rather than general behavioral equivalence.
