@@ -17,6 +17,14 @@ bun run --cwd examples/crm demo
 
 Open <http://localhost:4317> to inspect and execute ten CRM automations. The example includes host operations, a host-owned action hook, checked artifacts, deterministic tests, and a visual projection of the program's semantic graph.
 
+For bidirectional semantic editing, run the React Flow smart-building studio:
+
+```sh
+bun run --cwd examples/smart-building dev
+```
+
+Open <http://localhost:4173> to edit canonical TypeScript from either source or compiler-advertised graph controls, then check and execute it through the public SDK.
+
 ## Use the SDK
 
 A host defines one contract and provides one trusted handler per operation. An optional `beforeAction` hook can enforce central policy at the validated SDK boundary:
@@ -138,7 +146,7 @@ Graph schema 1.0 contains the complete accepted source structure, ordered insert
 
 The capability manifest tells a generic editor which primitives and high-level gestures apply to each target and materializes their required preconditions and finite choices. `applySemanticEdits` resolves those operations against the exact semantic revision and returns either complete checked TypeScript plus a semantic diff or a closed rejection. The host still owns acceptance, persistence, history, layout, and execution.
 
-The [CRM example](examples/crm/README.md) demonstrates this projection model.
+The [smart-building editor](examples/smart-building/README.md) demonstrates the complete bidirectional lifecycle. The [CRM example](examples/crm/README.md) demonstrates a read-only projection model.
 
 ## Agent-authored code edits
 

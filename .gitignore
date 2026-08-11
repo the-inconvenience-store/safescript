@@ -9,3 +9,5 @@ node_modules/
 dist/
 .nx/
 .release/
+playwright-report/
+test-results/
