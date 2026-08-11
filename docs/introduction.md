@@ -30,7 +30,7 @@ The **runtime** checks and executes source. It owns parsing restrictions, loweri
 ## Packages in this repository
 
 - `@safescript/contracts` contains language-neutral schemas, stable identifiers, codecs, bridge records, limits, diagnostics, and action records.
-- `@safescript/engine` contains the direct in-process compiler, artifact verifier, semantic graph exporter, typed IR, and bounded interpreter.
+- `@safescript/engine` contains the direct in-process compiler, artifact verifier, semantic graph and edit engine, typed IR, and bounded interpreter.
 - `@safescript/worker` packages that engine behind the bounded worker protocol.
 - `@safescript/sdk` provides contract authoring and the seven-method host facade, backed by a supervised local worker by default.
 - `@safescript/cli` is an offline JSON adapter over the public SDK.

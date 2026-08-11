@@ -10,6 +10,7 @@
     "examples/*"
   ],
   "scripts": {
+    "benchmark:semantic-edits": "tsc -p conformance/tsconfig.benchmarks.json && bun conformance/benchmarks/semantic-edit.ts",
     "build": "nx run-many -t build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

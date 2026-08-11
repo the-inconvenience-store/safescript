@@ -32,6 +32,8 @@ The contract JSON mirrors the SDK definition using serializable references:
 
 The CLI cannot load executable policy or handlers. Execution and tests therefore use the deterministic scripted-action shape from the SDK. This makes the CLI useful for offline checking, inspection, corpus tests, and machine integration, not production host dispatch or host-policy testing.
 
+`inspect` accepts the same tagged view records as the SDK, including graph schema 1.0 and `semantic_edit_capabilities` schema 1.0 with whole-program or target-filtered scope. Their canonical bytes are returned in the ordinary correlated view results. The CLI intentionally has no semantic-edit command: edit application is available on the typed SDK and transport-neutral bridge, while this offline adapter remains a generic inspection and execution surface.
+
 ## Lossless JSON conventions
 
 Source programs contain `{ moduleId, source }`. Values that JSON cannot represent directly use tagged objects:

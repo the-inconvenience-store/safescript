@@ -17,6 +17,7 @@ import {
   resultSchema,
   type ActionOutcome,
   type ActionRequest,
+  type CheckRequest,
   type ContractRegistry,
   type ExecuteRequest,
   type InspectResult,
@@ -216,6 +217,20 @@ function semanticGraphBytes(result: Extract<InspectResult, { status: 'accepted' 
   const view = result.views.find((candidate) => candidate.kind === 'semantic_graph');
   if (!view || view.status !== 'accepted') throw new Error('semantic graph view was not accepted');
   return view.bytes;
+}
+
+async function expectSemanticCoverage(
+  bridge: ReturnType<typeof createDirectRuntimeBridge>,
+  request: CheckRequest,
+  expectedKinds: readonly SemanticGraph['nodes'][number]['semanticKind'][],
+): Promise<void> {
+  const inspected = await bridge.inspect({ ...request, views: [semanticGraphView()] });
+  expect(inspected.status).toBe('accepted');
+  if (inspected.status !== 'accepted') return;
+  const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(semanticGraphBytes(inspected)))) as SemanticGraph;
+  const kinds = new Set(graph.nodes.map((node) => node.semanticKind));
+  for (const expected of expectedKinds) expect(kinds.has(expected), expected).toBe(true);
+  expect(primitiveEditCoverage(graph)).toMatchObject({ uncoveredNodes: [], uncoveredAnchors: [] });
 }
 
 function encoded(schema: Schema, value: unknown): readonly number[] {
@@ -737,6 +752,15 @@ export async function onDealUpdated(`,
     const bridge = createDirectRuntimeBridge();
 
     expect((await bridge.check(request)).status).toBe('accepted');
+    await expectSemanticCoverage(bridge, request, [
+      'loop',
+      'for-in',
+      'break',
+      'continue',
+      'initializer-container',
+      'increment-container',
+      'assign',
+    ]);
     let calls = 0;
     const completed = await bridge.execute(
       {
@@ -793,6 +817,7 @@ export async function onDealUpdated(`,
     const bridge = createDirectRuntimeBridge();
 
     expect((await bridge.check(request)).status).toBe('accepted');
+    await expectSemanticCoverage(bridge, request, ['function', 'type-function', 'if']);
     let calls = 0;
     const completed = await bridge.execute(
       {
@@ -863,6 +888,16 @@ export async function onDealUpdated(`,
     } as const;
     const bridge = createDirectRuntimeBridge();
     expect((await bridge.check(request)).status).toBe('accepted');
+    await expectSemanticCoverage(bridge, request, [
+      'interface',
+      'type-alias',
+      'type-parameter',
+      'type-intersection',
+      'type-union',
+      'type-tuple',
+      'type-operator',
+      'const-assertion',
+    ]);
     const completed = await bridge.execute(
       { ...executeRequest({ kind: 'source', source: request }, event('open', 1_999_999n)), registry: typedRegistry },
       unreachableHost,
@@ -1048,6 +1083,7 @@ export async function onDealUpdated(`,
     } as const;
     const bridge = createDirectRuntimeBridge();
     expect((await bridge.check(request)).status).toBe('accepted');
+    await expectSemanticCoverage(bridge, request, ['destructure', 'binding-pattern', 'array-element', 'object-member']);
     const completed = await bridge.execute(
       {
         ...executeRequest({ kind: 'source', source: request }, event('open', 1_999_999n)),
@@ -1558,6 +1594,41 @@ export async function onDealUpdated(`,
         editLimits: STANDARD_SEMANTIC_EDIT_LIMITS,
       }),
     ).toMatchObject({ status: 'bridge_error', error: { phase: 'apply_semantic_edits', code: 'bridge_closed' } });
+  });
+
+  it('fails closed for deterministic bounded hostile semantic edit batches', async () => {
+    const bridge = createDirectRuntimeBridge();
+    let state = 0x5afe5c71;
+    const next = () => {
+      state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
+      return state;
+    };
+    for (let batch = 0; batch < 64; batch++) {
+      const width = (next() % 8) + 1;
+      const edits = Array.from({ length: width }, (_value, index) => ({
+        kind: `hostile_${next() % 11}`,
+        editId: `edit:fuzz-${batch}-${index}`,
+        target: `semantic-node:${(next() % 16).toString(16).repeat(64)}`,
+        preconditions: Array.from({ length: next() % 4 }, () => ({
+          kind: `unknown_${next() % 5}`,
+          value: next(),
+        })),
+        fragment: Array.from({ length: next() % 32 }, () => next() & 0xff),
+      }));
+      const result = await bridge.applySemanticEdits({
+        ...checkRequest,
+        editSchema: SEMANTIC_EDIT_SCHEMA,
+        graphSchema: SEMANTIC_GRAPH_SCHEMA,
+        baseRevision: `semantic-revision:${'1'.repeat(64)}`,
+        edits,
+        editLimits: STANDARD_SEMANTIC_EDIT_LIMITS,
+      } as never);
+      expect(result).toMatchObject({
+        status: 'bridge_error',
+        error: { phase: 'apply_semantic_edits', code: 'invalid_request' },
+      });
+    }
+    await bridge.close();
   });
 
   it('returns a semantic graph only when requested', async () => {

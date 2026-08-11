@@ -64,6 +64,8 @@ The engine and SDK avoid exposing partial work at checked boundaries:
 - raw exceptions and stack traces do not cross the public bridge;
 - cancellation ignores late completion and never replays an action;
 - semantic graph export fails atomically and cannot affect executable meaning.
+- semantic capability inspection and edit application are bounded and fail atomically;
+- rejected semantic edits expose diagnostics and usage, but never candidate source or partial graph/diff views.
 
 ## Resource safety
 
@@ -79,9 +81,9 @@ SafeScript does not coordinate retries. It never retries an action automatically
 
 ## Storage and privacy
 
-The host decides whether to retain source, serialized artifacts, semantic graphs, traces, inputs, outputs, and action facts. SafeScript does not persist them automatically. Its private bounded compilation cache lasts only for one bridge or worker lifetime. Persistent records can contain application data and should follow the host's retention, tenancy, access-control, and deletion policies.
+The host decides whether to retain source, serialized artifacts, semantic graphs, semantic capability manifests, accepted edited source and diffs, traces, inputs, outputs, and action facts. SafeScript does not persist them automatically. Its private bounded compilation cache lasts only for one bridge or worker lifetime. Persistent records can contain application data and should follow the host's retention, tenancy, access-control, and deletion policies.
 
-Checked artifacts contain executable derived representation and contract/source fingerprints, but no credentials or cached host decisions. Semantic graphs can include constants and source-derived facts. Treat both according to the source program's sensitivity.
+Checked artifacts contain executable derived representation and contract/source fingerprints, but no credentials or cached host decisions. Semantic graphs, capability manifests, accepted edited source, and semantic diffs can include constants and source-derived facts. Treat them according to the source program's sensitivity.
 
 An optional host artifact store receives only opaque SafeScript-derived keys and serialized bytes. Loaded bytes remain untrusted and pass exact binding, digest, and IR verification inside the engine. Store misses, corruption, failures, and timeouts cannot bypass source validation or runtime authorization. The host remains responsible for store tenancy, credentials, encryption, access control, retention, eviction, quotas, deletion, durability, and monitoring.
 

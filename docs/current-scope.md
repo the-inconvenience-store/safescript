@@ -19,9 +19,8 @@ The repository currently implements:
 - typed action requests/outcomes, optional validated `beforeAction` policy, and at-most-once handler dispatch per request;
 - deterministic fixed time, seeded randomness, checked JSON/bytes/math/string/object/collection intrinsics, and bounded traces;
 - tagged semantic graph 1.0 inspection with source-complete editable boundaries, stable semantic IDs, ordered anchors, explicit semantic relationships, and independent export limits;
-- semantic edit schema 1.0 contracts with a closed 30-operation algebra, capability-view records, preconditions, independent limits, atomic result/diff/diagnostic unions, strict hostile-input validators, and canonical worker payload records;
-- a private lossless semantic transformation kernel with UTF-8 source indexing, deterministic comment ownership and fragment printing, conflict planning, provenance mapping, final-source checking, and independent limit accounting;
-- a private six-operation semantic primitive kernel with revision, target, anchor, precondition, contextual-fragment, comment-policy, conflict, and syntax-coverage checks;
+- semantic edit schema 1.0 with a compiler-derived capability manifest, six foundational primitives, 24 high-level gestures, exact-revision preconditions, atomic checked source transformation, provenance and semantic diffs, and independent limits;
+- callable semantic editing through the direct bridge, worker protocol, supervised process bridge, typed SDK facade, and generic CLI inspection surface, with byte-identical direct/process results;
 - host contract declaration/codecs/fingerprint derivation;
 - the seven-method TypeScript facade and deterministic scripted-action tests;
 - slot-scoped agent/editor authoring bundles with repair guidance;
@@ -55,8 +54,7 @@ The current repository does not yet provide:
 - Python, Go, Rust, Java, or C# host SDKs;
 - a WebAssembly execution backend;
 - a SafeScript-provided artifact storage backend, signing, or export product;
-- callable checked semantic source-edit transformations, capability projection, high-level gestures, and bridge/SDK edit integration;
-- a general visual editor product;
+- a general visual editor product, React Flow integration, or the separate bidirectional node-editor example;
 - durable invocations, workflow coordination, approvals, retries, or audit persistence;
 - package ecosystems or arbitrary TypeScript/JavaScript compatibility.
 

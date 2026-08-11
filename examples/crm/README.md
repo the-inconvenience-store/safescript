@@ -37,5 +37,6 @@ The code is arranged in the order data travels through the application:
 The website never interprets its graph. Canonical TypeScript is compiled and executed by SafeScript; the canvas is a
 host-owned, read-only projection of a tagged graph 1.0 `safe.inspect` view request. Its nodes include branch conditions,
 action inputs, and return values, and its edges preserve the visible control flow. Nothing reaches into compiler or
-interpreter internals. The dark interface uses the typography, neutral surfaces, hairline borders, compact radii, and
+interpreter internals. This example deliberately remains the migrated read-only graph consumer; semantic edit application,
+React Flow, and the new bidirectional scenario belong to the separate editor example. The dark interface uses the typography, neutral surfaces, hairline borders, compact radii, and
 reduced-motion behavior established by the referenced Twenty design guide.

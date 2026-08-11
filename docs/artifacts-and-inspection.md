@@ -67,11 +67,11 @@ An accepted correlated view result contains canonical JSON bytes. The graph incl
 
 Graph node IDs are derived from structural semantic paths and remain stable across formatting-only changes. Source spans are navigation metadata, not identity. The semantic revision binds the complete checked source and graph-producing context; editors must not substitute it for runtime authorisation.
 
-The graph is disposable and read-only. It is not public IR, an executable node program, or an alternate source format. A visual editor may project, group, and label it, but must execute canonical TypeScript through SafeScript. The [CRM example](../examples/crm/README.md) demonstrates this pattern.
+The graph is disposable and read-only. It is not public IR, an executable node program, or an alternate source format. A visual editor may project, group, and label it, then use graph identities and advertised capabilities in `applySemanticEdits`; the compiler still produces complete canonical TypeScript, and only that checked source or its verified artifact can execute. The [CRM example](../examples/crm/README.md) demonstrates the projection half of this pattern without becoming the later bidirectional editor example.
 
 Graph export has independent node, edge, and byte limits. Source checking can succeed while the correlated view result is `{ kind: 'semantic_graph', status: 'rejected', error }`. Export is atomic: consumers never receive partial trusted graph bytes.
 
-The public inspection union also includes a tagged, independently bounded `semantic_edit_capabilities` view. Its schema-1.0 request, accepted/rejected results, canonical manifest contract, and limits are defined in [semantic editing](semantic-editing.md). Direct and process bridges derive it from the same private checked model as semantic editing; the returned bytes remain disposable inspection data.
+The public inspection union also includes a tagged, independently bounded `semantic_edit_capabilities` view. Its schema-1.0 request, accepted/rejected results, canonical manifest contract, and limits are defined in [semantic editing](semantic-editing.md). Direct and process bridges derive it from the same private checked model as semantic editing; the returned bytes remain disposable inspection data and are never accepted back as compiler input.
 
 ## Authoring bundles
 

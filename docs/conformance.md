@@ -12,7 +12,7 @@ The publication contains one fixed canonical byte vector for every message kind.
 
 The suite exercises exact bootstrap and incompatibility reporting; every message in its valid state and direction; unknown, duplicate, late, crossed, and reused correlation; concurrent work and nested action exchanges; cancellation races; idempotent close; partial writes; stderr saturation; queue and credit exhaustion; lifecycle deadlines; worker loss at each phase; terminal facade failure; and explicit override identity failures.
 
-Direct and process adapters run the same source, artifact, action, cancellation, diagnostic, semantic-graph, and resource-bound cases. Equal accepted inputs and semantic limits must produce equal public results and deterministic usage within the release. Process startup, queueing, wall time, and RSS observations are intentionally excluded from semantic equivalence.
+Direct and process adapters run the same source, artifact, action, cancellation, diagnostic, semantic-graph, semantic-capability, semantic-edit, and resource-bound cases. Equal accepted inputs and semantic limits must produce equal public results and deterministic usage within the release. Semantic edit conformance includes compiler-derived capabilities, exact revisions, complete checked candidates, provenance and diff records, and closed lifecycle failures. Process startup, queueing, wall time, and RSS observations are intentionally excluded from semantic equivalence.
 
 ## Release gates
 

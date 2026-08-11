@@ -71,6 +71,7 @@ The current corpus covers:
 
 - application-extension, code-mode, device-rule, and walking-skeleton reference programs;
 - deterministic checks and semantic graph inspection;
+- capability inspection, exact-revision semantic edits, closed rejections, semantic diffs, and byte-identical direct/process results;
 - source and checked-artifact execution equivalence;
 - deterministic bounded resource measurements and standard profiles;
 - language rejection cases and hostile atomic boundaries;
@@ -82,6 +83,14 @@ The current corpus covers:
 - exact SafeScript release identity and public package metadata.
 
 The authoring conformance gate also records blind-run evidence for generated authoring bundles and checks explicit success thresholds. This makes agent usability a release property rather than an anecdotal example.
+
+Semantic editing adds a release-local regression benchmark over graph/capability inspection, one interactive rename, and source, graph-byte, and diff-byte limit boundaries. It validates result status as well as latency and rejects medians above the checked-in conservative ceilings:
+
+```sh
+bun run benchmark:semantic-edits
+```
+
+The baseline is evidence for material regression detection, not a cross-platform latency promise. See [semantic edit language coverage](semantic-edit-coverage.md) for the syntax audit.
 
 ## Repository quality gates
 

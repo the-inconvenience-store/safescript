@@ -29,6 +29,17 @@ const requestJson = {
   },
 } as const;
 
+const acceptedRequestJson = {
+  slot: 'main',
+  source: {
+    moduleId: 'module:main',
+    source: `import type { Context, CliInput, CliOutput } from "host:api"
+export async function handle(input: CliInput, _ctx: Context): Promise<CliOutput> {
+  return input
+}`,
+  },
+} as const;
+
 function memoryIo(files: Readonly<Record<string, unknown>>, stdin = '') {
   let stdout = '';
   let stderr = '';
@@ -176,6 +187,31 @@ describe('SafeScript CLI', () => {
     );
     expect(await runCli(['test', '--contract', 'contract.json'], testIo.io)).toBe(EXIT.ok);
     expect(JSON.parse(testIo.stdout())).toMatchObject({ passed: true, execution: { status: 'not_started' } });
+  });
+
+  it('inspects the semantic edit capability view through the generic JSON surface', async () => {
+    const inspectIo = memoryIo(
+      { 'contract.json': contractJson },
+      JSON.stringify({
+        ...acceptedRequestJson,
+        views: [
+          {
+            kind: 'semantic_edit_capabilities',
+            schema: { major: 1, minor: 0 },
+            scope: 'all',
+            limits: { targets: 500_000, capabilities: 2_000_000, bytes: 8 * 1024 * 1024 },
+          },
+        ],
+      }),
+    );
+
+    expect(await runCli(['inspect', '--contract', 'contract.json'], inspectIo.io)).toBe(EXIT.ok);
+    const result = JSON.parse(inspectIo.stdout());
+    expect(result).toMatchObject({
+      status: 'accepted',
+      views: [{ kind: 'semantic_edit_capabilities', status: 'accepted' }],
+    });
+    expect(result.views[0].bytes.length).toBeGreaterThan(0);
   });
 
   it('runs as a process over standard streams with stable exit codes', async () => {

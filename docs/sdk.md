@@ -60,7 +60,45 @@ Accepted checks omit artifact bytes by default. Set `includeArtifact: true` when
 
 The schema-1.0 `semantic_edit_capabilities` view is available through `inspect`. The typed `applySemanticEdits` facade binds the selected contract and slot, fixes the graph and edit schema versions, fills conservative edit limits, and returns the transport-neutral `ApplySemanticEditsResult`. Direct and supervised process bridges expose the same operation and canonical worker records.
 
-See [artifacts and inspection](artifacts-and-inspection.md) before building an editor or analysis tool.
+One edit cycle is inspect, select an advertised capability, and apply it against the returned revision:
+
+```ts
+import { semanticEditId } from '@safescript/contracts';
+
+const inspected = await safe.inspect({
+  slot: 'automation',
+  source,
+  views: [graphViewRequest, capabilityViewRequest],
+});
+
+if (inspected.status === 'accepted') {
+  const graphView = inspected.views.find((view) => view.kind === 'semantic_graph');
+  const capabilityView = inspected.views.find((view) => view.kind === 'semantic_edit_capabilities');
+  if (graphView?.status !== 'accepted' || capabilityView?.status !== 'accepted') throw new Error('inspection failed');
+
+  const graph = decodeGraph(graphView.bytes);
+  const capabilities = decodeCapabilities(capabilityView.bytes);
+  const rename = selectRename(capabilities, graph, 'event');
+  const edited = await safe.applySemanticEdits({
+    slot: 'automation',
+    source,
+    baseRevision: graph.semanticRevision,
+    edits: [
+      {
+        kind: 'rename_symbol',
+        editId: semanticEditId('edit:rename-event'),
+        target: rename.target,
+        newName: 'updatedEvent',
+        preconditions: rename.preconditions,
+      },
+    ],
+  });
+}
+```
+
+The call is stateless and atomic. A rejection contains no candidate source or partial views. An accepted result contains the complete checked source, hashes, next semantic revision, ordinary check result, per-edit outcomes, changed UTF-8 regions, provenance, semantic diff, usage, and any requested rebuilt views. Retain the previous complete source to implement undo; SafeScript owns no document session or persistence.
+
+See [semantic editing](semantic-editing.md), [language coverage](semantic-edit-coverage.md), and [artifacts and inspection](artifacts-and-inspection.md) before building an editor or analysis tool.
 
 ## Execute source or an artifact
 

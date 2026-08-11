@@ -21,10 +21,11 @@ The compiler never emits JavaScript for execution.
 
 ## Runtime bridge
 
-The bridge has five operations:
+The bridge has six operations:
 
 - `check` validates and compiles source;
 - `inspect` checks source and derives requested disposable views;
+- `applySemanticEdits` resolves typed edits against an exact semantic revision and checks the complete candidate source;
 - `execute` prepares source or verifies an artifact, then interprets it;
 - `cancel` signals an active invocation;
 - `close` ends the adapter lifecycle.
@@ -95,7 +96,7 @@ Set `trace` to `true` to collect trace records or `false` to disable collection.
 
 ## Semantic inspection
 
-Inspection derives graph schema 1.0 from a private checked semantic model shared by later editing facilities. The model joins syntax and symbols from the no-ambient TypeScript program with SafeScript types, lowering facts, contract facts, ordered containers, and UTF-8 locations. Only closed language-neutral records cross the public boundary; TypeScript compiler objects remain private. The graph is never executable input and never controls lowering. See [artifacts and inspection](artifacts-and-inspection.md) for graph identity, limits, and editor guidance.
+Inspection derives graph schema 1.0 and semantic-edit capability manifests from the same private checked semantic model used to resolve edits. The model joins syntax and symbols from the no-ambient TypeScript program with SafeScript types, lowering facts, contract facts, ordered containers, and UTF-8 locations. Only closed language-neutral records cross the public boundary; TypeScript compiler objects remain private. The graph is never executable input and never controls lowering. See [artifacts and inspection](artifacts-and-inspection.md) for graph identity, limits, and editor guidance.
 
 ## Lossless transformation kernel
 
@@ -103,8 +104,8 @@ The private semantic-edit rewriter indexes canonical UTF-8 source boundaries, ne
 
 Every transformed, preserved, moved, generated, and removed region contributes deterministic provenance and resource accounting. Final-check diagnostics map back to original source, caller fragments, or generated edit targets. A rejection exposes the mapped diagnostics and measured limits but never the unaccepted candidate source.
 
-The private primitive resolver now resolves graph identities and anchors against one semantic revision, evaluates materialized preconditions, and lowers the six foundational operations to the rewriter. Rename follows checked binding/reference edges; contextual fragments are parsed before replacement or insertion; delete and move honor comment ownership; reorder preserves separator and trivia slots. Compiler-produced graph coverage is tested directly. The callable bridge and high-level semantic gestures remain staged until their integration gates pass.
+The semantic-edit resolver resolves graph identities and anchors against one semantic revision, evaluates materialized preconditions, and lowers the six foundational operations and high-level gestures to the rewriter. Rename follows checked binding/reference edges; contextual fragments are parsed before replacement or insertion; delete and move honor comment ownership; reorder preserves separator and trivia slots. Compiler-produced graph coverage is tested directly. The callable bridge returns only a fully checked candidate source and semantic diff, or a closed rejection. See [semantic editing](semantic-editing.md) and the executable [language coverage audit](semantic-edit-coverage.md).
 
 ## Adapter conformance
 
-The conformance suite exercises adapters only through a bridge factory. It checks reference programs, source/artifact equivalence, semantic graphs, deterministic bounded resources, cancellation, action ordering, deterministic time/randomness/traces, canonical values, hostile boundary cases, and exact release identity. See [testing and conformance](testing.md).
+The conformance suite exercises adapters only through a bridge factory. It checks reference programs, source/artifact equivalence, semantic graphs and edit capabilities, semantic-edit result parity, deterministic bounded resources, cancellation, action ordering, deterministic time/randomness/traces, canonical values, hostile boundary cases, and exact release identity. See [testing and conformance](testing.md).

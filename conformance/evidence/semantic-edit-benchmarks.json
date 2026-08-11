@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "release": "0.7.0",
+  "adapter": "direct",
+  "samples": 5,
+  "baselineEnvironment": "macOS arm64, Bun 1.3.10, warm direct bridge",
+  "cases": {
+    "inspectGraphAndCapabilities": { "baselineMedianMs": 1140, "maximumMedianMs": 2500 },
+    "applyRename": { "baselineMedianMs": 11, "maximumMedianMs": 250 },
+    "rejectSourceLimit": { "baselineMedianMs": 0.02, "maximumMedianMs": 50 },
+    "rejectGraphByteLimit": { "baselineMedianMs": 2.2, "maximumMedianMs": 250 },
+    "rejectDiffByteLimit": { "baselineMedianMs": 5.5, "maximumMedianMs": 250 }
+  }
+}

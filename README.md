@@ -90,7 +90,12 @@ The host chooses exactly what `http.fetch` and `profiles.enrich` mean, which des
 A visual editor can derive its canvas from the public semantic graph:
 
 ```ts
-import { SEMANTIC_GRAPH_SCHEMA, STANDARD_SEMANTIC_GRAPH_LIMITS } from '@safescript/contracts';
+import {
+  SEMANTIC_EDIT_SCHEMA,
+  SEMANTIC_GRAPH_SCHEMA,
+  STANDARD_SEMANTIC_EDIT_CAPABILITY_LIMITS,
+  STANDARD_SEMANTIC_GRAPH_LIMITS,
+} from '@safescript/contracts';
 
 const inspected = await safe.inspect({
   slot: 'automation',
@@ -101,17 +106,37 @@ const inspected = await safe.inspect({
       schema: SEMANTIC_GRAPH_SCHEMA,
       limits: STANDARD_SEMANTIC_GRAPH_LIMITS,
     },
+    {
+      kind: 'semantic_edit_capabilities',
+      schema: SEMANTIC_EDIT_SCHEMA,
+      scope: 'all',
+      limits: STANDARD_SEMANTIC_EDIT_CAPABILITY_LIMITS,
+    },
   ],
 });
 
-const view = inspected.status === 'accepted' ? inspected.views[0] : undefined;
-if (view?.status === 'accepted') {
-  const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(view.bytes)));
-  renderCanvas(graph);
+if (inspected.status === 'accepted') {
+  const graphView = inspected.views.find((view) => view.kind === 'semantic_graph');
+  const capabilityView = inspected.views.find((view) => view.kind === 'semantic_edit_capabilities');
+
+  if (graphView?.status === 'accepted' && capabilityView?.status === 'accepted') {
+    const graph = JSON.parse(new TextDecoder().decode(Uint8Array.from(graphView.bytes)));
+    const capabilities = JSON.parse(new TextDecoder().decode(Uint8Array.from(capabilityView.bytes)));
+    renderCanvas(graph, capabilities);
+
+    const edited = await safe.applySemanticEdits({
+      slot: 'automation',
+      source,
+      baseRevision: graph.semanticRevision,
+      edits: selectedEdits,
+    });
+  }
 }
 ```
 
-Graph schema 1.0 contains the complete accepted source structure, ordered insertion anchors, bindings and references, control and data flow, action sites, reachable operations, types, and stable semantic IDs. It is a read-only projection, not an executable node format. The editor owns how a user's visual change becomes TypeScript, then submits the new source to `safe.check` before execution.
+Graph schema 1.0 contains the complete accepted source structure, ordered insertion anchors, bindings and references, control and data flow, action sites, reachable operations, types, and stable semantic IDs. It is a read-only projection, not an executable node format. Editors never mutate or resubmit graph bytes; they submit typed semantic operations and receive complete checked TypeScript.
+
+The capability manifest tells a generic editor which primitives and high-level gestures apply to each target and materializes their required preconditions and finite choices. `applySemanticEdits` resolves those operations against the exact semantic revision and returns either complete checked TypeScript plus a semantic diff or a closed rejection. The host still owns acceptance, persistence, history, layout, and execution.
 
 The [CRM example](examples/crm/README.md) demonstrates this projection model.
 

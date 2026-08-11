@@ -1,12 +1,12 @@
 # Semantic editing design
 
-This document specifies the compiler-owned semantic edit API. Schema 1.0 contracts, strict validators, capability projection, primitive and gesture kernels, direct and process bridge execution, the typed SDK facade, and canonical worker parity are implemented. [Current scope](current-scope.md) remains authoritative until the complete coverage and release-audit gate passes.
+This document specifies the implemented compiler-owned semantic edit API. Schema 1.0 contracts, strict validators, capability projection, primitive and gesture kernels, direct and process bridge execution, the typed SDK facade, canonical worker parity, language coverage, and regression benchmarks ship together.
 
 ## Outcome
 
-SafeScript will transform one accepted canonical TypeScript `SourceProgram` through a closed, versioned algebra of semantic operations. Callers discover applicable operations from a compiler-derived capability manifest, submit an atomic edit batch against an exact semantic revision, and receive either a completely checked candidate revision or a closed rejection. The semantic graph remains derived, disposable, non-executable, and never becomes compiler input.
+SafeScript transforms one accepted canonical TypeScript `SourceProgram` through a closed, versioned algebra of semantic operations. Callers discover applicable operations from a compiler-derived capability manifest, submit an atomic edit batch against an exact semantic revision, and receive either a completely checked candidate revision or a closed rejection. The semantic graph remains derived, disposable, non-executable, and never becomes compiler input.
 
-The first implementation is complete only when every source construct accepted by the release participates in the foundational edit model. The React Flow editor and its new domain scenario are intentionally separate follow-up work.
+Every source construct accepted by the release participates in the foundational edit model; the audited matrix is in [semantic edit language coverage](semantic-edit-coverage.md). The React Flow editor and its new domain scenario are intentionally separate follow-up work.
 
 ## Invariants
 
@@ -149,7 +149,7 @@ Targets, anchors, and preconditions resolve against the original semantic revisi
 
 ## Public edit request
 
-The transport-neutral bridge will add a compiler-only method with no host callback. Its request and result contracts and worker protocol records are already published; the callable bridge method is added with the integration stage:
+The transport-neutral bridge exposes a compiler-only method with no host callback:
 
 ```ts
 interface RuntimeBridge {
@@ -386,7 +386,7 @@ The bounded bridge-local compilation cache may retain these private checked stru
 
 Each stage keeps build, lint, typecheck, and tests green. The public feature is not declared complete until the final coverage audit.
 
-Stages 1 through 5 are implemented: every public location uses UTF-8 byte offsets; tagged semantic graph schema 1.0 is projected from the private checked semantic model; the complete closed edit/capability contract algebra, validators, limits, diagnostics, result unions, and worker message records are published; the private rewriter owns UTF-8 indexing, comment ownership, category-bound fragment printing, conflict planning, unchanged-byte preservation, transformation provenance, limit accounting, and final-source diagnostic mapping; and the primitive resolver implements symbol rename, target replacement, anchored insertion, explicit-policy deletion, source-slice movement, and separator-preserving child reorder. No bridge currently exposes edit application—the gesture, integration, and final audit stages remain release work.
+Stages 1 through 8 are implemented. The list below is retained as the dependency order used to deliver the feature; the coverage matrix, benchmarks, migrated consumers, and all public bridge surfaces now pass together.
 
 1. Convert every public source location to UTF-8 bytes and add Unicode boundary tests.
 2. Build the private semantic model and replace the semantic graph contract with explicit schema `1.0`, complete source coverage, structural anchors, and tagged inspection.
@@ -409,7 +409,7 @@ The release gate includes:
 - capability-manifest cross-checks showing that advertised operations are accepted when supplied with valid payloads and unadvertised combinations reject;
 - provenance assertions for preserved, updated, moved, added, removed, one-to-many, and many-to-one identity relations;
 - unchanged compiler, execution, action-order, authorization, artifact-verification, and resource behavior;
-- regression benchmarks over small interactive programs and source/graph/edit limit boundaries.
+- regression benchmarks over small interactive programs and source/graph/edit limit boundaries, run by `bun run benchmark:semantic-edits` against the checked-in [release-local ceilings](../conformance/evidence/semantic-edit-benchmarks.json).
 
 Required repository gates remain:
 
@@ -422,6 +422,6 @@ bun run typecheck
 
 ## Completion boundary
 
-The semantic edit API is complete when the rebuilt graph, capability view, primitive and high-level operations, lossless transformation semantics, bridge and SDK surfaces, worker parity, full syntax coverage, conformance corpus, hostile tests, benchmarks, migrated examples, and public documentation all pass together. At that point `docs/current-scope.md` moves checked semantic source edits from deferred to implemented.
+The rebuilt graph, capability view, primitive and high-level operations, lossless transformation semantics, bridge and SDK surfaces, worker parity, full syntax coverage, conformance corpus, hostile tests, benchmarks, migrated examples, and public documentation pass together in SafeScript 0.7.0. [Current scope](current-scope.md) therefore lists checked semantic source edits as implemented.
 
 The completion boundary excludes a general visual editor, React Flow, a new example scenario, document persistence, collaboration, undo history, completion services, cross-module edits, and automated approval or execution. Those concerns begin only after this compiler API is complete.
